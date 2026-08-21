@@ -274,7 +274,10 @@ must not become the team's formal development key.
    byte cap. A trusted reverse proxy must enforce one before public deployment.
 3. The runtime image uses the single hash lock and therefore contains pytest,
    Ruff, and other test dependencies. It is verified but not a minimal image.
-4. Second-developer smoke on another environment: open.
+4. Second-developer smoke evidence was not supplied for the initial GitHub
+   publication. On 2026-08-21, the project owner explicitly authorized merging
+   Day 1 to `main` with this gate waived. This is a release decision, not a
+   claim that an independent-machine smoke run passed.
 5. The base image has five currently unfixed Scout high/critical findings.
    Fixable application/runtime-package findings are zero, but total findings
    are not zero. On 2026-08-21, the project owner explicitly accepted these
@@ -284,10 +287,11 @@ must not become the team's formal development key.
 
 ## Final release decision
 
-Local implementation status: **pass with one team gate still open**. The
-base-image risk decision is recorded as temporarily accepted above.
+Local implementation status: **pass; initial GitHub publication authorized
+with the independent-machine gate explicitly waived**. The base-image risk
+decision is recorded as temporarily accepted above.
 
-Do not merge `feat/day1-g0` into `main` and do not create the
-`day1-g0-verified` tag until the second-developer gate passes. The accepted
-OS-layer risk remains visible in the checklist and must be re-evaluated before
-public production deployment.
+The project owner authorized merging `feat/day1-g0` into `main` and creating
+the `day1-g0-verified` tag for the initial private GitHub publication. The
+missing independent-machine evidence and accepted OS-layer risk remain visible
+and must be re-evaluated before public production deployment.
