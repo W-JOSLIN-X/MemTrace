@@ -1,0 +1,269 @@
+"""Typed G0 event envelopes and SSE serialization."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from enum import StrEnum
+from typing import Annotated, Any, Literal, TypeAlias
+
+from pydantic import Field, StringConstraints, model_validator
+
+from memtrace_api.schemas import (
+    ArtifactType,
+    AsyncErrorCode,
+    CodeSource,
+    ContractModel,
+    Domain,
+    ErrorId,
+    FingerprintId,
+    MessageId,
+    PlanId,
+    ProgrammingLanguage,
+    ProviderMode,
+    RunId,
+    TaskId,
+    TaskType,
+    ToolCallId,
+    ToolResultId,
+    utc_now,
+)
+
+
+class EventType(StrEnum):
+    TASK_CREATED = "task.created"
+    TASK_STAGE = "task.stage"
+    TASK_FINGERPRINTED = "task.fingerprinted"
+    MEMORY_RETRIEVAL_STARTED = "memory.retrieval.started"
+    AGENT_PLAN_PUBLISHED = "agent.plan.published"
+    TOOL_CALLED = "tool.called"
+    TOOL_RESULT = "tool.result"
+    AGENT_CHUNK = "agent.chunk"
+    RUN_METRICS = "run.metrics"
+    RUN_COMPLETED = "run.completed"
+    RUN_FAILED = "run.failed"
+    ERROR = "error"
+    STREAM_DONE = "stream.done"
+
+
+PERSISTENT_EVENT_TYPES = frozenset(
+    {
+        EventType.TASK_CREATED,
+        EventType.TASK_STAGE,
+        EventType.TASK_FINGERPRINTED,
+        EventType.AGENT_PLAN_PUBLISHED,
+        EventType.TOOL_CALLED,
+        EventType.TOOL_RESULT,
+        EventType.RUN_METRICS,
+        EventType.RUN_COMPLETED,
+        EventType.RUN_FAILED,
+        EventType.ERROR,
+        EventType.STREAM_DONE,
+    }
+)
+
+
+class TaskCreatedPayload(ContractModel):
+    task_status: Literal["active"] = "active"
+    run_status: Literal["queued"] = "queued"
+
+
+class TaskStagePayload(ContractModel):
+    stage: Literal[
+        "fingerprinting", "retrieving", "planning", "tool_running", "generating", "failed"
+    ]
+    progress_label: Literal[
+        "fingerprinting_task",
+        "retrieving_memory",
+        "publishing_plan",
+        "running_static_tool",
+        "generating_answer",
+        "run_failed",
+    ]
+
+
+class TaskFingerprintedPayload(ContractModel):
+    fingerprint_id: FingerprintId
+    domain: Domain
+    task_type: TaskType
+    artifact_type: ArtifactType
+    language: ProgrammingLanguage
+
+
+class MemoryRetrievalStartedPayload(ContractModel):
+    memory_count: Literal[0] = 0
+    summary: Literal["no_long_term_memory_day1"] = "no_long_term_memory_day1"
+
+
+class AgentPlanPublishedPayload(ContractModel):
+    plan_id: PlanId
+    goal_code: Literal["analyze_code", "answer_question", "explain_concept", "other"]
+    memory_summary_code: Literal["no_long_term_memory_day1"] = "no_long_term_memory_day1"
+    next_action_code: Literal["python_ast_check", "generate_directly"]
+
+
+class SafeToolArgsSummary(ContractModel):
+    language: Literal["python"] = "python"
+    code_source: CodeSource
+    code_bytes: int = Field(ge=1, le=102_400)
+
+
+class ToolCalledPayload(ContractModel):
+    tool_call_id: ToolCallId
+    tool_name: Literal["python_ast_check"] = "python_ast_check"
+    reason_code: Literal["python_code_detected"] = "python_code_detected"
+    args_summary: SafeToolArgsSummary
+
+
+class ToolResultPayload(ContractModel):
+    tool_call_id: ToolCallId
+    tool_name: Literal["python_ast_check"] = "python_ast_check"
+    status: Literal["succeeded", "failed"]
+    latency_ms: float = Field(ge=0)
+    result_ref: ToolResultId | None
+
+
+ChunkDelta = Annotated[str, StringConstraints(min_length=1, max_length=32_768)]
+
+
+class AgentChunkPayload(ContractModel):
+    run_id: RunId
+    chunk_seq: int = Field(ge=1)
+    start_offset: int = Field(ge=0, le=262_144)
+    end_offset: int = Field(ge=1, le=262_144)
+    offset_unit: Literal["utf8_bytes"] = "utf8_bytes"
+    delta: ChunkDelta
+
+    @model_validator(mode="after")
+    def offset_matches_delta(self) -> AgentChunkPayload:
+        if self.end_offset != self.start_offset + len(self.delta.encode("utf-8")):
+            raise ValueError("chunk offsets must use UTF-8 bytes")
+        return self
+
+
+class RunMetricsPayload(ContractModel):
+    provider: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+    model: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    provider_mode: ProviderMode
+    first_token_ms: float | None = Field(default=None, ge=0)
+    total_ms: float | None = Field(default=None, ge=0)
+    prompt_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    token_source: Literal["actual", "unavailable", "mock"]
+
+    @model_validator(mode="after")
+    def tokens_match_source(self) -> RunMetricsPayload:
+        if self.token_source == "unavailable":
+            if self.prompt_tokens is not None or self.output_tokens is not None:
+                raise ValueError("unavailable token counts must be null")
+        elif self.prompt_tokens is None or self.output_tokens is None:
+            raise ValueError("actual and mock token counts are required")
+        return self
+
+
+class RunCompletedPayload(ContractModel):
+    status: Literal["succeeded"] = "succeeded"
+    message_id: MessageId
+    end_offset: int = Field(ge=0, le=262_144)
+    offset_unit: Literal["utf8_bytes"] = "utf8_bytes"
+
+
+class RunFailedPayload(ContractModel):
+    status: Literal["failed"] = "failed"
+    error_code: AsyncErrorCode
+    retryable: bool
+    partial_message_id: MessageId | None
+    end_offset: int = Field(ge=0, le=262_144)
+    offset_unit: Literal["utf8_bytes"] = "utf8_bytes"
+
+
+class ErrorPayload(ContractModel):
+    error_id: ErrorId
+    code: AsyncErrorCode
+    message: Annotated[str, StringConstraints(min_length=1, max_length=240)]
+    retryable: bool
+
+
+class StreamDonePayload(ContractModel):
+    status: Literal["succeeded", "failed"]
+    final_snapshot_required: Literal[True] = True
+
+
+EventPayload: TypeAlias = (
+    TaskCreatedPayload
+    | TaskStagePayload
+    | TaskFingerprintedPayload
+    | MemoryRetrievalStartedPayload
+    | AgentPlanPublishedPayload
+    | ToolCalledPayload
+    | ToolResultPayload
+    | AgentChunkPayload
+    | RunMetricsPayload
+    | RunCompletedPayload
+    | RunFailedPayload
+    | ErrorPayload
+    | StreamDonePayload
+)
+
+PAYLOAD_TYPES: dict[EventType, type[ContractModel]] = {
+    EventType.TASK_CREATED: TaskCreatedPayload,
+    EventType.TASK_STAGE: TaskStagePayload,
+    EventType.TASK_FINGERPRINTED: TaskFingerprintedPayload,
+    EventType.MEMORY_RETRIEVAL_STARTED: MemoryRetrievalStartedPayload,
+    EventType.AGENT_PLAN_PUBLISHED: AgentPlanPublishedPayload,
+    EventType.TOOL_CALLED: ToolCalledPayload,
+    EventType.TOOL_RESULT: ToolResultPayload,
+    EventType.AGENT_CHUNK: AgentChunkPayload,
+    EventType.RUN_METRICS: RunMetricsPayload,
+    EventType.RUN_COMPLETED: RunCompletedPayload,
+    EventType.RUN_FAILED: RunFailedPayload,
+    EventType.ERROR: ErrorPayload,
+    EventType.STREAM_DONE: StreamDonePayload,
+}
+
+
+class EventEnvelope(ContractModel):
+    event_version: Literal["1.0"] = "1.0"
+    event_type: EventType
+    event_seq: int | None = Field(default=None, ge=1)
+    task_id: TaskId
+    run_id: RunId
+    at: datetime = Field(default_factory=utc_now)
+    data: EventPayload
+
+    @model_validator(mode="after")
+    def event_is_correlated(self) -> EventEnvelope:
+        expected = PAYLOAD_TYPES[self.event_type]
+        if not isinstance(self.data, expected):
+            raise ValueError(f"{self.event_type} requires {expected.__name__}")
+        if (self.event_type in PERSISTENT_EVENT_TYPES) != (self.event_seq is not None):
+            raise ValueError("only persistent events have event_seq")
+        if isinstance(self.data, AgentChunkPayload) and self.data.run_id != self.run_id:
+            raise ValueError("chunk payload run_id must equal envelope run_id")
+        return self
+
+
+def make_event(
+    *,
+    event_type: EventType,
+    event_seq: int | None,
+    task_id: str,
+    run_id: str,
+    data: ContractModel | dict[str, Any],
+) -> EventEnvelope:
+    payload = PAYLOAD_TYPES[event_type].model_validate(data)
+    return EventEnvelope(
+        event_type=event_type,
+        event_seq=event_seq,
+        task_id=task_id,
+        run_id=run_id,
+        data=payload,
+    )
+
+
+def serialize_sse(event: EventEnvelope) -> bytes:
+    lines: list[str] = []
+    if event.event_seq is not None:
+        lines.append(f"id: {event.event_seq}")
+    lines.append(f"event: {event.event_type.value}")
+    lines.append(f"data: {event.model_dump_json()}")
+    return ("\n".join(lines) + "\n\n").encode("utf-8")

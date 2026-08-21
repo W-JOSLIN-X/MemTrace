@@ -7,7 +7,7 @@ requires-python = ">=3.11,<3.12"
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
 asyncio_mode = "strict"
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 testpaths = ["tests"]
 
 [tool.ruff]
@@ -17,6 +17,7 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "ASYNC", "RUF"]
+ignore = ["RUF001"]
 
 [tool.ruff.format]
 quote-style = "double"

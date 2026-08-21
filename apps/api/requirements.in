@@ -8,5 +8,7 @@ openai==2.38.0
 # Development and verification dependencies
 pytest==9.1.1
 pytest-asyncio==1.4.0
+# Starlette >=1.2 TestClient prefers httpx2; keep httpx for OpenAI/runtime.
 httpx2==2.12.0
+jsonschema==4.26.0
 ruff==0.16.4

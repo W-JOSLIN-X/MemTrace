@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -12,6 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from memtrace_api.ids import new_prefixed_ulid
+
+logger = logging.getLogger(__name__)
 
 
 class ContractModel(BaseModel):
@@ -37,7 +40,7 @@ class ValidationFieldError(ContractModel):
 
 
 class ErrorDetails(ContractModel):
-    field_errors: list[ValidationFieldError] | None = None
+    field_errors: Annotated[list[ValidationFieldError], Field(max_length=50)] | None = None
     task_id: str | None = None
     run_id: str | None = None
     provider_status: int | None = Field(default=None, ge=400, le=599)
@@ -147,7 +150,7 @@ def install_exception_handlers(app: FastAPI) -> None:
                 message=error.get("msg", "输入无效。"),
                 type=error.get("type", "validation_error"),
             )
-            for error in exc.errors()
+            for error in exc.errors()[:50]
         ]
         return _error_response(
             request,
@@ -165,4 +168,15 @@ def install_exception_handlers(app: FastAPI) -> None:
             code=ErrorCode.VALIDATION_ERROR,
             message="请求的资源或方法不存在。",
             details=ErrorDetails(http_status=exc.status_code),
+        )
+
+    @app.exception_handler(Exception)
+    async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
+        logger.error("request.unexpected_error type=%s", type(exc).__name__)
+        return _error_response(
+            request,
+            status_code=500,
+            code=ErrorCode.INTERNAL_ERROR,
+            message="服务处理请求时发生内部错误。",
+            retryable=False,
         )

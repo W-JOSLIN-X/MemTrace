@@ -1,0 +1,1383 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "MemTrace API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_api_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ready": {
+      "get": {
+        "summary": "Ready",
+        "operationId": "ready_api_v1_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks": {
+      "post": {
+        "summary": "Create Task",
+        "operationId": "create_task_api_v1_tasks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCreateAccepted"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}": {
+      "get": {
+        "summary": "Get Task",
+        "operationId": "get_task_api_v1_tasks__task_id__get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskSnapshot"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/events": {
+      "get": {
+        "summary": "Task Events",
+        "operationId": "task_events_api_v1_tasks__task_id__events_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "after_event_seq",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After Event Seq"
+            }
+          },
+          {
+            "name": "after_offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 262144,
+              "minimum": 0,
+              "default": 0,
+              "title": "After Offset"
+            }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "G0 task event stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ArtifactType": {
+        "type": "string",
+        "enum": [
+          "source_code",
+          "configuration",
+          "text",
+          "none",
+          "other"
+        ],
+        "title": "ArtifactType"
+      },
+      "AstSyntaxError": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Message"
+          },
+          "line": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line"
+          },
+          "column": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column"
+          },
+          "end_line": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Line"
+          },
+          "end_column": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Column"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "AstSyntaxError"
+      },
+      "AsyncErrorCode": {
+        "type": "string",
+        "enum": [
+          "PROVIDER_TIMEOUT",
+          "PROVIDER_ERROR",
+          "TOOL_NOT_FOUND",
+          "TOOL_INPUT_INVALID",
+          "STREAM_INTERRUPTED"
+        ],
+        "title": "AsyncErrorCode"
+      },
+      "Audience": {
+        "type": "string",
+        "enum": [
+          "beginner",
+          "intermediate",
+          "advanced",
+          "unknown"
+        ],
+        "title": "Audience"
+      },
+      "CodeSource": {
+        "type": "string",
+        "enum": [
+          "fenced_python",
+          "whole_task_valid_python"
+        ],
+        "title": "CodeSource"
+      },
+      "CurrentConstraints": {
+        "properties": {
+          "response_policy": {
+            "$ref": "#/components/schemas/ResponsePolicy"
+          },
+          "urgency": {
+            "$ref": "#/components/schemas/Urgency"
+          },
+          "memory_disabled": {
+            "type": "boolean",
+            "title": "Memory Disabled"
+          },
+          "source": {
+            "type": "string",
+            "const": "ui",
+            "title": "Source"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "response_policy",
+          "urgency",
+          "memory_disabled",
+          "source"
+        ],
+        "title": "CurrentConstraints"
+      },
+      "Domain": {
+        "type": "string",
+        "enum": [
+          "programming_learning",
+          "software_development",
+          "general_text",
+          "other"
+        ],
+        "title": "Domain"
+      },
+      "EffectiveMemoryMode": {
+        "type": "string",
+        "enum": [
+          "on",
+          "off"
+        ],
+        "title": "EffectiveMemoryMode"
+      },
+      "ErrorCode": {
+        "type": "string",
+        "enum": [
+          "VALIDATION_ERROR",
+          "TASK_NOT_FOUND",
+          "PROVIDER_CONFIG_MISSING",
+          "PROVIDER_TIMEOUT",
+          "PROVIDER_ERROR",
+          "TOOL_NOT_FOUND",
+          "TOOL_INPUT_INVALID",
+          "STREAM_INTERRUPTED",
+          "INTERNAL_ERROR"
+        ],
+        "title": "ErrorCode"
+      },
+      "ErrorDetail": {
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          },
+          "retryable": {
+            "type": "boolean",
+            "title": "Retryable",
+            "default": false
+          },
+          "details": {
+            "$ref": "#/components/schemas/ErrorDetails"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "title": "ErrorDetail"
+      },
+      "ErrorDetails": {
+        "properties": {
+          "field_errors": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ValidationFieldError"
+                },
+                "type": "array",
+                "maxItems": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field Errors"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "provider_status": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 599.0,
+                "minimum": 400.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Status"
+          },
+          "check": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "provider_configuration",
+                  "data_directory"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Check"
+          },
+          "http_status": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 599.0,
+                "minimum": 400.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Http Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ErrorDetails"
+      },
+      "ErrorEnvelope": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "title": "ErrorEnvelope"
+      },
+      "HealthResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status",
+            "default": "ok"
+          },
+          "service": {
+            "type": "string",
+            "const": "memtrace-api",
+            "title": "Service",
+            "default": "memtrace-api"
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Version"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "development",
+              "test",
+              "production"
+            ],
+            "title": "Environment"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "version",
+          "environment",
+          "at"
+        ],
+        "title": "HealthResponse"
+      },
+      "MessageSnapshot": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Id"
+          },
+          "role": {
+            "type": "string",
+            "const": "assistant",
+            "title": "Role",
+            "default": "assistant"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 262144,
+            "title": "Content"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "content",
+          "created_at"
+        ],
+        "title": "MessageSnapshot"
+      },
+      "ProgrammingLanguage": {
+        "type": "string",
+        "enum": [
+          "python",
+          "javascript",
+          "typescript",
+          "java",
+          "c",
+          "cpp",
+          "rust",
+          "go",
+          "other",
+          "unknown"
+        ],
+        "title": "ProgrammingLanguage"
+      },
+      "ProviderMode": {
+        "type": "string",
+        "enum": [
+          "mock",
+          "real"
+        ],
+        "title": "ProviderMode"
+      },
+      "PublicPlan": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^plan_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Id"
+          },
+          "goal": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Goal"
+          },
+          "memory_summary": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Memory Summary"
+          },
+          "next_action": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Next Action"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "goal",
+          "memory_summary",
+          "next_action"
+        ],
+        "title": "PublicPlan"
+      },
+      "PythonAstResult": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "syntax_error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AstSyntaxError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "valid",
+          "syntax_error"
+        ],
+        "title": "PythonAstResult"
+      },
+      "ReadinessChecks": {
+        "properties": {
+          "config": {
+            "type": "string",
+            "const": "pass",
+            "title": "Config",
+            "default": "pass"
+          },
+          "data_dir": {
+            "type": "string",
+            "const": "pass",
+            "title": "Data Dir",
+            "default": "pass"
+          },
+          "provider_credentials": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "not_required"
+            ],
+            "title": "Provider Credentials"
+          },
+          "provider_network": {
+            "type": "string",
+            "const": "unchecked",
+            "title": "Provider Network",
+            "default": "unchecked"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "provider_credentials"
+        ],
+        "title": "ReadinessChecks"
+      },
+      "ReadyResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "status": {
+            "type": "string",
+            "const": "ready",
+            "title": "Status",
+            "default": "ready"
+          },
+          "provider_mode": {
+            "$ref": "#/components/schemas/ProviderMode"
+          },
+          "checks": {
+            "$ref": "#/components/schemas/ReadinessChecks"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "provider_mode",
+          "checks",
+          "at"
+        ],
+        "title": "ReadyResponse"
+      },
+      "ResponsePolicy": {
+        "type": "string",
+        "enum": [
+          "default",
+          "guided_hint",
+          "direct_fix"
+        ],
+        "title": "ResponsePolicy"
+      },
+      "RunErrorSnapshot": {
+        "properties": {
+          "error_id": {
+            "type": "string",
+            "pattern": "^err_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Error Id"
+          },
+          "code": {
+            "$ref": "#/components/schemas/AsyncErrorCode"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Message"
+          },
+          "retryable": {
+            "type": "boolean",
+            "title": "Retryable"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error_id",
+          "code",
+          "message",
+          "retryable"
+        ],
+        "title": "RunErrorSnapshot"
+      },
+      "RunStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "fingerprinting",
+          "retrieving",
+          "planning",
+          "tool_running",
+          "generating",
+          "succeeded",
+          "failed"
+        ],
+        "title": "RunStatus"
+      },
+      "Scenario": {
+        "type": "string",
+        "enum": [
+          "programming_learning",
+          "software_development",
+          "general_text",
+          "other"
+        ],
+        "title": "Scenario"
+      },
+      "TaskCreateAccepted": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "task_id": {
+            "type": "string",
+            "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Task Id"
+          },
+          "run_id": {
+            "type": "string",
+            "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Run Id"
+          },
+          "events_url": {
+            "type": "string",
+            "pattern": "^/api/v1/tasks/task_[0-9A-HJKMNP-TV-Z]{26}/events$",
+            "title": "Events Url"
+          },
+          "provider_mode": {
+            "$ref": "#/components/schemas/ProviderMode"
+          },
+          "effective_memory_mode": {
+            "$ref": "#/components/schemas/EffectiveMemoryMode"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "task_id",
+          "run_id",
+          "events_url",
+          "provider_mode",
+          "effective_memory_mode"
+        ],
+        "title": "TaskCreateAccepted"
+      },
+      "TaskCreateRequest": {
+        "properties": {
+          "task_text": {
+            "type": "string",
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Task Text"
+          },
+          "scenario": {
+            "$ref": "#/components/schemas/Scenario"
+          },
+          "memory_mode": {
+            "$ref": "#/components/schemas/EffectiveMemoryMode"
+          },
+          "current_constraints": {
+            "$ref": "#/components/schemas/CurrentConstraints"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "task_text",
+          "scenario",
+          "memory_mode",
+          "current_constraints"
+        ],
+        "title": "TaskCreateRequest"
+      },
+      "TaskFingerprint": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^fp_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Id"
+          },
+          "schema_version": {
+            "type": "string",
+            "const": "1.0",
+            "title": "Schema Version",
+            "default": "1.0"
+          },
+          "domain": {
+            "$ref": "#/components/schemas/Domain"
+          },
+          "task_type": {
+            "$ref": "#/components/schemas/TaskType"
+          },
+          "artifact_type": {
+            "$ref": "#/components/schemas/ArtifactType"
+          },
+          "audience": {
+            "$ref": "#/components/schemas/Audience"
+          },
+          "project_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Key"
+          },
+          "language": {
+            "$ref": "#/components/schemas/ProgrammingLanguage"
+          },
+          "framework": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Framework"
+          },
+          "concepts": {
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "title": "Concepts"
+          },
+          "tool_context": {
+            "items": {
+              "type": "string",
+              "const": "python_ast_check"
+            },
+            "type": "array",
+            "maxItems": 1,
+            "title": "Tool Context"
+          },
+          "current_constraints": {
+            "$ref": "#/components/schemas/CurrentConstraints"
+          },
+          "semantic_query": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Semantic Query"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "domain",
+          "task_type",
+          "artifact_type",
+          "audience",
+          "project_key",
+          "language",
+          "framework",
+          "concepts",
+          "tool_context",
+          "current_constraints",
+          "semantic_query"
+        ],
+        "title": "TaskFingerprint"
+      },
+      "TaskSnapshot": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "task_id": {
+            "type": "string",
+            "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Task Id"
+          },
+          "run_id": {
+            "type": "string",
+            "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Run Id"
+          },
+          "task_status": {
+            "type": "string",
+            "const": "active",
+            "title": "Task Status",
+            "default": "active"
+          },
+          "run_status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "provider_mode": {
+            "$ref": "#/components/schemas/ProviderMode"
+          },
+          "effective_memory_mode": {
+            "$ref": "#/components/schemas/EffectiveMemoryMode"
+          },
+          "fingerprint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskFingerprint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "public_plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicPlan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tool_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ToolDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tool_calls": {
+            "items": {
+              "$ref": "#/components/schemas/ToolCallSnapshot"
+            },
+            "type": "array",
+            "maxItems": 1,
+            "title": "Tool Calls"
+          },
+          "partial_output": {
+            "type": "string",
+            "maxLength": 262144,
+            "title": "Partial Output",
+            "default": ""
+          },
+          "end_offset": {
+            "type": "integer",
+            "maximum": 262144.0,
+            "minimum": 0.0,
+            "title": "End Offset",
+            "default": 0
+          },
+          "offset_unit": {
+            "type": "string",
+            "const": "utf8_bytes",
+            "title": "Offset Unit",
+            "default": "utf8_bytes"
+          },
+          "final_message": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MessageSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunErrorSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "terminal": {
+            "type": "boolean",
+            "title": "Terminal",
+            "default": false
+          },
+          "last_persistent_event_seq": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Last Persistent Event Seq",
+            "default": 0
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "task_id",
+          "run_id",
+          "run_status",
+          "provider_mode",
+          "effective_memory_mode",
+          "tool_calls",
+          "updated_at"
+        ],
+        "title": "TaskSnapshot"
+      },
+      "TaskType": {
+        "type": "string",
+        "enum": [
+          "debugging_guidance",
+          "code_review",
+          "code_explanation",
+          "code_generation",
+          "environment_configuration",
+          "general_question",
+          "other"
+        ],
+        "title": "TaskType"
+      },
+      "ToolAction": {
+        "type": "string",
+        "enum": [
+          "call",
+          "skip"
+        ],
+        "title": "ToolAction"
+      },
+      "ToolArgsSummary": {
+        "properties": {
+          "language": {
+            "type": "string",
+            "const": "python",
+            "title": "Language",
+            "default": "python"
+          },
+          "code_source": {
+            "$ref": "#/components/schemas/CodeSource"
+          },
+          "code_bytes": {
+            "type": "integer",
+            "maximum": 102400.0,
+            "minimum": 1.0,
+            "title": "Code Bytes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code_source",
+          "code_bytes"
+        ],
+        "title": "ToolArgsSummary"
+      },
+      "ToolCallSnapshot": {
+        "properties": {
+          "tool_call_id": {
+            "type": "string",
+            "pattern": "^tool_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Tool Call Id"
+          },
+          "tool_name": {
+            "type": "string",
+            "const": "python_ast_check",
+            "title": "Tool Name",
+            "default": "python_ast_check"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "args_summary": {
+            "$ref": "#/components/schemas/ToolArgsSummary"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ToolCallStatus"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "result_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^toolres_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Ref"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PythonAstResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tool_call_id",
+          "reason",
+          "args_summary",
+          "status"
+        ],
+        "title": "ToolCallSnapshot"
+      },
+      "ToolCallStatus": {
+        "type": "string",
+        "enum": [
+          "running",
+          "succeeded",
+          "failed"
+        ],
+        "title": "ToolCallStatus"
+      },
+      "ToolDecision": {
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ToolAction"
+          },
+          "tool_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "python_ast_check"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Name"
+          },
+          "reason_code": {
+            "$ref": "#/components/schemas/ToolReasonCode"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action",
+          "tool_name",
+          "reason_code",
+          "reason"
+        ],
+        "title": "ToolDecision"
+      },
+      "ToolReasonCode": {
+        "type": "string",
+        "enum": [
+          "python_code_detected",
+          "non_python_task",
+          "no_extractable_python",
+          "unsupported_artifact"
+        ],
+        "title": "ToolReasonCode"
+      },
+      "Urgency": {
+        "type": "string",
+        "enum": [
+          "normal",
+          "urgent"
+        ],
+        "title": "Urgency"
+      },
+      "ValidationFieldError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Loc"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "loc",
+          "message",
+          "type"
+        ],
+        "title": "ValidationFieldError"
+      }
+    }
+  }
+}
