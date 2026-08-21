@@ -1,0 +1,196 @@
+{
+  "fixture_version": "1.0",
+  "purpose": "Day 1 G0 acceptance and rejection cases",
+  "cases": [
+    {
+      "id": "python_valid",
+      "description": "Valid Python in a fenced block must call the AST tool and produce a successful Python trace.",
+      "request": {
+        "task_text": "请检查下面的 Python 代码并说明语法是否有效：\n```python\ndef add(a, b):\n    return a + b\n```",
+        "scenario": "programming_learning",
+        "memory_mode": "on",
+        "current_constraints": {
+          "response_policy": "guided_hint",
+          "urgency": "normal",
+          "memory_disabled": false,
+          "source": "ui"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "http_status": 202,
+        "effective_memory_mode": "on",
+        "language": "python",
+        "tool_action": "call",
+        "tool_result_valid": true,
+        "trace": "python_success"
+      }
+    },
+    {
+      "id": "python_fenced_syntax_error",
+      "description": "Invalid Python is fenced, so SyntaxError is a successful tool execution with valid=false, not a TOOL_INPUT_INVALID run failure.",
+      "request": {
+        "task_text": "这段 Python 为什么报语法错误？\n```python\ndef greet(:\n    print(\"hello\")\n```",
+        "scenario": "programming_learning",
+        "memory_mode": "on",
+        "current_constraints": {
+          "response_policy": "guided_hint",
+          "urgency": "normal",
+          "memory_disabled": false,
+          "source": "ui"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "http_status": 202,
+        "effective_memory_mode": "on",
+        "language": "python",
+        "tool_action": "call",
+        "tool_result_valid": false,
+        "trace": "python_success"
+      }
+    },
+    {
+      "id": "non_python_programming",
+      "description": "A JavaScript concept question must not fabricate a Python AST call.",
+      "request": {
+        "task_text": "请解释 JavaScript 的事件循环，不需要给完整代码。",
+        "scenario": "programming_learning",
+        "memory_mode": "on",
+        "current_constraints": {
+          "response_policy": "default",
+          "urgency": "normal",
+          "memory_disabled": false,
+          "source": "ui"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "http_status": 202,
+        "effective_memory_mode": "on",
+        "language": "javascript",
+        "tool_action": "skip",
+        "tool_reason_code": "non_python_task",
+        "trace": "no_tool_success"
+      }
+    },
+    {
+      "id": "unicode_emoji_offsets",
+      "description": "Chinese text plus an emoji verifies that chunk offsets use UTF-8 bytes rather than JavaScript string length.",
+      "request": {
+        "task_text": "请用一句话解释什么是递归，并给我一个直观比喻。🙂",
+        "scenario": "programming_learning",
+        "memory_mode": "on",
+        "current_constraints": {
+          "response_policy": "guided_hint",
+          "urgency": "normal",
+          "memory_disabled": false,
+          "source": "ui"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "http_status": 202,
+        "effective_memory_mode": "on",
+        "language": "unknown",
+        "tool_action": "skip",
+        "tool_reason_code": "non_python_task",
+        "trace": "no_tool_success",
+        "offset_unit": "utf8_bytes"
+      }
+    },
+    {
+      "id": "empty_rejected",
+      "description": "An empty task is rejected before a task or run is created.",
+      "request": {
+        "task_text": "",
+        "scenario": "programming_learning",
+        "memory_mode": "on",
+        "current_constraints": {
+          "response_policy": "default",
+          "urgency": "normal",
+          "memory_disabled": false,
+          "source": "ui"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "http_status": 422,
+        "error_code": "VALIDATION_ERROR",
+        "creates_task": false
+      }
+    },
+    {
+      "id": "whitespace_rejected",
+      "description": "Whitespace is trimmed before validation and is rejected without creating a task.",
+      "request": {
+        "task_text": "   \r\n\t  ",
+        "scenario": "programming_learning",
+        "memory_mode": "on",
+        "current_constraints": {
+          "response_policy": "default",
+          "urgency": "normal",
+          "memory_disabled": false,
+          "source": "ui"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "http_status": 422,
+        "error_code": "VALIDATION_ERROR",
+        "creates_task": false,
+        "validation_rule": "trimmed_length"
+      }
+    },
+    {
+      "id": "overlong_rejected",
+      "description": "The validator expands input_builder to 20001 characters; the full generated string is deliberately not stored in the fixture.",
+      "input_builder": {
+        "field": "task_text",
+        "repeat": "a",
+        "count": 20001
+      },
+      "request_template": {
+        "scenario": "programming_learning",
+        "memory_mode": "off",
+        "current_constraints": {
+          "response_policy": "default",
+          "urgency": "normal",
+          "memory_disabled": true,
+          "source": "ui"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "http_status": 422,
+        "error_code": "VALIDATION_ERROR",
+        "creates_task": false
+      }
+    },
+    {
+      "id": "provider_failure_after_partial",
+      "description": "A forced MockProvider failure after chunks preserves partial output and follows the failure trace without a silent retry.",
+      "request": {
+        "task_text": "请解释这个异常产生的常见原因；测试时在首个 chunk 后强制 Provider 失败。",
+        "scenario": "software_development",
+        "memory_mode": "on",
+        "current_constraints": {
+          "response_policy": "default",
+          "urgency": "normal",
+          "memory_disabled": true,
+          "source": "ui"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "http_status": 202,
+        "effective_memory_mode": "off",
+        "tool_action": "skip",
+        "trace": "run_failure",
+        "error_code": "PROVIDER_ERROR",
+        "partial_output_retained": true,
+        "silent_retry_after_chunk": false
+      }
+    }
+  ]
+}

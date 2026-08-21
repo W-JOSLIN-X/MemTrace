@@ -1,0 +1,222 @@
+{
+  "fixture_version": "1.0",
+  "name": "run_failure",
+  "simulated": true,
+  "provider_evidence_label": "MockProvider forced-failure fixture",
+  "request": {
+    "task_text": "请解释这个异常产生的常见原因；测试时在首个 chunk 后强制 Provider 失败。",
+    "scenario": "software_development",
+    "memory_mode": "on",
+    "current_constraints": {
+      "response_policy": "default",
+      "urgency": "normal",
+      "memory_disabled": true,
+      "source": "ui"
+    }
+  },
+  "accepted": {
+    "request_id": "req_01J00000000000000000000021",
+    "task_id": "task_01J00000000000000000000021",
+    "run_id": "run_01J00000000000000000000021",
+    "events_url": "/api/v1/tasks/task_01J00000000000000000000021/events",
+    "provider_mode": "mock",
+    "effective_memory_mode": "off"
+  },
+  "events": [
+    {
+      "event_version": "1.0",
+      "event_type": "task.created",
+      "event_seq": 1,
+      "task_id": "task_01J00000000000000000000021",
+      "run_id": "run_01J00000000000000000000021",
+      "at": "2026-08-21T00:20:01Z",
+      "data": {"task_status": "active", "run_status": "queued"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "task.stage",
+      "event_seq": 2,
+      "task_id": "task_01J00000000000000000000021",
+      "run_id": "run_01J00000000000000000000021",
+      "at": "2026-08-21T00:20:02Z",
+      "data": {"stage": "fingerprinting", "progress_label": "fingerprinting_task"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "task.fingerprinted",
+      "event_seq": 3,
+      "task_id": "task_01J00000000000000000000021",
+      "run_id": "run_01J00000000000000000000021",
+      "at": "2026-08-21T00:20:03Z",
+      "data": {
+        "fingerprint_id": "fp_01J00000000000000000000021",
+        "domain": "software_development",
+        "task_type": "general_question",
+        "artifact_type": "text",
+        "language": "unknown"
+      }
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "task.stage",
+      "event_seq": 4,
+      "task_id": "task_01J00000000000000000000021",
+      "run_id": "run_01J00000000000000000000021",
+      "at": "2026-08-21T00:20:04Z",
+      "data": {"stage": "retrieving", "progress_label": "retrieving_memory"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "memory.retrieval.started",
+      "event_seq": null,
+      "task_id": "task_01J00000000000000000000021",
+      "run_id": "run_01J00000000000000000000021",
+      "at": "2026-08-21T00:20:05Z",
+      "data": {"memory_count": 0, "summary": "no_long_term_memory_day1"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "task.stage",
+      "event_seq": 5,
+      "task_id": "task_01J00000000000000000000021",
+      "run_id": "run_01J00000000000000000000021",
+      "at": "2026-08-21T00:20:06Z",
+      "data": {"stage": "planning", "progress_label": "publishing_plan"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "agent.plan.published",
+      "event_seq": 6,
+      "task_id": "task_01J00000000000000000000021",
+      "run_id": "run_01J00000000000000000000021",
+      "at": "2026-08-21T00:20:07Z",
+      "data": {
+        "plan_id": "plan_01J00000000000000000000021",
+        "goal_code": "answer_question",
+        "memory_summary_code": "no_long_term_memory_day1",
+        "next_action_code": "generate_directly"
+      }
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "task.stage",
+      "event_seq": 7,
+      "task_id": "task_01J00000000000000000000021",
+      "run_id": "run_01J00000000000000000000021",
+      "at": "2026-08-21T00:20:08Z",
+      "data": {"stage": "generating", "progress_label": "generating_answer"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "agent.chunk",
+      "event_seq": null,
+      "task_id": "task_01J00000000000000000000021",
+      "run_id": "run_01J00000000000000000000021",
+      "at": "2026-08-21T00:20:09Z",
+      "data": {"run_id": "run_01J00000000000000000000021", "chunk_seq": 1, "start_offset": 0, "end_offset": 12, "offset_unit": "utf8_bytes", "delta": "正在生成"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "agent.chunk",
+      "event_seq": null,
+      "task_id": "task_01J00000000000000000000021",
+      "run_id": "run_01J00000000000000000000021",
+      "at": "2026-08-21T00:20:10Z",
+      "data": {"run_id": "run_01J00000000000000000000021", "chunk_seq": 2, "start_offset": 12, "end_offset": 27, "offset_unit": "utf8_bytes", "delta": "部分结果…"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "run.metrics",
+      "event_seq": 8,
+      "task_id": "task_01J00000000000000000000021",
+      "run_id": "run_01J00000000000000000000021",
+      "at": "2026-08-21T00:20:11Z",
+      "data": {"provider": "mock", "model": "fixture-g0", "provider_mode": "mock", "first_token_ms": 9.0, "total_ms": 30.0, "prompt_tokens": null, "output_tokens": null, "token_source": "unavailable"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "task.stage",
+      "event_seq": 9,
+      "task_id": "task_01J00000000000000000000021",
+      "run_id": "run_01J00000000000000000000021",
+      "at": "2026-08-21T00:20:12Z",
+      "data": {"stage": "failed", "progress_label": "run_failed"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "run.failed",
+      "event_seq": 10,
+      "task_id": "task_01J00000000000000000000021",
+      "run_id": "run_01J00000000000000000000021",
+      "at": "2026-08-21T00:20:13Z",
+      "data": {"status": "failed", "error_code": "PROVIDER_ERROR", "retryable": true, "partial_message_id": "msg_01J00000000000000000000021", "end_offset": 27, "offset_unit": "utf8_bytes"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "error",
+      "event_seq": 11,
+      "task_id": "task_01J00000000000000000000021",
+      "run_id": "run_01J00000000000000000000021",
+      "at": "2026-08-21T00:20:14Z",
+      "data": {"error_id": "err_01J00000000000000000000021", "code": "PROVIDER_ERROR", "message": "模型服务在生成过程中中断，请保留部分结果后重试。", "retryable": true}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "stream.done",
+      "event_seq": 12,
+      "task_id": "task_01J00000000000000000000021",
+      "run_id": "run_01J00000000000000000000021",
+      "at": "2026-08-21T00:20:15Z",
+      "data": {"status": "failed", "final_snapshot_required": true}
+    }
+  ],
+  "terminal_snapshot": {
+    "request_id": "req_01J00000000000000000000022",
+    "task_id": "task_01J00000000000000000000021",
+    "run_id": "run_01J00000000000000000000021",
+    "task_status": "active",
+    "run_status": "failed",
+    "provider_mode": "mock",
+    "effective_memory_mode": "off",
+    "fingerprint": {
+      "id": "fp_01J00000000000000000000021",
+      "schema_version": "1.0",
+      "domain": "software_development",
+      "task_type": "general_question",
+      "artifact_type": "text",
+      "audience": "unknown",
+      "project_key": null,
+      "language": "unknown",
+      "framework": null,
+      "concepts": ["exception"],
+      "tool_context": [],
+      "current_constraints": {"response_policy": "default", "urgency": "normal", "memory_disabled": true, "source": "ui"},
+      "semantic_query": "解释异常的常见原因"
+    },
+    "public_plan": {
+      "id": "plan_01J00000000000000000000021",
+      "goal": "概括异常产生的常见原因。",
+      "memory_summary": "当前任务显式关闭记忆，且 Day 1 尚无长期记忆。",
+      "next_action": "该任务没有可解析的 Python 代码，直接生成解释。"
+    },
+    "tool_decision": {"action": "skip", "tool_name": null, "reason_code": "non_python_task", "reason": "输入没有可解析的 Python 代码。"},
+    "tool_calls": [],
+    "partial_output": "正在生成部分结果…",
+    "end_offset": 27,
+    "offset_unit": "utf8_bytes",
+    "final_message": null,
+    "error": {"error_id": "err_01J00000000000000000000021", "code": "PROVIDER_ERROR", "message": "模型服务在生成过程中中断，请保留部分结果后重试。", "retryable": true},
+    "terminal": true,
+    "last_persistent_event_seq": 12,
+    "updated_at": "2026-08-21T00:20:15Z"
+  },
+  "expectations": {
+    "trace": "run_failure",
+    "chunk_text": "正在生成部分结果…",
+    "final_end_offset": 27,
+    "persistent_event_count": 12,
+    "transient_chunk_count": 2,
+    "terminal_error_code": "PROVIDER_ERROR",
+    "silent_retry_after_chunk": false
+  }
+}
