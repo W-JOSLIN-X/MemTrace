@@ -35,6 +35,7 @@ RUN groupadd --gid 10001 memtrace \
 COPY apps/api/requirements.lock /tmp/requirements.lock
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install --require-hashes --no-deps -r /tmp/requirements.lock \
+    && python -m pip uninstall --yes setuptools \
     && rm -f /tmp/requirements.lock
 
 COPY --chown=memtrace:memtrace apps/api/src/ /app/apps/api/src/
