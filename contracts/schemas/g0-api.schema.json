@@ -469,6 +469,7 @@
           "then": {
             "properties": {
               "terminal": {"const": true},
+              "final_message": {"type": "null"},
               "error": {"$ref": "#/$defs/RunErrorSnapshot"}
             }
           }
