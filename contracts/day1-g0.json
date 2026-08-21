@@ -1,0 +1,110 @@
+{
+  "contract_version": "1.0.0",
+  "api_prefix": "/api/v1",
+  "id_format": {
+    "description": "entity prefix followed by a 26-character Crockford Base32 ULID",
+    "examples": [
+      "task_01J00000000000000000000000",
+      "run_01J00000000000000000000000",
+      "req_01J00000000000000000000000"
+    ]
+  },
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ready",
+      "success_status": 200,
+      "failure_status": 503
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tasks",
+      "success_status": 202
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tasks/{task_id}",
+      "success_status": 200,
+      "failure_status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tasks/{task_id}/events",
+      "success_status": 200,
+      "content_type": "text/event-stream",
+      "failure_status": 404
+    }
+  ],
+  "error_codes": [
+    "VALIDATION_ERROR",
+    "TASK_NOT_FOUND",
+    "PROVIDER_CONFIG_MISSING",
+    "PROVIDER_TIMEOUT",
+    "PROVIDER_ERROR",
+    "TOOL_NOT_FOUND",
+    "TOOL_INPUT_INVALID",
+    "STREAM_INTERRUPTED"
+  ],
+  "persistent_events": [
+    "task.created",
+    "task.stage",
+    "task.fingerprinted",
+    "agent.plan.published",
+    "tool.called",
+    "tool.result",
+    "run.metrics",
+    "run.completed",
+    "run.failed",
+    "error",
+    "stream.done"
+  ],
+  "transient_events": [
+    "memory.retrieval.started",
+    "agent.chunk"
+  ],
+  "event_payloads": {
+    "task.created": ["status"],
+    "task.stage": ["stage", "progress_label"],
+    "task.fingerprinted": ["fingerprint"],
+    "memory.retrieval.started": ["memory_count", "summary"],
+    "agent.plan.published": ["goal", "memory_summary", "next_action"],
+    "tool.called": ["tool_call_id", "tool_name", "reason", "args_summary"],
+    "tool.result": ["tool_call_id", "tool_name", "status", "latency_ms", "result"],
+    "agent.chunk": ["chunk_seq", "start_offset", "end_offset", "delta"],
+    "run.metrics": ["provider", "model", "provider_mode", "first_token_ms", "total_ms", "prompt_tokens", "output_tokens", "token_source"],
+    "run.completed": ["status", "message_id", "end_offset"],
+    "run.failed": ["status", "error_code", "retryable", "partial_output"],
+    "error": ["code", "message", "retryable"],
+    "stream.done": ["status"]
+  },
+  "normal_event_order": [
+    "task.created",
+    "task.stage",
+    "task.fingerprinted",
+    "memory.retrieval.started",
+    "agent.plan.published",
+    "tool.called",
+    "tool.result",
+    "agent.chunk",
+    "run.metrics",
+    "run.completed",
+    "stream.done"
+  ],
+  "task_text": {
+    "min_length": 1,
+    "max_length": 20000,
+    "tool_input_max_bytes": 102400
+  },
+  "provider": {
+    "default": "deepseek-v4-flash",
+    "thinking": "disabled",
+    "mock_label": "mock",
+    "real_label": "real"
+  }
+}
+
