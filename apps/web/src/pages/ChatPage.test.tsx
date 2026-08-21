@@ -135,6 +135,7 @@ describe('G0 Chat experience', () => {
     })
 
     expect(await screen.findByText('检查语法并解释问题')).toBeInTheDocument()
+    expect(screen.getByText('正在发布公开计划')).toBeInTheDocument()
     expect(source.closed).toBe(false)
 
     act(() => {
@@ -158,6 +159,10 @@ describe('G0 Chat experience', () => {
     expect(screen.getByText('Python 语法结构有效')).toBeInTheDocument()
     expect(screen.getByText('15')).toBeInTheDocument()
     expect(screen.getByLabelText('Provider 模式：Mock')).toBeInTheDocument()
+    expect(screen.getByText('确定性任务指纹已生成')).toBeInTheDocument()
+    expect(screen.getByText('Python AST 静态检查已完成')).toBeInTheDocument()
+    expect(screen.getByText('模型回答已接收')).toBeInTheDocument()
+    expect(screen.queryByText('正在接收模型回答')).not.toBeInTheDocument()
     expect(source.closed).toBe(true)
     expect(getTask).toHaveBeenCalledTimes(3)
   })
@@ -435,6 +440,7 @@ describe('G0 Chat experience', () => {
     )
     expect(input).toHaveValue('保留失败任务输入')
     expect(screen.getByText('部分')).toBeInTheDocument()
+    expect(screen.getByText('运行在此阶段失败')).toBeInTheDocument()
     expect(source.closed).toBe(true)
   })
 

@@ -232,6 +232,11 @@ function RunTimeline({ state }: { state: G0State }) {
   const completedStages = new Map(
     state.stages.map((stage) => [stage.stage, stage] as const),
   )
+  const lastOperationalStage = [...state.stages]
+    .reverse()
+    .find((record) =>
+      stageDefinitions.some((definition) => definition.key === record.stage),
+    )?.stage
   return (
     <section className="mt-8 border-t border-stone-200 pt-6" aria-labelledby="trace-title">
       <div className="flex items-center justify-between gap-3">
@@ -245,28 +250,24 @@ function RunTimeline({ state }: { state: G0State }) {
       <ol className="mt-4 grid gap-3 sm:grid-cols-2">
         {stageDefinitions.map((definition, index) => {
           const record = completedStages.get(definition.key)
-          const isCurrent = state.runStatus === definition.key
+          const status = timelineStatus(
+            state,
+            definition.key,
+            record !== undefined,
+            lastOperationalStage,
+          )
           return (
-            <li
-              className={
-                record
-                  ? 'rounded-2xl border border-emerald-200 bg-emerald-50 p-4'
-                  : isCurrent
-                    ? 'rounded-2xl border border-blue-200 bg-blue-50 p-4'
-                    : 'rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-4'
-              }
-              key={definition.key}
-            >
+            <li className={timelineClassName(status)} key={definition.key}>
               <div className="flex items-start gap-3">
                 <span className="grid size-7 shrink-0 place-items-center rounded-full bg-white text-xs font-black text-slate-500 shadow-sm ring-1 ring-stone-200">
-                  {record ? '✓' : index + 1}
+                  {timelineMarker(status, index)}
                 </span>
                 <div>
                   <h3 className="text-sm font-black text-slate-700">
                     {definition.label}
                   </h3>
                   <p className="mt-1 text-xs leading-5 text-slate-500">
-                    {stageDescription(record, definition.detail)}
+                    {stageDescription(state, definition.key, status, definition.detail)}
                   </p>
                 </div>
               </div>
@@ -278,17 +279,74 @@ function RunTimeline({ state }: { state: G0State }) {
   )
 }
 
-function stageDescription(record: StageRecord | undefined, fallback: string) {
-  if (!record) return fallback
-  const labels: Record<string, string> = {
-    fingerprinting_task: '正在生成确定性任务指纹',
-    retrieving_memory: '检索完成：Day 1 尚无长期记忆',
-    publishing_plan: '公开计划已发布',
-    running_static_tool: '白名单静态工具正在运行',
-    generating_answer: '正在接收模型回答',
-    run_failed: '运行在此阶段失败',
+type TimelineKey = (typeof stageDefinitions)[number]['key']
+type TimelineStatus = 'pending' | 'current' | 'completed' | 'skipped' | 'failed'
+
+function timelineClassName(status: TimelineStatus) {
+  const classes: Record<TimelineStatus, string> = {
+    completed: 'rounded-2xl border border-emerald-200 bg-emerald-50 p-4',
+    skipped: 'rounded-2xl border border-amber-200 bg-amber-50 p-4',
+    failed: 'rounded-2xl border border-red-200 bg-red-50 p-4',
+    current: 'rounded-2xl border border-blue-200 bg-blue-50 p-4',
+    pending:
+      'rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-4',
   }
-  return labels[record.progressLabel] ?? fallback
+  return classes[status]
+}
+
+function timelineMarker(status: TimelineStatus, index: number) {
+  if (status === 'completed') return '✓'
+  if (status === 'skipped') return '–'
+  if (status === 'failed') return '!'
+  return index + 1
+}
+
+function timelineStatus(
+  state: G0State,
+  key: TimelineKey,
+  hasRecord: boolean,
+  lastOperationalStage: StageRecord['stage'] | undefined,
+): TimelineStatus {
+  const toolSkipped = key === 'tool_running' && state.toolDecision?.action === 'skip'
+  if (state.runStatus === 'failed' && key === lastOperationalStage) return 'failed'
+  if (state.terminal && state.runStatus === 'succeeded') {
+    if (toolSkipped) return 'skipped'
+    return hasRecord ? 'completed' : 'pending'
+  }
+  if (toolSkipped && (state.runStatus === 'generating' || state.terminal)) {
+    return 'skipped'
+  }
+  if (state.runStatus === key) return 'current'
+  return hasRecord ? 'completed' : 'pending'
+}
+
+function stageDescription(
+  state: G0State,
+  key: TimelineKey,
+  status: TimelineStatus,
+  fallback: string,
+) {
+  if (status === 'skipped') {
+    return state.toolDecision?.reason ?? '当前任务不需要调用 Python AST 工具'
+  }
+  if (status === 'failed') return '运行在此阶段失败'
+  const currentLabels: Record<TimelineKey, string> = {
+    fingerprinting: '正在生成确定性任务指纹',
+    retrieving: '正在检索候选记忆',
+    planning: '正在发布公开计划',
+    tool_running: '白名单静态工具正在运行',
+    generating: '正在接收模型回答',
+  }
+  const completedLabels: Record<TimelineKey, string> = {
+    fingerprinting: '确定性任务指纹已生成',
+    retrieving: '检索完成：Day 1 尚无长期记忆',
+    planning: '公开计划已发布',
+    tool_running: 'Python AST 静态检查已完成',
+    generating: '模型回答已接收',
+  }
+  if (status === 'current') return currentLabels[key]
+  if (status === 'completed') return completedLabels[key]
+  return fallback
 }
 
 function PlanAndTool({ state }: { state: G0State }) {
