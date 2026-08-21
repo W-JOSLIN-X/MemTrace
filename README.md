@@ -163,6 +163,23 @@ TaskSnapshot、Provider partial failure、未知任务 404，以及 `after_event
 after_offset` 双游标恢复。任何缺项都必须非零退出。详细规则见
 `docs/day1/SMOKE_SPEC.md`。
 
+### 真实 Provider 门禁
+
+真实测试不能复用 Mock fixture 的通过结果。用户在被 Git 忽略的 `.env` 中手工设为
+`MOCK_MODE=false` 并填入临时 `LLM_API_KEY`，重启 API 后连续执行两次：
+
+```powershell
+.\apps\api\.venv\Scripts\python.exe .\scripts\day1\real_provider_smoke.py `
+  --base-url http://127.0.0.1:8000 `
+  --expected-mode real `
+  --timeout-seconds 180
+```
+
+该脚本不读取 Key，也不打印任务正文、回答正文、请求头或上游错误体；成功时只输出
+task/run ID、Provider 模式、模型、token 来源与数量、首字和总耗时。它会实际验证
+AST 工具事件、连续 UTF-8 chunk、metrics、`run.completed`、`stream.done` 和终态
+快照。完成后撤销聊天中暴露过的临时 Key，并重新生成正式开发 Key。
+
 ## 7. 单容器构建与启动
 
 ### 静态文件边界

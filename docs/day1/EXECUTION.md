@@ -53,6 +53,7 @@ must never be written into a persistent event payload.
 | Chat UI | `feat(web): implement G0 chat event experience` | reducer/UI tests |
 | Fixtures | `test(day1): add G0 fixtures contracts and smoke tests` | contract and smoke tests |
 | Container | `build(day1): add verified single-container G0 delivery` | Docker health/restart |
+| Browser UX repair | `fix(web): show accurate terminal timeline states` | Chrome/Edge terminal-state review |
 | Evidence | `test(day1): record final G0 verification evidence` | all release gates |
 
 No implementation commit may be amended after it has been reviewed. Fixes use

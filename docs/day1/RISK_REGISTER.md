@@ -14,3 +14,8 @@
 | Day 2 work leaks into Day 1 | scope review | remove database/memory-learning behavior from the branch |
 | G0 is mistaken for durable or multi-user | restart and scope review | label it anonymous, single-user, process-local; keep G1 claims out of Day 1 |
 | Persistent metadata contains user or model text | schema validation and event-log payload scan | store only controlled enums, IDs, counts, timings, offsets, and curated safe messages |
+| Uvicorn is exposed without a whole-request byte cap | oversized unknown-field request review | keep field limits; require a trusted reverse proxy body limit before public deployment |
+| Runtime image contains the single lock's test tools | image package inventory and size review | disclose the larger image; do not call it a minimal production image |
+| Base-image CVEs are not independently scanned | Docker Scout high/critical scan | keep the gate open until an authenticated scanner returns an exit-code result |
+| A temporary provider key was pasted into chat | credential-boundary review | use it only from ignored local runtime configuration, then revoke it and generate a new key |
+| Real provider or second machine has not run | verification report gate table | do not merge or tag the Day 1 release until both return evidence |

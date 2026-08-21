@@ -44,7 +44,9 @@ MOCK_CHUNK_DELAY_MS=250
 
 The smoke script does not set or read `LLM_API_KEY`, and no fixture contains a
 credential. Do not use this script as the real-provider smoke; that is a
-separate gate whose environment supplies the key outside Git.
+separate gate whose environment supplies the key outside Git. The executable
+real gate is `scripts/day1/real_provider_smoke.py`; it redacts task and answer
+content and prints only safe run metadata.
 
 Run from the repository root:
 
