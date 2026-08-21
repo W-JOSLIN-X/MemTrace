@@ -18,12 +18,13 @@ second developer's independent run.
 
 | Item | Recorded value |
 |---|---|
-| Source HEAD before this report | `f727158520c87f198ded0c089de9ad636dd2f496` |
+| Tested source/build commit | `2de013f` |
+| Evidence report baseline | `842e2dd` |
 | OpenAPI SHA-256 | `763B8159610106C9E80DD6287594D2F510017125D4A334FB1B9CC6837A065A02` |
 | Container image | `sha256:6cd18548ca5bbcd410fee60d674c428d4792983ca940fae86316bea6a1fd23e8` |
 | Image size | `71,797,880` bytes |
-| Chrome evidence SHA-256 | `1D237E68B641F7304BABDDC00727D0C25B3A6628DB1BEC3CF82497EE46C9F4D4` |
-| Edge evidence SHA-256 | `78AEFE2EDCD8B9571BFF4685A3C14AE66B378FD2D1EEFA394545D369470D8BD1` |
+| Chrome evidence SHA-256 | `05237E3C12F66DF32EB5A6CE503D09BBE28B69F491495BF91FD9F39A7E2E1112` |
+| Edge evidence SHA-256 | `10609C8D5BD7C80E3113A4058F3DFE491E2D39A6F45ADD2B49C75A256CCFEACE` |
 
 Evidence images:
 
@@ -198,6 +199,10 @@ Chrome verified:
 Edge independently ran a Python task through the same terminal UI and reported
 `0` console errors and `0` warnings.
 
+These browser runs deliberately used the visible `Mock` badge. Real DeepSeek
+was verified through the content-redacted API/SSE smoke in the next section;
+the report does not claim a separate Real-mode browser session.
+
 ## Security and dependency gates
 
 | Gate | Result |
@@ -250,7 +255,8 @@ Both reported `provider_mode=real`, model `deepseek-v4-flash`,
 `token_source=actual`, terminal status `succeeded`, contiguous UTF-8 chunks,
 `run.completed`, `stream.done`, and a matching final snapshot. A boolean-only
 container-log scan found neither a credential pattern nor
-`reasoning_content`.
+`reasoning_content`. The machine-readable, content-redacted output is preserved
+at `output/real-provider-smoke-summary.json`.
 
 `scripts/day1/real_provider_smoke.py` is the content-redacted executable gate.
 Its parser and all success invariants passed the two real runs above. The
