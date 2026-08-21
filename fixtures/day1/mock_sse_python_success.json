@@ -1,0 +1,260 @@
+{
+  "fixture_version": "1.0",
+  "name": "python_success",
+  "simulated": true,
+  "provider_evidence_label": "MockProvider fixture",
+  "request": {
+    "task_text": "请检查下面的 Python 代码并说明语法是否有效：\n```python\ndef add(a, b):\n    return a + b\n```",
+    "scenario": "programming_learning",
+    "memory_mode": "on",
+    "current_constraints": {
+      "response_policy": "guided_hint",
+      "urgency": "normal",
+      "memory_disabled": false,
+      "source": "ui"
+    }
+  },
+  "accepted": {
+    "request_id": "req_01J00000000000000000000001",
+    "task_id": "task_01J00000000000000000000001",
+    "run_id": "run_01J00000000000000000000001",
+    "events_url": "/api/v1/tasks/task_01J00000000000000000000001/events",
+    "provider_mode": "mock",
+    "effective_memory_mode": "on"
+  },
+  "events": [
+    {
+      "event_version": "1.0",
+      "event_type": "task.created",
+      "event_seq": 1,
+      "task_id": "task_01J00000000000000000000001",
+      "run_id": "run_01J00000000000000000000001",
+      "at": "2026-08-21T00:00:01Z",
+      "data": {"task_status": "active", "run_status": "queued"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "task.stage",
+      "event_seq": 2,
+      "task_id": "task_01J00000000000000000000001",
+      "run_id": "run_01J00000000000000000000001",
+      "at": "2026-08-21T00:00:02Z",
+      "data": {"stage": "fingerprinting", "progress_label": "fingerprinting_task"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "task.fingerprinted",
+      "event_seq": 3,
+      "task_id": "task_01J00000000000000000000001",
+      "run_id": "run_01J00000000000000000000001",
+      "at": "2026-08-21T00:00:03Z",
+      "data": {
+        "fingerprint_id": "fp_01J00000000000000000000001",
+        "domain": "programming_learning",
+        "task_type": "code_explanation",
+        "artifact_type": "source_code",
+        "language": "python"
+      }
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "task.stage",
+      "event_seq": 4,
+      "task_id": "task_01J00000000000000000000001",
+      "run_id": "run_01J00000000000000000000001",
+      "at": "2026-08-21T00:00:04Z",
+      "data": {"stage": "retrieving", "progress_label": "retrieving_memory"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "memory.retrieval.started",
+      "event_seq": null,
+      "task_id": "task_01J00000000000000000000001",
+      "run_id": "run_01J00000000000000000000001",
+      "at": "2026-08-21T00:00:05Z",
+      "data": {"memory_count": 0, "summary": "no_long_term_memory_day1"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "task.stage",
+      "event_seq": 5,
+      "task_id": "task_01J00000000000000000000001",
+      "run_id": "run_01J00000000000000000000001",
+      "at": "2026-08-21T00:00:06Z",
+      "data": {"stage": "planning", "progress_label": "publishing_plan"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "agent.plan.published",
+      "event_seq": 6,
+      "task_id": "task_01J00000000000000000000001",
+      "run_id": "run_01J00000000000000000000001",
+      "at": "2026-08-21T00:00:07Z",
+      "data": {
+        "plan_id": "plan_01J00000000000000000000001",
+        "goal_code": "analyze_code",
+        "memory_summary_code": "no_long_term_memory_day1",
+        "next_action_code": "python_ast_check"
+      }
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "task.stage",
+      "event_seq": 7,
+      "task_id": "task_01J00000000000000000000001",
+      "run_id": "run_01J00000000000000000000001",
+      "at": "2026-08-21T00:00:08Z",
+      "data": {"stage": "tool_running", "progress_label": "running_static_tool"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "tool.called",
+      "event_seq": 8,
+      "task_id": "task_01J00000000000000000000001",
+      "run_id": "run_01J00000000000000000000001",
+      "at": "2026-08-21T00:00:09Z",
+      "data": {
+        "tool_call_id": "tool_01J00000000000000000000001",
+        "tool_name": "python_ast_check",
+        "reason_code": "python_code_detected",
+        "args_summary": {"language": "python", "code_source": "fenced_python", "code_bytes": 32}
+      }
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "tool.result",
+      "event_seq": 9,
+      "task_id": "task_01J00000000000000000000001",
+      "run_id": "run_01J00000000000000000000001",
+      "at": "2026-08-21T00:00:10Z",
+      "data": {
+        "tool_call_id": "tool_01J00000000000000000000001",
+        "tool_name": "python_ast_check",
+        "status": "succeeded",
+        "latency_ms": 1.2,
+        "result_ref": "toolres_01J00000000000000000000001"
+      }
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "task.stage",
+      "event_seq": 10,
+      "task_id": "task_01J00000000000000000000001",
+      "run_id": "run_01J00000000000000000000001",
+      "at": "2026-08-21T00:00:11Z",
+      "data": {"stage": "generating", "progress_label": "generating_answer"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "agent.chunk",
+      "event_seq": null,
+      "task_id": "task_01J00000000000000000000001",
+      "run_id": "run_01J00000000000000000000001",
+      "at": "2026-08-21T00:00:12Z",
+      "data": {"run_id": "run_01J00000000000000000000001", "chunk_seq": 1, "start_offset": 0, "end_offset": 21, "offset_unit": "utf8_bytes", "delta": "语法检查通过。"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "agent.chunk",
+      "event_seq": null,
+      "task_id": "task_01J00000000000000000000001",
+      "run_id": "run_01J00000000000000000000001",
+      "at": "2026-08-21T00:00:13Z",
+      "data": {"run_id": "run_01J00000000000000000000001", "chunk_seq": 2, "start_offset": 21, "end_offset": 57, "offset_unit": "utf8_bytes", "delta": "函数会返回两个参数之和。"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "agent.chunk",
+      "event_seq": null,
+      "task_id": "task_01J00000000000000000000001",
+      "run_id": "run_01J00000000000000000000001",
+      "at": "2026-08-21T00:00:14Z",
+      "data": {"run_id": "run_01J00000000000000000000001", "chunk_seq": 3, "start_offset": 57, "end_offset": 60, "offset_unit": "utf8_bytes", "delta": "✅"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "run.metrics",
+      "event_seq": 11,
+      "task_id": "task_01J00000000000000000000001",
+      "run_id": "run_01J00000000000000000000001",
+      "at": "2026-08-21T00:00:15Z",
+      "data": {"provider": "mock", "model": "fixture-g0", "provider_mode": "mock", "first_token_ms": 10.0, "total_ms": 25.0, "prompt_tokens": 42, "output_tokens": 18, "token_source": "mock"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "run.completed",
+      "event_seq": 12,
+      "task_id": "task_01J00000000000000000000001",
+      "run_id": "run_01J00000000000000000000001",
+      "at": "2026-08-21T00:00:16Z",
+      "data": {"status": "succeeded", "message_id": "msg_01J00000000000000000000001", "end_offset": 60, "offset_unit": "utf8_bytes"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "stream.done",
+      "event_seq": 13,
+      "task_id": "task_01J00000000000000000000001",
+      "run_id": "run_01J00000000000000000000001",
+      "at": "2026-08-21T00:00:17Z",
+      "data": {"status": "succeeded", "final_snapshot_required": true}
+    }
+  ],
+  "terminal_snapshot": {
+    "request_id": "req_01J00000000000000000000002",
+    "task_id": "task_01J00000000000000000000001",
+    "run_id": "run_01J00000000000000000000001",
+    "task_status": "active",
+    "run_status": "succeeded",
+    "provider_mode": "mock",
+    "effective_memory_mode": "on",
+    "fingerprint": {
+      "id": "fp_01J00000000000000000000001",
+      "schema_version": "1.0",
+      "domain": "programming_learning",
+      "task_type": "code_explanation",
+      "artifact_type": "source_code",
+      "audience": "beginner",
+      "project_key": null,
+      "language": "python",
+      "framework": null,
+      "concepts": ["syntax", "function"],
+      "tool_context": ["python_ast_check"],
+      "current_constraints": {"response_policy": "guided_hint", "urgency": "normal", "memory_disabled": false, "source": "ui"},
+      "semantic_query": "检查 Python 函数语法并解释函数返回行为"
+    },
+    "public_plan": {
+      "id": "plan_01J00000000000000000000001",
+      "goal": "检查给出的 Python 代码是否满足语法规则。",
+      "memory_summary": "Day 1 尚无长期记忆，本次不注入记忆。",
+      "next_action": "先运行只读 AST 语法检查，再生成简短解释。"
+    },
+    "tool_decision": {"action": "call", "tool_name": "python_ast_check", "reason_code": "python_code_detected", "reason": "检测到显式标注的 Python 代码块。"},
+    "tool_calls": [
+      {
+        "tool_call_id": "tool_01J00000000000000000000001",
+        "tool_name": "python_ast_check",
+        "reason": "检测到显式标注的 Python 代码块。",
+        "args_summary": {"language": "python", "code_source": "fenced_python", "code_bytes": 32},
+        "status": "succeeded",
+        "latency_ms": 1.2,
+        "result_ref": "toolres_01J00000000000000000000001",
+        "result": {"valid": true, "syntax_error": null}
+      }
+    ],
+    "partial_output": "语法检查通过。函数会返回两个参数之和。✅",
+    "end_offset": 60,
+    "offset_unit": "utf8_bytes",
+    "final_message": {"id": "msg_01J00000000000000000000001", "role": "assistant", "content": "语法检查通过。函数会返回两个参数之和。✅", "created_at": "2026-08-21T00:00:16Z"},
+    "error": null,
+    "terminal": true,
+    "last_persistent_event_seq": 13,
+    "updated_at": "2026-08-21T00:00:17Z"
+  },
+  "expectations": {
+    "trace": "python_success",
+    "chunk_text": "语法检查通过。函数会返回两个参数之和。✅",
+    "final_end_offset": 60,
+    "persistent_event_count": 13,
+    "transient_chunk_count": 3
+  }
+}

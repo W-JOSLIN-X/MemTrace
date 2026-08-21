@@ -1,0 +1,221 @@
+{
+  "fixture_version": "1.0",
+  "name": "no_tool_success",
+  "simulated": true,
+  "provider_evidence_label": "MockProvider fixture",
+  "request": {
+    "task_text": "请用一句话解释什么是递归，并给我一个直观比喻。🙂",
+    "scenario": "programming_learning",
+    "memory_mode": "on",
+    "current_constraints": {
+      "response_policy": "guided_hint",
+      "urgency": "normal",
+      "memory_disabled": false,
+      "source": "ui"
+    }
+  },
+  "accepted": {
+    "request_id": "req_01J00000000000000000000011",
+    "task_id": "task_01J00000000000000000000011",
+    "run_id": "run_01J00000000000000000000011",
+    "events_url": "/api/v1/tasks/task_01J00000000000000000000011/events",
+    "provider_mode": "mock",
+    "effective_memory_mode": "on"
+  },
+  "events": [
+    {
+      "event_version": "1.0",
+      "event_type": "task.created",
+      "event_seq": 1,
+      "task_id": "task_01J00000000000000000000011",
+      "run_id": "run_01J00000000000000000000011",
+      "at": "2026-08-21T00:10:01Z",
+      "data": {"task_status": "active", "run_status": "queued"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "task.stage",
+      "event_seq": 2,
+      "task_id": "task_01J00000000000000000000011",
+      "run_id": "run_01J00000000000000000000011",
+      "at": "2026-08-21T00:10:02Z",
+      "data": {"stage": "fingerprinting", "progress_label": "fingerprinting_task"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "task.fingerprinted",
+      "event_seq": 3,
+      "task_id": "task_01J00000000000000000000011",
+      "run_id": "run_01J00000000000000000000011",
+      "at": "2026-08-21T00:10:03Z",
+      "data": {
+        "fingerprint_id": "fp_01J00000000000000000000011",
+        "domain": "programming_learning",
+        "task_type": "general_question",
+        "artifact_type": "none",
+        "language": "unknown"
+      }
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "task.stage",
+      "event_seq": 4,
+      "task_id": "task_01J00000000000000000000011",
+      "run_id": "run_01J00000000000000000000011",
+      "at": "2026-08-21T00:10:04Z",
+      "data": {"stage": "retrieving", "progress_label": "retrieving_memory"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "memory.retrieval.started",
+      "event_seq": null,
+      "task_id": "task_01J00000000000000000000011",
+      "run_id": "run_01J00000000000000000000011",
+      "at": "2026-08-21T00:10:05Z",
+      "data": {"memory_count": 0, "summary": "no_long_term_memory_day1"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "task.stage",
+      "event_seq": 5,
+      "task_id": "task_01J00000000000000000000011",
+      "run_id": "run_01J00000000000000000000011",
+      "at": "2026-08-21T00:10:06Z",
+      "data": {"stage": "planning", "progress_label": "publishing_plan"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "agent.plan.published",
+      "event_seq": 6,
+      "task_id": "task_01J00000000000000000000011",
+      "run_id": "run_01J00000000000000000000011",
+      "at": "2026-08-21T00:10:07Z",
+      "data": {
+        "plan_id": "plan_01J00000000000000000000011",
+        "goal_code": "explain_concept",
+        "memory_summary_code": "no_long_term_memory_day1",
+        "next_action_code": "generate_directly"
+      }
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "task.stage",
+      "event_seq": 7,
+      "task_id": "task_01J00000000000000000000011",
+      "run_id": "run_01J00000000000000000000011",
+      "at": "2026-08-21T00:10:08Z",
+      "data": {"stage": "generating", "progress_label": "generating_answer"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "agent.chunk",
+      "event_seq": null,
+      "task_id": "task_01J00000000000000000000011",
+      "run_id": "run_01J00000000000000000000011",
+      "at": "2026-08-21T00:10:09Z",
+      "data": {"run_id": "run_01J00000000000000000000011", "chunk_seq": 1, "start_offset": 0, "end_offset": 9, "offset_unit": "utf8_bytes", "delta": "递归像"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "agent.chunk",
+      "event_seq": null,
+      "task_id": "task_01J00000000000000000000011",
+      "run_id": "run_01J00000000000000000000011",
+      "at": "2026-08-21T00:10:10Z",
+      "data": {"run_id": "run_01J00000000000000000000011", "chunk_seq": 2, "start_offset": 9, "end_offset": 30, "offset_unit": "utf8_bytes", "delta": "打开一只套娃，"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "agent.chunk",
+      "event_seq": null,
+      "task_id": "task_01J00000000000000000000011",
+      "run_id": "run_01J00000000000000000000011",
+      "at": "2026-08-21T00:10:11Z",
+      "data": {"run_id": "run_01J00000000000000000000011", "chunk_seq": 3, "start_offset": 30, "end_offset": 54, "offset_unit": "utf8_bytes", "delta": "直到最里面停止。"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "agent.chunk",
+      "event_seq": null,
+      "task_id": "task_01J00000000000000000000011",
+      "run_id": "run_01J00000000000000000000011",
+      "at": "2026-08-21T00:10:12Z",
+      "data": {"run_id": "run_01J00000000000000000000011", "chunk_seq": 4, "start_offset": 54, "end_offset": 58, "offset_unit": "utf8_bytes", "delta": "🙂"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "run.metrics",
+      "event_seq": 8,
+      "task_id": "task_01J00000000000000000000011",
+      "run_id": "run_01J00000000000000000000011",
+      "at": "2026-08-21T00:10:13Z",
+      "data": {"provider": "mock", "model": "fixture-g0", "provider_mode": "mock", "first_token_ms": 8.0, "total_ms": 22.0, "prompt_tokens": 26, "output_tokens": 16, "token_source": "mock"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "run.completed",
+      "event_seq": 9,
+      "task_id": "task_01J00000000000000000000011",
+      "run_id": "run_01J00000000000000000000011",
+      "at": "2026-08-21T00:10:14Z",
+      "data": {"status": "succeeded", "message_id": "msg_01J00000000000000000000011", "end_offset": 58, "offset_unit": "utf8_bytes"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "stream.done",
+      "event_seq": 10,
+      "task_id": "task_01J00000000000000000000011",
+      "run_id": "run_01J00000000000000000000011",
+      "at": "2026-08-21T00:10:15Z",
+      "data": {"status": "succeeded", "final_snapshot_required": true}
+    }
+  ],
+  "terminal_snapshot": {
+    "request_id": "req_01J00000000000000000000012",
+    "task_id": "task_01J00000000000000000000011",
+    "run_id": "run_01J00000000000000000000011",
+    "task_status": "active",
+    "run_status": "succeeded",
+    "provider_mode": "mock",
+    "effective_memory_mode": "on",
+    "fingerprint": {
+      "id": "fp_01J00000000000000000000011",
+      "schema_version": "1.0",
+      "domain": "programming_learning",
+      "task_type": "general_question",
+      "artifact_type": "none",
+      "audience": "beginner",
+      "project_key": null,
+      "language": "unknown",
+      "framework": null,
+      "concepts": ["recursion"],
+      "tool_context": [],
+      "current_constraints": {"response_policy": "guided_hint", "urgency": "normal", "memory_disabled": false, "source": "ui"},
+      "semantic_query": "用直观比喻向初学者解释递归"
+    },
+    "public_plan": {
+      "id": "plan_01J00000000000000000000011",
+      "goal": "用一句话和直观比喻解释递归。",
+      "memory_summary": "Day 1 尚无长期记忆，本次不注入记忆。",
+      "next_action": "该任务没有可解析的 Python 代码，直接生成解释。"
+    },
+    "tool_decision": {"action": "skip", "tool_name": null, "reason_code": "non_python_task", "reason": "任务是概念解释，没有 Python 代码输入。"},
+    "tool_calls": [],
+    "partial_output": "递归像打开一只套娃，直到最里面停止。🙂",
+    "end_offset": 58,
+    "offset_unit": "utf8_bytes",
+    "final_message": {"id": "msg_01J00000000000000000000011", "role": "assistant", "content": "递归像打开一只套娃，直到最里面停止。🙂", "created_at": "2026-08-21T00:10:14Z"},
+    "error": null,
+    "terminal": true,
+    "last_persistent_event_seq": 10,
+    "updated_at": "2026-08-21T00:10:15Z"
+  },
+  "expectations": {
+    "trace": "no_tool_success",
+    "chunk_text": "递归像打开一只套娃，直到最里面停止。🙂",
+    "final_end_offset": 58,
+    "persistent_event_count": 10,
+    "transient_chunk_count": 4,
+    "contains_tool_events": false
+  }
+}

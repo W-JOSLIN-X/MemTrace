@@ -1,0 +1,200 @@
+{
+  "contract_version": "1.0.0",
+  "document_role": "audit_manifest",
+  "normative_contracts": {
+    "api_bodies": "contracts/schemas/g0-api.schema.json",
+    "sse_data": "contracts/schemas/events.schema.json",
+    "future_openapi_export": "contracts/openapi.json"
+  },
+  "scope": {
+    "gate": "G0",
+    "storage": "process_memory_only",
+    "identity": "anonymous_single_user",
+    "replay_durability": "current_process_only",
+    "database": false,
+    "session_cookie": false,
+    "owner_isolation": false,
+    "idempotency_key": false,
+    "restart_behavior": "tasks and replay buffers disappear; old task URLs return the unified 404",
+    "g1_boundary": "DemoSession, owner isolation, Idempotency-Key, SQLite, and restart recovery start in Day 2 G1"
+  },
+  "id_format": {
+    "description": "entity prefix followed by a 26-character uppercase Crockford Base32 ULID",
+    "examples": [
+      "task_01J00000000000000000000000",
+      "run_01J00000000000000000000000",
+      "req_01J00000000000000000000000"
+    ]
+  },
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "success_status": 200,
+      "response_schema": "contracts/schemas/g0-api.schema.json#/$defs/HealthResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ready",
+      "success_status": 200,
+      "failure_status": 503,
+      "response_schema": "contracts/schemas/g0-api.schema.json#/$defs/ReadyResponse",
+      "rule": "checks local configuration and data-directory writability; provider network is unchecked and no database check exists in G0"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tasks",
+      "success_status": 202,
+      "request_schema": "contracts/schemas/g0-api.schema.json#/$defs/TaskCreateRequest",
+      "response_schema": "contracts/schemas/g0-api.schema.json#/$defs/TaskCreateAccepted"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tasks/{task_id}",
+      "success_status": 200,
+      "failure_status": 404,
+      "response_schema": "contracts/schemas/g0-api.schema.json#/$defs/TaskSnapshot"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tasks/{task_id}/events",
+      "query_schema": "contracts/schemas/g0-api.schema.json#/$defs/SseCursorQuery",
+      "success_status": 200,
+      "content_type": "text/event-stream",
+      "failure_status": 404,
+      "event_schema": "contracts/schemas/events.schema.json"
+    }
+  ],
+  "http_error_mapping": {
+    "422": "VALIDATION_ERROR, including FastAPI request validation after conversion to the unified ErrorResponse",
+    "404": "TASK_NOT_FOUND",
+    "503": "PROVIDER_CONFIG_MISSING or readiness failure before a run is accepted",
+    "504": "PROVIDER_TIMEOUT only when failure occurs before POST /tasks accepts a run",
+    "502": "PROVIDER_ERROR only when failure occurs before POST /tasks accepts a run",
+    "500": "INTERNAL_ERROR for an unexpected REST failure; the public response never includes exception text",
+    "async_after_202": "TOOL_NOT_FOUND, TOOL_INPUT_INVALID, PROVIDER_TIMEOUT, PROVIDER_ERROR, or STREAM_INTERRUPTED use run.failed -> error -> stream.done while the SSE HTTP status remains 200"
+  },
+  "request_rules": {
+    "task_text_trimmed_characters": {
+      "min": 1,
+      "max": 20000
+    },
+    "effective_memory_mode": "off when memory_mode is off OR current_constraints.memory_disabled is true; otherwise on",
+    "day1_memory_behavior": "effective on still returns an empty retrieval result because G0 has no long-term memory store"
+  },
+  "sse": {
+    "event_version": "1.0",
+    "offset_unit": "utf8_bytes",
+    "persistent_event_id": "task-local monotonically increasing integer; SSE id equals data.event_seq",
+    "transient_event_id": "no SSE id line and data.event_seq is null",
+    "cursor_precedence": "explicit after_event_seq query wins; otherwise a valid Last-Event-ID header is used; after_offset always comes from query and defaults to 0",
+    "manual_reconnect": "close EventSource, GET TaskSnapshot, then create a new EventSource with after_event_seq and after_offset",
+    "snapshot_merge": "a snapshot may replace rendered text only when snapshot.end_offset is greater than or equal to the client's current end_offset",
+    "subscription_algorithm": [
+      "acquire the per-task lock",
+      "capture persistent and chunk high-water marks and register the subscriber",
+      "release the lock",
+      "replay records after both client cursors through the captured high-water marks",
+      "drain live events and rely on event_seq/chunk offsets for idempotent duplicate rejection"
+    ],
+    "chunk_buffer": {
+      "location": "process memory only",
+      "max_bytes_per_run": 524288,
+      "max_output_bytes": 262144,
+      "retention": "until the run reaches a terminal state; terminal truth remains in TaskSnapshot",
+      "not_event_log": true
+    },
+    "heartbeat_seconds": 15,
+    "response_headers": {
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+      "Content-Type": "text/event-stream; charset=utf-8"
+    },
+    "terminal_rule": "run.completed or run.failed is followed by stream.done; the server closes the stream and the client performs one final GET TaskSnapshot"
+  },
+  "persistent_events": [
+    "task.created",
+    "task.stage",
+    "task.fingerprinted",
+    "agent.plan.published",
+    "tool.called",
+    "tool.result",
+    "run.metrics",
+    "run.completed",
+    "run.failed",
+    "error",
+    "stream.done"
+  ],
+  "transient_events": [
+    "memory.retrieval.started",
+    "agent.chunk"
+  ],
+  "event_traces": {
+    "python_success": [
+      {"event": "task.created", "cardinality": "1"},
+      {"event": "task.stage", "stage": "fingerprinting", "cardinality": "1"},
+      {"event": "task.fingerprinted", "cardinality": "1"},
+      {"event": "task.stage", "stage": "retrieving", "cardinality": "1"},
+      {"event": "memory.retrieval.started", "cardinality": "1"},
+      {"event": "task.stage", "stage": "planning", "cardinality": "1"},
+      {"event": "agent.plan.published", "cardinality": "1"},
+      {"event": "task.stage", "stage": "tool_running", "cardinality": "1"},
+      {"event": "tool.called", "cardinality": "1"},
+      {"event": "tool.result", "cardinality": "1"},
+      {"event": "task.stage", "stage": "generating", "cardinality": "1"},
+      {"event": "agent.chunk", "cardinality": "1..N"},
+      {"event": "run.metrics", "cardinality": "1"},
+      {"event": "run.completed", "cardinality": "1"},
+      {"event": "stream.done", "cardinality": "1"}
+    ],
+    "no_tool_success": [
+      {"event": "task.created", "cardinality": "1"},
+      {"event": "task.stage", "stage": "fingerprinting", "cardinality": "1"},
+      {"event": "task.fingerprinted", "cardinality": "1"},
+      {"event": "task.stage", "stage": "retrieving", "cardinality": "1"},
+      {"event": "memory.retrieval.started", "cardinality": "1"},
+      {"event": "task.stage", "stage": "planning", "cardinality": "1"},
+      {"event": "agent.plan.published", "cardinality": "1"},
+      {"event": "task.stage", "stage": "generating", "cardinality": "1"},
+      {"event": "agent.chunk", "cardinality": "1..N"},
+      {"event": "run.metrics", "cardinality": "1"},
+      {"event": "run.completed", "cardinality": "1"},
+      {"event": "stream.done", "cardinality": "1"}
+    ],
+    "run_failure": [
+      {"event": "valid success-trace prefix ending before terminal events", "cardinality": "1"},
+      {"event": "agent.chunk", "cardinality": "0..N", "note": "possible only when failure follows partial output"},
+      {"event": "run.metrics", "cardinality": "1", "note": "unknown provider values are null"},
+      {"event": "task.stage", "stage": "failed", "cardinality": "1"},
+      {"event": "run.failed", "cardinality": "1"},
+      {"event": "error", "cardinality": "1"},
+      {"event": "stream.done", "cardinality": "1", "status": "failed"}
+    ]
+  },
+  "metadata_only_rules": [
+    "persistent event payloads contain identifiers, controlled enums, counts, timings, offsets, and curated safe messages only",
+    "partial output is represented by partial_message_id and end_offset, never partial_output",
+    "tool arguments contain only language, extraction source, and byte count; tool results use result_ref",
+    "fingerprint events contain safe enum summaries and fingerprint_id, never semantic_query or source text",
+    "answer text appears only in transient agent.chunk or TaskSnapshot"
+  ],
+  "tool_policy": {
+    "registered_tools": ["python_ast_check"],
+    "code_extraction_order": [
+      "first python or py fenced Markdown block",
+      "otherwise the whole trimmed task only when ast.parse succeeds",
+      "otherwise skip with NO_EXTRACTABLE_PYTHON; invalid code must be fenced to receive a syntax result in G0"
+    ],
+    "max_extracted_utf8_bytes": 102400,
+    "syntax_error_is_successful_tool_execution": true,
+    "forbidden_result_fields": ["text", "filename", "source_code"],
+    "forbidden_execution": ["exec", "eval", "compile-and-run", "shell", "subprocess", "filesystem write", "network"]
+  },
+  "provider": {
+    "default_model": "deepseek-v4-flash",
+    "thinking": "disabled",
+    "provider_modes": ["mock", "real"],
+    "token_source": ["actual", "unavailable", "mock"],
+    "retry": "one retry is allowed before the first agent.chunk; no silent retry is allowed after partial output"
+  }
+}

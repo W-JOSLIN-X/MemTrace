@@ -1,0 +1,79 @@
+{
+  "fixture_version": "1.0",
+  "purpose": "Day 2 feedback design inputs only; no item is consumed by the Day 1 runtime",
+  "day1_consumed": false,
+  "drafts": [
+    {
+      "id": "feedback_draft_01",
+      "category": "explicit_stable_preference",
+      "explicit_text": "以后遇到编程学习的调试题，先提示我观察边界，再给完整修复。",
+      "edited_output": null,
+      "rating": 4,
+      "accepted": true,
+      "expected_day2_disposition": "candidate"
+    },
+    {
+      "id": "feedback_draft_02",
+      "category": "one_shot",
+      "explicit_text": "这次赶着交作业，直接给我最小修复，不要逐步提示。",
+      "edited_output": null,
+      "rating": null,
+      "accepted": true,
+      "expected_day2_disposition": "one_shot"
+    },
+    {
+      "id": "feedback_draft_03",
+      "category": "pure_correction",
+      "explicit_text": "这里不是语法错误，是列表下标越界。",
+      "edited_output": null,
+      "rating": 2,
+      "accepted": false,
+      "expected_day2_disposition": "record_only"
+    },
+    {
+      "id": "feedback_draft_04",
+      "category": "ambiguous",
+      "explicit_text": "我不太喜欢这个回答。",
+      "edited_output": null,
+      "rating": 2,
+      "accepted": false,
+      "expected_day2_disposition": "insufficient_evidence"
+    },
+    {
+      "id": "feedback_draft_05",
+      "category": "direct_edit",
+      "explicit_text": null,
+      "edited_output": "先运行一个最小样例，记录循环结束时的索引值，再决定如何修改条件。",
+      "rating": null,
+      "accepted": true,
+      "expected_day2_disposition": "candidate_from_diff"
+    },
+    {
+      "id": "feedback_draft_06",
+      "category": "rejected_method",
+      "explicit_text": "不要通过捕获所有异常来掩盖越界问题，我希望先找到根因。",
+      "edited_output": null,
+      "rating": 1,
+      "accepted": false,
+      "expected_day2_disposition": "candidate"
+    },
+    {
+      "id": "feedback_draft_07",
+      "category": "technology_preference",
+      "explicit_text": "这个课程项目统一使用 Python 3.11 和 pytest，不要换成其他测试框架。",
+      "edited_output": null,
+      "rating": 5,
+      "accepted": true,
+      "expected_day2_disposition": "candidate_project_scope"
+    },
+    {
+      "id": "feedback_draft_08",
+      "category": "positive_reinforcement",
+      "explicit_text": "这次先解释错误现象、再给验证步骤的顺序很适合我，以后类似调试继续这样。",
+      "edited_output": null,
+      "rating": 5,
+      "accepted": true,
+      "expected_day2_disposition": "candidate"
+    }
+  ]
+}

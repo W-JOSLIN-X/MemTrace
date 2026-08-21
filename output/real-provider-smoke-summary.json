@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "recorded_at": "2026-08-21T21:04:06+08:00",
+  "redacted": true,
+  "contains_task_or_answer_content": false,
+  "contains_credentials_or_headers": false,
+  "image_digest": "sha256:6cd18548ca5bbcd410fee60d674c428d4792983ca940fae86316bea6a1fd23e8",
+  "runs": [
+    {
+      "task_id": "task_01M0J6NSYQ9H3XXE85XMZJX82V",
+      "run_id": "run_01M0J6NSYQ2XCB38TK85003JFB",
+      "provider_mode": "real",
+      "model": "deepseek-v4-flash",
+      "status": "succeeded",
+      "token_source": "actual",
+      "prompt_tokens": 78,
+      "output_tokens": 23,
+      "first_token_ms": 3304.7522759998174,
+      "total_ms": 3755.309264999596,
+      "end_offset": 102
+    },
+    {
+      "task_id": "task_01M0J6P5CXH3BA7YQEBQRSZWBQ",
+      "run_id": "run_01M0J6P5CXF2K0G4EJP1B1YP35",
+      "provider_mode": "real",
+      "model": "deepseek-v4-flash",
+      "status": "succeeded",
+      "token_source": "actual",
+      "prompt_tokens": 78,
+      "output_tokens": 23,
+      "first_token_ms": 1774.2093830001977,
+      "total_ms": 2138.737156999923,
+      "end_offset": 78
+    }
+  ]
+}

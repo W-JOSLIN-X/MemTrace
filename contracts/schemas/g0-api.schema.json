@@ -1,0 +1,621 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://memtrace.local/contracts/schemas/g0-api.schema.json",
+  "title": "MemTrace G0 REST bodies",
+  "description": "Normative Day 1 schemas for REST JSON bodies and the SSE cursor query represented as JSON.",
+  "oneOf": [
+    {"$ref": "#/$defs/HealthResponse"},
+    {"$ref": "#/$defs/ReadyResponse"},
+    {"$ref": "#/$defs/TaskCreateRequest"},
+    {"$ref": "#/$defs/TaskCreateAccepted"},
+    {"$ref": "#/$defs/TaskSnapshot"},
+    {"$ref": "#/$defs/ErrorResponse"},
+    {"$ref": "#/$defs/SseCursorQuery"}
+  ],
+  "$defs": {
+    "TaskId": {
+      "type": "string",
+      "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "RunId": {
+      "type": "string",
+      "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "RequestId": {
+      "type": "string",
+      "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "MessageId": {
+      "type": "string",
+      "pattern": "^msg_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "FingerprintId": {
+      "type": "string",
+      "pattern": "^fp_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "PlanId": {
+      "type": "string",
+      "pattern": "^plan_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "ToolCallId": {
+      "type": "string",
+      "pattern": "^tool_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "ToolResultId": {
+      "type": "string",
+      "pattern": "^toolres_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "ErrorId": {
+      "type": "string",
+      "pattern": "^err_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC ISO-8601 timestamp; serialized values use a Z suffix."
+    },
+    "ProviderMode": {
+      "type": "string",
+      "enum": ["mock", "real"]
+    },
+    "EffectiveMemoryMode": {
+      "type": "string",
+      "enum": ["on", "off"]
+    },
+    "Scenario": {
+      "type": "string",
+      "enum": ["programming_learning", "software_development", "general_text", "other"]
+    },
+    "ResponsePolicy": {
+      "type": "string",
+      "enum": ["default", "guided_hint", "direct_fix"]
+    },
+    "CurrentConstraints": {
+      "type": "object",
+      "properties": {
+        "response_policy": {"$ref": "#/$defs/ResponsePolicy"},
+        "urgency": {
+          "type": "string",
+          "enum": ["normal", "urgent"]
+        },
+        "memory_disabled": {"type": "boolean"},
+        "source": {
+          "type": "string",
+          "const": "ui"
+        }
+      },
+      "required": ["response_policy", "urgency", "memory_disabled", "source"],
+      "additionalProperties": false
+    },
+    "TaskCreateRequest": {
+      "type": "object",
+      "description": "The server trims task_text before enforcing 1..20000 Unicode scalar values. Effective memory is off when either memory_mode is off or current_constraints.memory_disabled is true.",
+      "properties": {
+        "task_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "scenario": {"$ref": "#/$defs/Scenario"},
+        "memory_mode": {
+          "type": "string",
+          "enum": ["on", "off"]
+        },
+        "current_constraints": {"$ref": "#/$defs/CurrentConstraints"}
+      },
+      "required": ["task_text", "scenario", "memory_mode", "current_constraints"],
+      "additionalProperties": false
+    },
+    "TaskCreateAccepted": {
+      "type": "object",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "task_id": {"$ref": "#/$defs/TaskId"},
+        "run_id": {"$ref": "#/$defs/RunId"},
+        "events_url": {
+          "type": "string",
+          "pattern": "^/api/v1/tasks/task_[0-9A-HJKMNP-TV-Z]{26}/events$"
+        },
+        "provider_mode": {"$ref": "#/$defs/ProviderMode"},
+        "effective_memory_mode": {"$ref": "#/$defs/EffectiveMemoryMode"}
+      },
+      "required": ["request_id", "task_id", "run_id", "events_url", "provider_mode", "effective_memory_mode"],
+      "additionalProperties": false
+    },
+    "Domain": {
+      "type": "string",
+      "enum": ["programming_learning", "software_development", "general_text", "other"]
+    },
+    "TaskType": {
+      "type": "string",
+      "enum": ["debugging_guidance", "code_review", "code_explanation", "code_generation", "environment_configuration", "general_question", "other"]
+    },
+    "ArtifactType": {
+      "type": "string",
+      "enum": ["source_code", "configuration", "text", "none", "other"]
+    },
+    "ProgrammingLanguage": {
+      "type": "string",
+      "enum": ["python", "javascript", "typescript", "java", "c", "cpp", "rust", "go", "other", "unknown"]
+    },
+    "TaskFingerprint": {
+      "type": "object",
+      "properties": {
+        "id": {"$ref": "#/$defs/FingerprintId"},
+        "schema_version": {
+          "type": "string",
+          "const": "1.0"
+        },
+        "domain": {"$ref": "#/$defs/Domain"},
+        "task_type": {"$ref": "#/$defs/TaskType"},
+        "artifact_type": {"$ref": "#/$defs/ArtifactType"},
+        "audience": {
+          "type": "string",
+          "enum": ["beginner", "intermediate", "advanced", "unknown"]
+        },
+        "project_key": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "language": {"$ref": "#/$defs/ProgrammingLanguage"},
+        "framework": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "concepts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+          },
+          "maxItems": 12,
+          "uniqueItems": true
+        },
+        "tool_context": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["python_ast_check"]
+          },
+          "maxItems": 1,
+          "uniqueItems": true
+        },
+        "current_constraints": {"$ref": "#/$defs/CurrentConstraints"},
+        "semantic_query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "required": ["id", "schema_version", "domain", "task_type", "artifact_type", "audience", "project_key", "language", "framework", "concepts", "tool_context", "current_constraints", "semantic_query"],
+      "additionalProperties": false
+    },
+    "PublicPlan": {
+      "type": "object",
+      "properties": {
+        "id": {"$ref": "#/$defs/PlanId"},
+        "goal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "memory_summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "next_action": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        }
+      },
+      "required": ["id", "goal", "memory_summary", "next_action"],
+      "additionalProperties": false
+    },
+    "ToolDecision": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["call", "skip"]
+        },
+        "tool_name": {
+          "type": ["string", "null"],
+          "enum": ["python_ast_check", null]
+        },
+        "reason_code": {
+          "type": "string",
+          "enum": ["python_code_detected", "non_python_task", "no_extractable_python", "unsupported_artifact"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "description": "Curated explanation; must not contain source code."
+        }
+      },
+      "required": ["action", "tool_name", "reason_code", "reason"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"properties": {"action": {"const": "call"}}, "required": ["action"]},
+          "then": {"properties": {"tool_name": {"const": "python_ast_check"}, "reason_code": {"const": "python_code_detected"}}}
+        },
+        {
+          "if": {"properties": {"action": {"const": "skip"}}, "required": ["action"]},
+          "then": {
+            "properties": {
+              "tool_name": {"type": "null"},
+              "reason_code": {
+                "enum": ["non_python_task", "no_extractable_python", "unsupported_artifact"]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ToolArgsSummary": {
+      "type": "object",
+      "properties": {
+        "language": {
+          "type": "string",
+          "const": "python"
+        },
+        "code_source": {
+          "type": "string",
+          "enum": ["fenced_python", "whole_task_valid_python"]
+        },
+        "code_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 102400
+        }
+      },
+      "required": ["language", "code_source", "code_bytes"],
+      "additionalProperties": false
+    },
+    "AstSyntaxError": {
+      "type": "object",
+      "description": "Python SyntaxError metadata. The source text, filename, and original code are forbidden.",
+      "properties": {
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "line": {"type": ["integer", "null"], "minimum": 1},
+        "column": {"type": ["integer", "null"], "minimum": 1},
+        "end_line": {"type": ["integer", "null"], "minimum": 1},
+        "end_column": {"type": ["integer", "null"], "minimum": 1}
+      },
+      "required": ["message", "line", "column", "end_line", "end_column"],
+      "additionalProperties": false
+    },
+    "PythonAstResult": {
+      "type": "object",
+      "properties": {
+        "valid": {"type": "boolean"},
+        "syntax_error": {
+          "oneOf": [
+            {"$ref": "#/$defs/AstSyntaxError"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "required": ["valid", "syntax_error"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"properties": {"valid": {"const": true}}, "required": ["valid"]},
+          "then": {"properties": {"syntax_error": {"type": "null"}}}
+        },
+        {
+          "if": {"properties": {"valid": {"const": false}}, "required": ["valid"]},
+          "then": {"properties": {"syntax_error": {"$ref": "#/$defs/AstSyntaxError"}}}
+        }
+      ]
+    },
+    "ToolCallSnapshot": {
+      "type": "object",
+      "properties": {
+        "tool_call_id": {"$ref": "#/$defs/ToolCallId"},
+        "tool_name": {
+          "type": "string",
+          "const": "python_ast_check"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "description": "Curated explanation; must not contain source code."
+        },
+        "args_summary": {"$ref": "#/$defs/ToolArgsSummary"},
+        "status": {
+          "type": "string",
+          "enum": ["running", "succeeded", "failed"]
+        },
+        "latency_ms": {"type": ["number", "null"], "minimum": 0},
+        "result_ref": {
+          "oneOf": [
+            {"$ref": "#/$defs/ToolResultId"},
+            {"type": "null"}
+          ]
+        },
+        "result": {
+          "oneOf": [
+            {"$ref": "#/$defs/PythonAstResult"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "required": ["tool_call_id", "tool_name", "reason", "args_summary", "status", "latency_ms", "result_ref", "result"],
+      "additionalProperties": false
+    },
+    "MessageSnapshot": {
+      "type": "object",
+      "properties": {
+        "id": {"$ref": "#/$defs/MessageId"},
+        "role": {
+          "type": "string",
+          "const": "assistant"
+        },
+        "content": {"type": "string", "maxLength": 262144},
+        "created_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["id", "role", "content", "created_at"],
+      "additionalProperties": false
+    },
+    "AsyncErrorCode": {
+      "type": "string",
+      "enum": ["PROVIDER_TIMEOUT", "PROVIDER_ERROR", "TOOL_NOT_FOUND", "TOOL_INPUT_INVALID", "STREAM_INTERRUPTED"]
+    },
+    "RunErrorSnapshot": {
+      "type": "object",
+      "properties": {
+        "error_id": {"$ref": "#/$defs/ErrorId"},
+        "code": {"$ref": "#/$defs/AsyncErrorCode"},
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "description": "Curated public message; never an upstream response body."
+        },
+        "retryable": {"type": "boolean"}
+      },
+      "required": ["error_id", "code", "message", "retryable"],
+      "additionalProperties": false
+    },
+    "RunStatus": {
+      "type": "string",
+      "enum": ["queued", "fingerprinting", "retrieving", "planning", "tool_running", "generating", "succeeded", "failed"]
+    },
+    "TaskSnapshot": {
+      "type": "object",
+      "description": "Authoritative G0 recovery snapshot. Clients merge it monotonically by UTF-8 byte end_offset and always fetch it after a terminal SSE event.",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "task_id": {"$ref": "#/$defs/TaskId"},
+        "run_id": {"$ref": "#/$defs/RunId"},
+        "task_status": {
+          "type": "string",
+          "const": "active"
+        },
+        "run_status": {"$ref": "#/$defs/RunStatus"},
+        "provider_mode": {"$ref": "#/$defs/ProviderMode"},
+        "effective_memory_mode": {"$ref": "#/$defs/EffectiveMemoryMode"},
+        "fingerprint": {
+          "oneOf": [
+            {"$ref": "#/$defs/TaskFingerprint"},
+            {"type": "null"}
+          ]
+        },
+        "public_plan": {
+          "oneOf": [
+            {"$ref": "#/$defs/PublicPlan"},
+            {"type": "null"}
+          ]
+        },
+        "tool_decision": {
+          "oneOf": [
+            {"$ref": "#/$defs/ToolDecision"},
+            {"type": "null"}
+          ]
+        },
+        "tool_calls": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/ToolCallSnapshot"},
+          "maxItems": 1
+        },
+        "partial_output": {"type": "string", "maxLength": 262144},
+        "end_offset": {"type": "integer", "minimum": 0, "maximum": 262144},
+        "offset_unit": {
+          "type": "string",
+          "const": "utf8_bytes"
+        },
+        "final_message": {
+          "oneOf": [
+            {"$ref": "#/$defs/MessageSnapshot"},
+            {"type": "null"}
+          ]
+        },
+        "error": {
+          "oneOf": [
+            {"$ref": "#/$defs/RunErrorSnapshot"},
+            {"type": "null"}
+          ]
+        },
+        "terminal": {"type": "boolean"},
+        "last_persistent_event_seq": {"type": "integer", "minimum": 0},
+        "updated_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["request_id", "task_id", "run_id", "task_status", "run_status", "provider_mode", "effective_memory_mode", "fingerprint", "public_plan", "tool_decision", "tool_calls", "partial_output", "end_offset", "offset_unit", "final_message", "error", "terminal", "last_persistent_event_seq", "updated_at"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"properties": {"run_status": {"const": "succeeded"}}, "required": ["run_status"]},
+          "then": {
+            "properties": {
+              "terminal": {"const": true},
+              "final_message": {"$ref": "#/$defs/MessageSnapshot"},
+              "error": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"run_status": {"const": "failed"}}, "required": ["run_status"]},
+          "then": {
+            "properties": {
+              "terminal": {"const": true},
+              "final_message": {"type": "null"},
+              "error": {"$ref": "#/$defs/RunErrorSnapshot"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "run_status": {
+                "enum": ["queued", "fingerprinting", "retrieving", "planning", "tool_running", "generating"]
+              }
+            },
+            "required": ["run_status"]
+          },
+          "then": {
+            "properties": {
+              "terminal": {"const": false},
+              "final_message": {"type": "null"},
+              "error": {"type": "null"}
+            }
+          }
+        }
+      ]
+    },
+    "HealthResponse": {
+      "type": "object",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "status": {"type": "string", "const": "ok"},
+        "service": {"type": "string", "const": "memtrace-api"},
+        "version": {"type": "string", "minLength": 1, "maxLength": 32},
+        "environment": {"type": "string", "enum": ["development", "test", "production"]},
+        "at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["request_id", "status", "service", "version", "environment", "at"],
+      "additionalProperties": false
+    },
+    "ReadyChecks": {
+      "type": "object",
+      "properties": {
+        "config": {"type": "string", "const": "pass"},
+        "data_dir": {"type": "string", "const": "pass"},
+        "provider_credentials": {"type": "string", "enum": ["pass", "not_required"]},
+        "provider_network": {"type": "string", "const": "unchecked"}
+      },
+      "required": ["config", "data_dir", "provider_credentials", "provider_network"],
+      "additionalProperties": false
+    },
+    "ReadyResponse": {
+      "type": "object",
+      "description": "Returned only with HTTP 200. A readiness failure uses ErrorResponse with HTTP 503. G0 never probes provider network or a database.",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "status": {"type": "string", "const": "ready"},
+        "provider_mode": {"$ref": "#/$defs/ProviderMode"},
+        "checks": {"$ref": "#/$defs/ReadyChecks"},
+        "at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["request_id", "status", "provider_mode", "checks", "at"],
+      "additionalProperties": false
+    },
+    "ValidationFieldError": {
+      "type": "object",
+      "properties": {
+        "loc": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {"type": "string"},
+              {"type": "integer"}
+            ]
+          }
+        },
+        "message": {"type": "string", "minLength": 1, "maxLength": 240},
+        "type": {"type": "string", "minLength": 1, "maxLength": 120}
+      },
+      "required": ["loc", "message", "type"],
+      "additionalProperties": false
+    },
+    "ErrorDetails": {
+      "type": "object",
+      "properties": {
+        "field_errors": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/ValidationFieldError"},
+          "maxItems": 50
+        },
+        "task_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/TaskId"},
+            {"type": "null"}
+          ]
+        },
+        "run_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/RunId"},
+            {"type": "null"}
+          ]
+        },
+        "provider_status": {"type": ["integer", "null"], "minimum": 400, "maximum": 599},
+        "check": {
+          "type": "string",
+          "enum": ["provider_configuration", "data_directory"]
+        },
+        "http_status": {"type": "integer", "minimum": 400, "maximum": 599}
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ErrorCode": {
+      "type": "string",
+      "enum": ["VALIDATION_ERROR", "TASK_NOT_FOUND", "PROVIDER_CONFIG_MISSING", "PROVIDER_TIMEOUT", "PROVIDER_ERROR", "TOOL_NOT_FOUND", "TOOL_INPUT_INVALID", "STREAM_INTERRUPTED", "INTERNAL_ERROR"]
+    },
+    "ErrorResponse": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {"$ref": "#/$defs/ErrorCode"},
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 240,
+              "description": "Curated safe message; never includes credentials, request headers, or an upstream response body."
+            },
+            "request_id": {"$ref": "#/$defs/RequestId"},
+            "retryable": {"type": "boolean"},
+            "details": {"$ref": "#/$defs/ErrorDetails"}
+          },
+          "required": ["code", "message", "request_id", "retryable", "details"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["error"],
+      "additionalProperties": false
+    },
+    "SseCursorQuery": {
+      "type": "object",
+      "description": "Query parameters for a manually reconstructed EventSource URL. Explicit after_event_seq takes precedence over Last-Event-ID; both values default to zero.",
+      "properties": {
+        "after_event_seq": {"type": "integer", "minimum": 0, "default": 0},
+        "after_offset": {"type": "integer", "minimum": 0, "maximum": 262144, "default": 0}
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
+}
