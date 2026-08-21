@@ -61,11 +61,11 @@ export function AppShell() {
           </NavLink>
 
           <div
-            aria-label="当前 Provider 状态"
+            aria-label="当前开发阶段"
             className="flex items-center gap-2 rounded-full border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm"
           >
-            <span className="size-2 rounded-full bg-amber-400" />
-            尚未连接
+            <span className="size-2 rounded-full bg-emerald-500" />
+            Day 1 · G0
           </div>
         </div>
       </header>

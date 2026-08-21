@@ -22,8 +22,8 @@ describe('MemTrace application shell', () => {
         name: '把编程问题交给 Agent，观察它如何完成任务',
       }),
     ).toBeInTheDocument()
-    expect(screen.getByText('尚未连接')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '接入后即可运行' })).toBeDisabled()
+    expect(screen.getByLabelText('Provider 模式：未连接')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '运行 Agent' })).toBeDisabled()
     expect(screen.getByText('尚无长期记忆')).toBeInTheDocument()
   })
 

@@ -4,7 +4,7 @@ import { loadEnv } from 'vite'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '')
+  const env = loadEnv(mode, process.cwd(), 'VITE_')
   const apiTarget = env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8000'
 
   return {
