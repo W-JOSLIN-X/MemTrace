@@ -2,19 +2,17 @@
 
 ## Verdict
 
-Recorded at `2026-08-21T20:29:40+08:00` on branch `feat/day1-g0`.
+Updated at `2026-08-21T21:04:06+08:00` on branch `feat/day1-g0`.
 
-The local Mock G0 implementation is buildable, testable, browser-verified, and
-container-verified. It is **not yet a fully closed Day 1 release** because three
-external gates remain open:
+The G0 implementation is buildable, testable, browser-verified,
+container-verified, and verified against the real DeepSeek Provider. It is
+**not yet a fully closed Day 1 release** because one team gate remains open:
 
-1. two successful real DeepSeek runs using an ignored local credential;
-2. one smoke run by the second developer in another environment;
-3. an authenticated container OS-layer high/critical CVE scan.
+1. one smoke run by the second developer in another environment.
 
 For that reason this report does not authorize the planned merge into `main` or
-creation of the `day1-g0-verified` tag. A passing local Mock build cannot replace
-those gates.
+creation of the `day1-g0-verified` tag. Local verification cannot replace the
+second developer's independent run.
 
 ## Release identity
 
@@ -22,8 +20,8 @@ those gates.
 |---|---|
 | Source HEAD before this report | `f727158520c87f198ded0c089de9ad636dd2f496` |
 | OpenAPI SHA-256 | `763B8159610106C9E80DD6287594D2F510017125D4A334FB1B9CC6837A065A02` |
-| Container image | `sha256:ad6f4bd557d87ee16f0d7a4b8439834f0d33085a7f27ae18b61afdf8a35a42ed` |
-| Image size | `71,798,106` bytes |
+| Container image | `sha256:6cd18548ca5bbcd410fee60d674c428d4792983ca940fae86316bea6a1fd23e8` |
+| Image size | `71,797,880` bytes |
 | Chrome evidence SHA-256 | `1D237E68B641F7304BABDDC00727D0C25B3A6628DB1BEC3CF82497EE46C9F4D4` |
 | Edge evidence SHA-256 | `78AEFE2EDCD8B9571BFF4685A3C14AE66B378FD2D1EEFA394545D369470D8BD1` |
 
@@ -44,6 +42,7 @@ Evidence images:
 | Docker Engine CLI | `29.6.1`, build `8900f1d` |
 | Docker Compose | `v5.2.0` |
 | Docker Scout | `v1.22.0` |
+| Trivy | `v0.73.0` |
 
 The container deliberately uses a newer Python 3.11 security patch than the
 local interpreter. Both Node and Python base images are pinned by digest in the
@@ -64,6 +63,8 @@ Dockerfile, so a future tag update cannot silently change this verified image.
 | `5ed2e48` | add fixtures, contract validator, and live smoke |
 | `b58d8b6` | add and verify the single-container delivery |
 | `f727158` | correct current/completed/skipped/failed timeline UI states |
+| `6bcfb2b` | record local verification evidence and real-provider smoke gate |
+| `2de013f` | remove vulnerable runtime packaging tools |
 
 No checkpoint was amended or history-rewritten.
 
@@ -208,11 +209,20 @@ Edge independently ran a Python task through the same terminal UI and reported
 | npm full dependency audit | `0 vulnerabilities` |
 | npm production dependency audit | `0 vulnerabilities` |
 | isolated `pip-audit` of `requirements.lock` | `No known vulnerabilities found` |
-| Docker image OS-layer high/critical scan | **open**; Docker Scout required Docker account login |
+| Docker Scout authenticated full high/critical scan | 5 unfixed OS findings; SARIF preserved |
+| Docker Scout fixable high/critical scan | pass; `0C / 0H` |
+| Trivy full high/critical scan | 34 Debian findings and 2 Python packaging-tool findings before repair |
+| Python packaging-tool findings after repair | pass; `setuptools` removed from runtime image |
 
-The last row is not equivalent to a vulnerability finding. It means the local
-scanner could not query its service without authentication, so zero OS-layer
-CVEs cannot be claimed from this run.
+The five remaining Docker Scout findings are `CVE-2026-12087`,
+`CVE-2026-13221`, `CVE-2026-14456`, `CVE-2026-48959`, and
+`CVE-2026-48962`. Scout marks every one as `fixed_version=not fixed`; they are
+in the Debian Perl/OpenSSL base layer rather than a Python application package.
+They remain an explicit release risk: the report does **not** claim zero total
+high/critical CVEs. The fixable-only gate is zero after removing runtime
+`setuptools`, whose vendored `jaraco.context` and `wheel` caused the two
+actionable Trivy findings. The authenticated Scout evidence is stored in
+`output/docker-scout-day1.sarif`.
 
 ## Provider contract and real-run gate
 
@@ -227,16 +237,25 @@ documentation:
 - <https://api-docs.deepseek.com/quick_start/pricing-details-cny/>
 - <https://api-docs.deepseek.com/quick_start/error_codes/>
 
-The user-provided temporary credential has not been written by this
-implementation, read by a tool, or used in a logged command. The real gate
-remains open until the user manually creates ignored `.env` configuration and
-two real streams finish successfully. Only task ID, run ID, provider mode,
-model, status, token usage, and timing may enter this report.
+The user configured the temporary credential only in ignored `.env`. Tools
+checked only the presence boolean, and no command, report, source file, fixture,
+or Git object contains its value. Two content-redacted real streams succeeded:
+
+| Run | Task / run | Tokens | First token | Total |
+|---|---|---|---:|---:|
+| 1 | `task_01M0J6NSYQ9H3XXE85XMZJX82V` / `run_01M0J6NSYQ2XCB38TK85003JFB` | 78 prompt / 23 output | 3304.75 ms | 3755.31 ms |
+| 2 | `task_01M0J6P5CXH3BA7YQEBQRSZWBQ` / `run_01M0J6P5CXF2K0G4EJP1B1YP35` | 78 prompt / 23 output | 1774.21 ms | 2138.74 ms |
+
+Both reported `provider_mode=real`, model `deepseek-v4-flash`,
+`token_source=actual`, terminal status `succeeded`, contiguous UTF-8 chunks,
+`run.completed`, `stream.done`, and a matching final snapshot. A boolean-only
+container-log scan found neither a credential pattern nor
+`reasoning_content`.
 
 `scripts/day1/real_provider_smoke.py` is the content-redacted executable gate.
-Its parser and all success invariants have passed once against the live Mock
-container using `--expected-mode mock`; this proves the gate itself can consume
-the wire stream, but it is not counted as a real-provider run.
+Its parser and all success invariants passed the two real runs above. The
+security-repaired final image also passed five additional Mock runs on an
+isolated port.
 
 Because the credential appeared in chat, it must be revoked after this gate and
 must not become the team's formal development key.
@@ -249,15 +268,18 @@ must not become the team's formal development key.
    byte cap. A trusted reverse proxy must enforce one before public deployment.
 3. The runtime image uses the single hash lock and therefore contains pytest,
    Ruff, and other test dependencies. It is verified but not a minimal image.
-4. Real DeepSeek smoke: open.
-5. Second-developer smoke on another environment: open.
-6. Authenticated container OS-layer CVE scan: open.
+4. Second-developer smoke on another environment: open.
+5. The base image has five currently unfixed Scout high/critical findings.
+   Fixable application/runtime-package findings are zero, but total findings
+   are not zero.
 
 ## Final release decision
 
-Local implementation status: **pass with external gates open**.
+Local implementation status: **pass with one team gate and one accepted-or-fix
+risk decision still open**.
 
 Do not merge `feat/day1-g0` into `main` and do not create the
-`day1-g0-verified` tag until the real-provider and second-developer gates pass.
-The OS-layer scan must either pass or be explicitly accepted as a documented
-release risk by the team; it must not silently disappear from the checklist.
+`day1-g0-verified` tag until the second-developer gate passes. The five unfixed
+OS-layer findings must be explicitly accepted by the team or eliminated by a
+separately tested base-image change; they must not silently disappear from the
+checklist.

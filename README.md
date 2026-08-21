@@ -263,6 +263,12 @@ hash lock，其中也包含 pytest、Ruff 等开发依赖，因此镜像不是�
 已知边界是 Uvicorn 直连尚未设置整个 HTTP 请求体的全局字节上限；字段级契约已有
 上限，但公开部署前仍需在可信反向代理设置请求体限制。两项均不得被误报为已解决。
 
+修复后的运行镜像已移除不需要的 `setuptools`，Docker Scout 的“存在修复版本的
+高危/严重漏洞”结果为零。但 Debian 基础层仍有 5 项被 Scout 标记为
+`not fixed` 的高危/严重 CVE；这属于明确保留的发布风险，不等于镜像总漏洞为零。
+完整编号与扫描证据见 `docs/day1/VERIFICATION_REPORT.md` 和
+`output/docker-scout-day1.sarif`。
+
 ## 8. 常见故障
 
 | 现象 | 检查 | 处理 |

@@ -1,0 +1,475 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "fullName": "Docker Scout",
+          "informationUri": "https://docker.com/products/docker-scout",
+          "name": "docker scout",
+          "rules": [
+            {
+              "id": "CVE-2026-48962",
+              "name": "OsPackageVulnerability",
+              "shortDescription": {
+                "text": "CVE-2026-48962"
+              },
+              "helpUri": "https://scout.docker.com/v/CVE-2026-48962?s=debian&n=perl&ns=debian&t=deb&osn=debian&osv=12&vr=%3E0",
+              "help": {
+                "text": "IO::Compress versions before 2.220 for Perl can execute arbitrary code in File::GlobMapper via an attacker-controlled output glob.  _parseOutputGlob() wraps the caller-supplied output glob string in double quotes and stores it in the parser state; _getFiles() then runs the stored expression through eval STRING. A literal double quote in the output glob closes the dquote wrapper, and the characters that follow are evaluated as Perl.  Arbitrary Perl in the output glob executes at the calling process's privilege.\n\n---\n- libio-compress-perl 2.220-1 (bug https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1138055)\n[trixie] - libio-compress-perl <no-dsa> (Minor issue)\n- perl 5.40.1-8 (bug https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1138854)\nhttps://lists.security.metacpan.org/cve-announce/msg/40434385/\nFixed by: https://github.com/pmqs/IO-Compress/commit/f2db247bf90d4cc7ee2710be384946081f3b4610 (v2.220)\n",
+                "markdown": "> IO::Compress versions before 2.220 for Perl can execute arbitrary code in File::GlobMapper via an attacker-controlled output glob.  _parseOutputGlob() wraps the caller-supplied output glob string in double quotes and stores it in the parser state; _getFiles() then runs the stored expression through eval STRING. A literal double quote in the output glob closes the dquote wrapper, and the characters that follow are evaluated as Perl.  Arbitrary Perl in the output glob executes at the calling process's privilege.\n\n---\n- libio-compress-perl 2.220-1 (bug https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1138055)\n[trixie] - libio-compress-perl <no-dsa> (Minor issue)\n- perl 5.40.1-8 (bug https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1138854)\nhttps://lists.security.metacpan.org/cve-announce/msg/40434385/\nFixed by: https://github.com/pmqs/IO-Compress/commit/f2db247bf90d4cc7ee2710be384946081f3b4610 (v2.220)\n\n|                                                                                                        |\n|Package         pkg:deb/debian/perl@5.36.0-7%2Bdeb12u3?os_distro=bookworm&os_name=debian&os_version=12  |\n|Affected range  >0                                                                                      |\n|Fixed version   not fixed                                                                               |\n"
+              },
+              "properties": {
+                "affected_version": ">0",
+                "cvssV3_severity": "HIGH",
+                "fixed_version": "not fixed",
+                "purls": [
+                  "pkg:deb/debian/perl@5.36.0-7%2Bdeb12u3?os_distro=bookworm&os_name=debian&os_version=12"
+                ],
+                "security-severity": "7.3",
+                "tags": [
+                  "HIGH"
+                ]
+              }
+            },
+            {
+              "id": "CVE-2026-14456",
+              "name": "OsPackageVulnerability",
+              "shortDescription": {
+                "text": "CVE-2026-14456"
+              },
+              "helpUri": "https://scout.docker.com/v/CVE-2026-14456?s=debian&n=openssl&ns=debian&t=deb&osn=debian&osv=12&vr=%3E0",
+              "help": {
+                "text": "Issue summary: When an OpenSSL QUIC server (Listener SSL object) processes valid QUIC Initial packets for unknown destination connection IDs, it can allocate and queue new incoming channels without enforcing any limit.  Impact summary: A remote peer that can make many Initial packets reach the server listener faster than the application accepts connections, can cause the memory allocated to store the per-channel state to grow without any limits, potentially making the QUIC listener unavailable and causing Denial of Service.  CWE: CWE-770: Allocation of Resources Without Limits or Throttling  Description: The function that handles inbound QUIC packets uses Connection-Id from the packet header to find an existing connection (QUIC channel). If no existing connection is found and the packet type is INITIAL, the function treats the packet as a new connection. It allocates a new channel object and inserts it into a queue where it waits to be accepted by the local application with SSL_accept(3ossl). The memory occupied by these initial channel objects may grow without bounds if the application is not able to call SSL_accept() frequently enough to serve these inbound connection requests.  The issue is present since OpenSSL 3.5 when the QUIC server implementation was added.  The fix introduces a limit for pending connections. The default limit is set to 256 pending connections (waiting to be accepted by the local application). Applications may change the default by calling SSL_set_value_uint(3ossl).  FIPS impact: no The FIPS module is not affected as the QUIC implementation is outside of the OpenSSL FIPS module boundary.\n\n---\n- openssl <unfixed> (bug https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1144615)\n[trixie] - openssl <postponed> (Minor issue, fix along with future update)\nhttps://openssl-library.org/news/secadv/20260813.txt\nhttps://github.com/openssl/openssl/commit/f2f1465f2d2e5c61dfeac4d20fd093797d821139 (openssl-4.0)\nhttps://github.com/openssl/openssl/commit/4084152e040329ca0194c4c1750b9b46d00a5b6b (openssl-3.6)\nhttps://github.com/openssl/openssl/commit/08e7756c3900bcfd77a720e7b74e27d6e4ed01a9 (openssl-3.5)\n",
+                "markdown": "> Issue summary: When an OpenSSL QUIC server (Listener SSL object) processes valid QUIC Initial packets for unknown destination connection IDs, it can allocate and queue new incoming channels without enforcing any limit.  Impact summary: A remote peer that can make many Initial packets reach the server listener faster than the application accepts connections, can cause the memory allocated to store the per-channel state to grow without any limits, potentially making the QUIC listener unavailable and causing Denial of Service.  CWE: CWE-770: Allocation of Resources Without Limits or Throttling  Description: The function that handles inbound QUIC packets uses Connection-Id from the packet header to find an existing connection (QUIC channel). If no existing connection is found and the packet type is INITIAL, the function treats the packet as a new connection. It allocates a new channel object and inserts it into a queue where it waits to be accepted by the local application with SSL_accept(3ossl). The memory occupied by these initial channel objects may grow without bounds if the application is not able to call SSL_accept() frequently enough to serve these inbound connection requests.  The issue is present since OpenSSL 3.5 when the QUIC server implementation was added.  The fix introduces a limit for pending connections. The default limit is set to 256 pending connections (waiting to be accepted by the local application). Applications may change the default by calling SSL_set_value_uint(3ossl).  FIPS impact: no The FIPS module is not affected as the QUIC implementation is outside of the OpenSSL FIPS module boundary.\n\n---\n- openssl <unfixed> (bug https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1144615)\n[trixie] - openssl <postponed> (Minor issue, fix along with future update)\nhttps://openssl-library.org/news/secadv/20260813.txt\nhttps://github.com/openssl/openssl/commit/f2f1465f2d2e5c61dfeac4d20fd093797d821139 (openssl-4.0)\nhttps://github.com/openssl/openssl/commit/4084152e040329ca0194c4c1750b9b46d00a5b6b (openssl-3.6)\nhttps://github.com/openssl/openssl/commit/08e7756c3900bcfd77a720e7b74e27d6e4ed01a9 (openssl-3.5)\n\n|                                                                                                         |\n|Package         pkg:deb/debian/openssl@3.0.20-1~deb12u2?os_distro=bookworm&os_name=debian&os_version=12  |\n|Affected range  >0                                                                                       |\n|Fixed version   not fixed                                                                                |\n"
+              },
+              "properties": {
+                "affected_version": ">0",
+                "cvssV3_severity": "HIGH",
+                "fixed_version": "not fixed",
+                "purls": [
+                  "pkg:deb/debian/openssl@3.0.20-1~deb12u2?os_distro=bookworm&os_name=debian&os_version=12"
+                ],
+                "security-severity": "7.5",
+                "tags": [
+                  "HIGH"
+                ]
+              }
+            },
+            {
+              "id": "CVE-2026-48959",
+              "name": "OsPackageVulnerability",
+              "shortDescription": {
+                "text": "CVE-2026-48959"
+              },
+              "helpUri": "https://scout.docker.com/v/CVE-2026-48959?s=debian&n=perl&ns=debian&t=deb&osn=debian&osv=12&vr=%3E0",
+              "help": {
+                "text": "IO::Uncompress::Unzip versions before 2.220 for Perl allow CPU exhaustion via per-byte read loop in fastForward.  fastForward() compares length $offset (the digit count of the offset, 1 to 19) against the chunk size $c instead of $offset itself, so $c shrinks from 16 KiB to 1-19 bytes per iteration.  Extracting a named entry from an attacker supplied zip via IO::Uncompress::Unzip->new($zip, Name => $target) drives a per-byte read loop scaling with the entry's compressed size, up to the non-Zip64 4 GiB cap.\n\n---\n- libio-compress-perl 2.220-1 (bug https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1138051)\n[trixie] - libio-compress-perl <no-dsa> (Minor issue)\n- perl 5.40.1-8 (bug https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1138856)\nhttps://lists.security.metacpan.org/cve-announce/msg/40434381/\nFixed by: https://github.com/pmqs/IO-Compress/commit/68db44076f4c1a86a2ffe53a958eac6cabaf72e2 (v2.220)\n",
+                "markdown": "> IO::Uncompress::Unzip versions before 2.220 for Perl allow CPU exhaustion via per-byte read loop in fastForward.  fastForward() compares length $offset (the digit count of the offset, 1 to 19) against the chunk size $c instead of $offset itself, so $c shrinks from 16 KiB to 1-19 bytes per iteration.  Extracting a named entry from an attacker supplied zip via IO::Uncompress::Unzip->new($zip, Name => $target) drives a per-byte read loop scaling with the entry's compressed size, up to the non-Zip64 4 GiB cap.\n\n---\n- libio-compress-perl 2.220-1 (bug https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1138051)\n[trixie] - libio-compress-perl <no-dsa> (Minor issue)\n- perl 5.40.1-8 (bug https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1138856)\nhttps://lists.security.metacpan.org/cve-announce/msg/40434381/\nFixed by: https://github.com/pmqs/IO-Compress/commit/68db44076f4c1a86a2ffe53a958eac6cabaf72e2 (v2.220)\n\n|                                                                                                        |\n|Package         pkg:deb/debian/perl@5.36.0-7%2Bdeb12u3?os_distro=bookworm&os_name=debian&os_version=12  |\n|Affected range  >0                                                                                      |\n|Fixed version   not fixed                                                                               |\n"
+              },
+              "properties": {
+                "affected_version": ">0",
+                "cvssV3_severity": "HIGH",
+                "fixed_version": "not fixed",
+                "purls": [
+                  "pkg:deb/debian/perl@5.36.0-7%2Bdeb12u3?os_distro=bookworm&os_name=debian&os_version=12"
+                ],
+                "security-severity": "7.5",
+                "tags": [
+                  "HIGH"
+                ]
+              }
+            },
+            {
+              "id": "CVE-2026-12087",
+              "name": "OsPackageVulnerability",
+              "shortDescription": {
+                "text": "CVE-2026-12087"
+              },
+              "helpUri": "https://scout.docker.com/v/CVE-2026-12087?s=debian&n=perl&ns=debian&t=deb&osn=debian&osv=12&vr=%3E0",
+              "help": {
+                "text": "Socket versions before 2.041 for Perl have an out-of-bounds heap read.  In Socket.xs, pack_ip_mreq_source() checks the length of its source argument before the argument is read, so the check tests the byte length carried over from the preceding multiaddr argument instead. Both addresses occupy a 4-byte field, so a valid multiaddr lets a source of any length pass the check, and the source is then copied into the 4-byte imr_sourceaddr field with a fixed-size copy. A source shorter than 4 bytes is not rejected, and the copy reads up to 3 bytes past the end of its buffer.  Calling pack_ip_mreq_source() with a source value shorter than 4 bytes copies adjacent heap memory into the returned packed structure.\n\n---\n- libsocket-perl 2.041-1\n[trixie] - libsocket-perl <no-dsa> (Minor issue)\n[bookworm] - libsocket-perl <postponed> (Minor issue; up-to-3-byte heap over-read, only reachable when a script passes attacker-controlled source to pack_ip_mreq_source())\n[bullseye] - libsocket-perl <postponed> (Minor issue; up-to-3-byte heap over-read, only reachable when a script passes attacker-controlled source to pack_ip_mreq_source())\n[experimental] - perl 5.44.0-1\n- perl 5.42.3-1 (bug https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1140152)\nhttps://lists.security.metacpan.org/cve-announce/msg/41020451/\nFixed by: https://github.com/Perl/perl5/commit/de19a0b0ad1900fef976c5c1400bd8f11ec6c6cb (v5.43.11)\n",
+                "markdown": "> Socket versions before 2.041 for Perl have an out-of-bounds heap read.  In Socket.xs, pack_ip_mreq_source() checks the length of its source argument before the argument is read, so the check tests the byte length carried over from the preceding multiaddr argument instead. Both addresses occupy a 4-byte field, so a valid multiaddr lets a source of any length pass the check, and the source is then copied into the 4-byte imr_sourceaddr field with a fixed-size copy. A source shorter than 4 bytes is not rejected, and the copy reads up to 3 bytes past the end of its buffer.  Calling pack_ip_mreq_source() with a source value shorter than 4 bytes copies adjacent heap memory into the returned packed structure.\n\n---\n- libsocket-perl 2.041-1\n[trixie] - libsocket-perl <no-dsa> (Minor issue)\n[bookworm] - libsocket-perl <postponed> (Minor issue; up-to-3-byte heap over-read, only reachable when a script passes attacker-controlled source to pack_ip_mreq_source())\n[bullseye] - libsocket-perl <postponed> (Minor issue; up-to-3-byte heap over-read, only reachable when a script passes attacker-controlled source to pack_ip_mreq_source())\n[experimental] - perl 5.44.0-1\n- perl 5.42.3-1 (bug https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1140152)\nhttps://lists.security.metacpan.org/cve-announce/msg/41020451/\nFixed by: https://github.com/Perl/perl5/commit/de19a0b0ad1900fef976c5c1400bd8f11ec6c6cb (v5.43.11)\n\n|                                                                                                        |\n|Package         pkg:deb/debian/perl@5.36.0-7%2Bdeb12u3?os_distro=bookworm&os_name=debian&os_version=12  |\n|Affected range  >0                                                                                      |\n|Fixed version   not fixed                                                                               |\n"
+              },
+              "properties": {
+                "affected_version": ">0",
+                "cvssV3_severity": "CRITICAL",
+                "fixed_version": "not fixed",
+                "purls": [
+                  "pkg:deb/debian/perl@5.36.0-7%2Bdeb12u3?os_distro=bookworm&os_name=debian&os_version=12"
+                ],
+                "security-severity": "9.1",
+                "tags": [
+                  "CRITICAL"
+                ]
+              }
+            },
+            {
+              "id": "CVE-2026-13221",
+              "name": "OsPackageVulnerability",
+              "shortDescription": {
+                "text": "CVE-2026-13221"
+              },
+              "helpUri": "https://scout.docker.com/v/CVE-2026-13221?s=debian&n=perl&ns=debian&t=deb&osn=debian&osv=12&vr=%3E0",
+              "help": {
+                "text": "Perl versions through 5.43.9 produce silently incorrect regular expression matches when an alternation of more than 65535 fixed string branches is compiled into a trie in Perl_study_chunk.  When such branches are combined into a trie, the delta between the first branch and the shared tail is stored in a 16-bit field. A branch count above 65535 overflows the field, and the trie's match decision table is truncated with no warning or error.  A pattern of this shape produces false positive matches (matching strings it should not) and false negative matches (failing to match strings it should). When such a pattern gates an access or filtering decision, the result is wrong.\n\n---\n[experimental] - perl 5.44.0-1\n- perl 5.42.3-1 (bug https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1142037)\nhttps://lists.security.metacpan.org/cve-announce/msg/41780104/\nhttps://github.com/Perl/perl5/issues/23388\nIntroduced with: https://github.com/Perl/perl5/commit/acababb42be12ff2986b73c1bfa963b70bb5d54e (v5.37.10)\nFixed by: https://github.com/Perl/perl5/commit/03f74bbbd3a68350d926ee93d56ee4808c28c4c7 (v5.43.10)\n",
+                "markdown": "> Perl versions through 5.43.9 produce silently incorrect regular expression matches when an alternation of more than 65535 fixed string branches is compiled into a trie in Perl_study_chunk.  When such branches are combined into a trie, the delta between the first branch and the shared tail is stored in a 16-bit field. A branch count above 65535 overflows the field, and the trie's match decision table is truncated with no warning or error.  A pattern of this shape produces false positive matches (matching strings it should not) and false negative matches (failing to match strings it should). When such a pattern gates an access or filtering decision, the result is wrong.\n\n---\n[experimental] - perl 5.44.0-1\n- perl 5.42.3-1 (bug https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1142037)\nhttps://lists.security.metacpan.org/cve-announce/msg/41780104/\nhttps://github.com/Perl/perl5/issues/23388\nIntroduced with: https://github.com/Perl/perl5/commit/acababb42be12ff2986b73c1bfa963b70bb5d54e (v5.37.10)\nFixed by: https://github.com/Perl/perl5/commit/03f74bbbd3a68350d926ee93d56ee4808c28c4c7 (v5.43.10)\n\n|                                                                                                        |\n|Package         pkg:deb/debian/perl@5.36.0-7%2Bdeb12u3?os_distro=bookworm&os_name=debian&os_version=12  |\n|Affected range  >0                                                                                      |\n|Fixed version   not fixed                                                                               |\n"
+              },
+              "properties": {
+                "affected_version": ">0",
+                "cvssV3_severity": "CRITICAL",
+                "fixed_version": "not fixed",
+                "purls": [
+                  "pkg:deb/debian/perl@5.36.0-7%2Bdeb12u3?os_distro=bookworm&os_name=debian&os_version=12"
+                ],
+                "security-severity": "9.1",
+                "tags": [
+                  "CRITICAL"
+                ]
+              }
+            }
+          ],
+          "version": "1.22.0"
+        }
+      },
+      "results": [
+        {
+          "ruleId": "CVE-2026-48962",
+          "ruleIndex": 0,
+          "kind": "fail",
+          "level": "error",
+          "message": {
+            "text": "Vulnerability    :CVE-2026-48962                                                                          \nSeverity         :HIGH                                                                                    \nPackage          :pkg:deb/debian/perl@5.36.0-7%2Bdeb12u3?os_distro=bookworm&os_name=debian&os_version=12  \nAffected range   :>0                                                                                      \nFixed version    :not fixed                                                                               \nEPSS Score       :0.002920                                                                                \nEPSS Percentile  :0.217990                                                                                \n"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/usr/share/doc/perl-base/copyright"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.list"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.md5sums"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.postinst"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.postrm"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.preinst"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.prerm"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/status"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "CVE-2026-14456",
+          "ruleIndex": 1,
+          "kind": "fail",
+          "level": "error",
+          "message": {
+            "text": "Vulnerability    :CVE-2026-14456                                                                           \nSeverity         :HIGH                                                                                     \nPackage          :pkg:deb/debian/openssl@3.0.20-1~deb12u2?os_distro=bookworm&os_name=debian&os_version=12  \nAffected range   :>0                                                                                       \nFixed version    :not fixed                                                                                \nEPSS Score       :0.004650                                                                                 \nEPSS Percentile  :0.385980                                                                                 \n"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/usr/share/doc/libssl3/copyright"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/usr/share/doc/openssl/copyright"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/openssl.conffiles"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/openssl.list"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/openssl.md5sums"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/openssl.postinst"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/status"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/etc/ssl/openssl.cnf"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "CVE-2026-48959",
+          "ruleIndex": 2,
+          "kind": "fail",
+          "level": "error",
+          "message": {
+            "text": "Vulnerability    :CVE-2026-48959                                                                          \nSeverity         :HIGH                                                                                    \nPackage          :pkg:deb/debian/perl@5.36.0-7%2Bdeb12u3?os_distro=bookworm&os_name=debian&os_version=12  \nAffected range   :>0                                                                                      \nFixed version    :not fixed                                                                               \nEPSS Score       :0.003730                                                                                \nEPSS Percentile  :0.306830                                                                                \n"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/usr/share/doc/perl-base/copyright"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.list"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.md5sums"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.postinst"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.postrm"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.preinst"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.prerm"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/status"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "CVE-2026-12087",
+          "ruleIndex": 3,
+          "kind": "fail",
+          "level": "error",
+          "message": {
+            "text": "Vulnerability    :CVE-2026-12087                                                                          \nSeverity         :CRITICAL                                                                                \nPackage          :pkg:deb/debian/perl@5.36.0-7%2Bdeb12u3?os_distro=bookworm&os_name=debian&os_version=12  \nAffected range   :>0                                                                                      \nFixed version    :not fixed                                                                               \nEPSS Score       :0.003740                                                                                \nEPSS Percentile  :0.307680                                                                                \n"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/usr/share/doc/perl-base/copyright"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.list"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.md5sums"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.postinst"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.postrm"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.preinst"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.prerm"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/status"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "CVE-2026-13221",
+          "ruleIndex": 4,
+          "kind": "fail",
+          "level": "error",
+          "message": {
+            "text": "Vulnerability    :CVE-2026-13221                                                                          \nSeverity         :CRITICAL                                                                                \nPackage          :pkg:deb/debian/perl@5.36.0-7%2Bdeb12u3?os_distro=bookworm&os_name=debian&os_version=12  \nAffected range   :>0                                                                                      \nFixed version    :not fixed                                                                               \nEPSS Score       :0.004320                                                                                \nEPSS Percentile  :0.362610                                                                                \n"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/usr/share/doc/perl-base/copyright"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.list"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.md5sums"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.postinst"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.postrm"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.preinst"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/info/perl-base.prerm"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/status"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
