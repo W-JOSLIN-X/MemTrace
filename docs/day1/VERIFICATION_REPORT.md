@@ -277,15 +277,17 @@ must not become the team's formal development key.
 4. Second-developer smoke on another environment: open.
 5. The base image has five currently unfixed Scout high/critical findings.
    Fixable application/runtime-package findings are zero, but total findings
-   are not zero.
+   are not zero. On 2026-08-21, the project owner explicitly accepted these
+   five unfixed base-image findings as a temporary Day 1 hackathon risk. This
+   acceptance does not cover public production deployment and must be reviewed
+   when a fixed base image becomes available.
 
 ## Final release decision
 
-Local implementation status: **pass with one team gate and one accepted-or-fix
-risk decision still open**.
+Local implementation status: **pass with one team gate still open**. The
+base-image risk decision is recorded as temporarily accepted above.
 
 Do not merge `feat/day1-g0` into `main` and do not create the
-`day1-g0-verified` tag until the second-developer gate passes. The five unfixed
-OS-layer findings must be explicitly accepted by the team or eliminated by a
-separately tested base-image change; they must not silently disappear from the
-checklist.
+`day1-g0-verified` tag until the second-developer gate passes. The accepted
+OS-layer risk remains visible in the checklist and must be re-evaluated before
+public production deployment.
