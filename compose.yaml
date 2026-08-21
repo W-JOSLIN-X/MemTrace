@@ -1,0 +1,48 @@
+name: memtrace
+
+services:
+  app:
+    image: memtrace:day1-g0
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    ports:
+      - "${MEMTRACE_PORT:-8000}:8000"
+    environment:
+      APP_NAME: "${APP_NAME:-MemTrace API}"
+      APP_ENV: production
+      APP_VERSION: "${APP_VERSION:-0.1.0}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      MOCK_MODE: "${MOCK_MODE:-true}"
+      MOCK_CHUNK_DELAY_MS: "${MOCK_CHUNK_DELAY_MS:-250}"
+      SSE_HEARTBEAT_SECONDS: "${SSE_HEARTBEAT_SECONDS:-15}"
+      MAX_TASKS: "${MAX_TASKS:-100}"
+      MAX_SUBSCRIBERS_PER_TASK: "${MAX_SUBSCRIBERS_PER_TASK:-8}"
+      SUBSCRIBER_QUEUE_SIZE: "${SUBSCRIBER_QUEUE_SIZE:-64}"
+      PROVIDER_TIMEOUT_SECONDS: "${PROVIDER_TIMEOUT_SECONDS:-60}"
+      LLM_BASE_URL: "${LLM_BASE_URL:-https://api.deepseek.com}"
+      LLM_MODEL: "${LLM_MODEL:-deepseek-v4-flash}"
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      MEMTRACE_DATA_DIR: /app/data
+      MEMTRACE_WEB_DIST: /app/static
+    volumes:
+      - memtrace-data:/app/data
+      - memtrace-exports:/app/exports
+      - memtrace-eval-results:/app/eval-results
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2).read()"
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 5
+    stop_grace_period: 10s
+
+volumes:
+  memtrace-data:
+  memtrace-exports:
+  memtrace-eval-results:
