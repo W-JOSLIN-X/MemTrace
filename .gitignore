@@ -1,0 +1,43 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Node and build output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Runtime data
+data/
+exports/
+eval-results/
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local scratch and rendered PDF artifacts
+tmp/
+
+# Legacy planning drafts intentionally excluded from this implementation
+Adaptive_MemAgent_Project_Plan.md
+Harness_MemAgent_Project_Plan.md
