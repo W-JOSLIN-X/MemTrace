@@ -25,6 +25,7 @@ else {
     'python'
 }
 $script:CookiePath = [System.IO.Path]::GetTempFileName()
+$script:RunNonce = [Guid]::NewGuid().ToString('N')
 $script:WriteSequence = 0
 
 function Assert-Condition {
@@ -103,7 +104,7 @@ function Invoke-CurlJson {
             [System.IO.File]::WriteAllText($requestPath, $json, [System.Text.UTF8Encoding]::new($false))
             $arguments += @(
                 '--header', 'Content-Type: application/json',
-                '--header', "Idempotency-Key: smoke-write-$($script:WriteSequence.ToString('D4'))",
+                '--header', "Idempotency-Key: smoke-$($script:RunNonce)-$($script:WriteSequence.ToString('D4'))",
                 '--data-binary', "@$requestPath"
             )
         }

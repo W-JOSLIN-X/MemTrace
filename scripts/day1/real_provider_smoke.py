@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -94,7 +95,7 @@ def run_smoke(
 
         create_response = client.post(
             urljoin(normalized_base, "api/v1/tasks"),
-            headers={"Idempotency-Key": "real-provider-smoke-task-0001"},
+            headers={"Idempotency-Key": f"real-provider-smoke-{uuid.uuid4().hex}"},
             json={
                 "task_text": SAFE_TASK_TEXT,
                 "memory_mode": "on",
