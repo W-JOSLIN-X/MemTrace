@@ -12,6 +12,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day1"
+DAY2_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day2"
 API_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "schemas" / "g0-api.schema.json"
 EVENT_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "schemas" / "events.schema.json"
 
@@ -121,6 +122,26 @@ def validate_feedback_drafts() -> None:
         assert rating is None or 1 <= rating <= 5, f"{draft['id']}: invalid rating"
         assert isinstance(draft["accepted"], bool)
         assert draft["explicit_text"] is not None or draft["edited_output"] is not None
+
+
+def validate_day2_matrix() -> None:
+    fixture = load_json(DAY2_FIXTURE_ROOT / "g1_classification_feedback_matrix.json")
+    scan_forbidden(fixture, "g1_classification_feedback_matrix")
+    assert fixture["contract_version"] == "1.1.0"
+    assert fixture["classification_source"] == "auto_rule_v1"
+    entries = fixture["entries"]
+    assert len(entries) == 24, f"Day 2 matrix must contain 24 entries, got {len(entries)}"
+    assert len({entry["id"] for entry in entries}) == 24
+    profiles = fixture["persistent_event_profiles"]
+    for entry in entries:
+        assert entry["expected_domain"] in {
+            "programming_learning",
+            "software_development",
+            "general_text",
+            "other",
+        }
+        assert entry["expected_persistent_event_profile"] in profiles
+        assert entry["expected_feedback_available_after"] == "succeeded_only"
 
 
 def trace_signature(events: list[dict[str, Any]]) -> list[str]:
@@ -263,11 +284,12 @@ def main() -> int:
 
     validate_demo_core(api_schema)
     validate_feedback_drafts()
+    validate_day2_matrix()
     for path in MOCK_FIXTURES:
         validate_mock_fixture(path, api_schema, event_validator)
 
     print("PASS: both Draft 2020-12 schemas are structurally valid")
-    print("PASS: 8 demo_core cases and 8 Day 2-only feedback drafts")
+    print("PASS: 8 demo_core cases, 8 feedback drafts, and 24 Day 2 G1 matrix entries")
     print("PASS: python_success, no_tool_success, and run_failure SSE fixtures")
     print("PASS: UTF-8 byte offsets, trace order, metadata IDs, and secret/reasoning scan")
     return 0
