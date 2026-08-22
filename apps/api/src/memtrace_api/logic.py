@@ -163,9 +163,7 @@ def _classify_domain(
     normalized = _normalize_for_rules(text)
     code_present = extracted is not None or "```" in normalized
     technical_context = not code_present and (
-        language is not ProgrammingLanguage.UNKNOWN
-        or framework is not None
-        or bool(concepts)
+        language is not ProgrammingLanguage.UNKNOWN or framework is not None or bool(concepts)
     )
     debugging_cue = _contains_cue(normalized, _DEBUGGING_CUES)
     learning_cue = _contains_cue(normalized, _LEARNING_CUES)
@@ -175,11 +173,7 @@ def _classify_domain(
     development_action = _contains_cue(normalized, _DEVELOPMENT_CUES)
     deployment_cue = _contains_cue(normalized, _DEPLOYMENT_CUES)
     text_task = _contains_cue(normalized, _TEXT_TASK_CUES) and not (
-        code_present
-        or technical_context
-        or debugging_cue
-        or development_action
-        or deployment_cue
+        code_present or technical_context or debugging_cue or development_action or deployment_cue
     )
 
     detected: list[ClassificationReasonCode] = []
@@ -221,9 +215,7 @@ def _classify_domain(
     confidence = round(
         min(
             0.95,
-            0.50
-            + 0.06 * min(top_score, 5)
-            + 0.05 * min(top_score - second_score, 3),
+            0.50 + 0.06 * min(top_score, 5) + 0.05 * min(top_score - second_score, 3),
         ),
         2,
     )

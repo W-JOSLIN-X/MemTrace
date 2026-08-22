@@ -51,9 +51,7 @@ def test_auto_classification_table(task_text: str, expected: Domain) -> None:
     assert fingerprint.classification_source == "auto_rule_v1"
     assert 0 <= fingerprint.classification_confidence <= 1
     assert len(fingerprint.classification_reasons) <= 5
-    assert len(fingerprint.classification_reasons) == len(
-        set(fingerprint.classification_reasons)
-    )
+    assert len(fingerprint.classification_reasons) == len(set(fingerprint.classification_reasons))
 
 
 def test_auto_classification_is_deterministic_except_for_fingerprint_id() -> None:
@@ -75,4 +73,3 @@ def test_manual_scenario_is_a_strict_contract_error() -> None:
     values["scenario"] = "programming_learning"
     with pytest.raises(ValidationError):
         TaskCreateRequest.model_validate(values)
-
