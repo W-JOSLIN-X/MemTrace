@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from memtrace_api.events import (
     PERSISTENT_EVENT_TYPES,
@@ -22,6 +22,9 @@ from memtrace_api.schemas import (
     TaskSnapshot,
     utc_now,
 )
+
+if TYPE_CHECKING:
+    from memtrace_api.repositories import UserContext
 
 MAX_PERSISTENT_EVENTS_PER_TASK = 64
 MAX_CHUNK_EVENTS_PER_TASK = 2_048
@@ -60,6 +63,7 @@ class Subscriber:
 class TaskRecord:
     request: TaskCreateRequest
     snapshot: TaskSnapshot
+    user_ctx: UserContext | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     replay_entries: list[ReplayEntry] = field(default_factory=list)
     subscribers: dict[int, Subscriber] = field(default_factory=dict)
@@ -114,23 +118,26 @@ class TaskStore:
         request: TaskCreateRequest,
         request_id: str,
         provider_mode: ProviderMode,
+        task_id: str | None = None,
+        run_id: str | None = None,
+        user_ctx: UserContext | None = None,
     ) -> TaskRecord:
         async with self._tasks_lock:
             if len(self._tasks) >= self.max_tasks:
                 terminal_id = next(
-                    (task_id for task_id, record in self._tasks.items() if record.closed),
+                    (tid for tid, rec in self._tasks.items() if rec.closed),
                     None,
                 )
                 if terminal_id is None:
                     raise TaskCapacityError
                 self._tasks.pop(terminal_id)
 
-            task_id = new_prefixed_ulid("task")
-            run_id = new_prefixed_ulid("run")
+            t_id = task_id or new_prefixed_ulid("task")
+            r_id = run_id or new_prefixed_ulid("run")
             snapshot = TaskSnapshot(
                 request_id=request_id,
-                task_id=task_id,
-                run_id=run_id,
+                task_id=t_id,
+                run_id=r_id,
                 task_text=request.task_text,
                 scenario=request.scenario,
                 run_status=RunStatus.QUEUED,
@@ -141,13 +148,14 @@ class TaskStore:
                 feedback_events=[],
                 updated_at=utc_now(),
             )
-            record = TaskRecord(request=request, snapshot=snapshot)
-            self._tasks[task_id] = record
+            record = TaskRecord(request=request, snapshot=snapshot, user_ctx=user_ctx)
+            self._tasks[t_id] = record
 
-        await self.emit(
+        await self.emit_preallocated_persistent(
             record,
-            EventType.TASK_CREATED,
-            {"task_status": "active", "run_status": "queued"},
+            event_type=EventType.TASK_CREATED,
+            event_seq=1,
+            data={"task_status": "active", "run_status": "queued"},
         )
         return record
 
@@ -229,6 +237,50 @@ class TaskStore:
                 record.subscribers.pop(subscriber_id, None)
             return event
 
+    async def emit_preallocated_persistent(
+        self,
+        record: TaskRecord,
+        *,
+        event_type: EventType,
+        event_seq: int,
+        data: Any,
+        snapshot_updates: dict[str, Any] | None = None,
+    ) -> EventEnvelope:
+        """Emit an event whose persistent event_seq was pre-allocated by SQLite."""
+        async with record.lock:
+            event = make_event(
+                event_type=event_type,
+                event_seq=event_seq,
+                task_id=record.snapshot.task_id,
+                run_id=record.snapshot.run_id,
+                data=data,
+            )
+            updates = dict(snapshot_updates or {})
+            updates["updated_at"] = utc_now()
+            updates["last_persistent_event_seq"] = event_seq
+            snapshot_values = record.snapshot.model_dump(mode="python")
+            snapshot_values.update(updates)
+            record.snapshot = TaskSnapshot.model_validate(snapshot_values)
+
+            ordinal = record.next_ordinal
+            record.next_ordinal += 1
+            record.next_event_seq = max(record.next_event_seq, event_seq + 1)
+            record.persistent_count += 1
+
+            entry = ReplayEntry(ordinal=ordinal, event=event)
+            record.replay_entries.append(entry)
+
+            dropped_ids: list[int] = []
+            for subscriber_id, subscriber in record.subscribers.items():
+                try:
+                    subscriber.queue.put_nowait(entry)
+                except asyncio.QueueFull:
+                    subscriber.dropped = True
+                    dropped_ids.append(subscriber_id)
+            for subscriber_id in dropped_ids:
+                record.subscribers.pop(subscriber_id, None)
+            return event
+
     async def mark_closed(self, record: TaskRecord) -> None:
         async with record.lock:
             record.closed = True
@@ -250,14 +302,26 @@ class TaskStore:
         record = await self.get(task_id)
         async with record.lock:
             high_water = record.next_ordinal - 1
+            entries = [entry for entry in record.replay_entries if entry.ordinal <= high_water]
+            # Precompute, for each transient entry, the event_seq of the next
+            # persistent event so that a client with an advanced persistent
+            # cursor does not receive a stale transient stage event.
+            next_persistent_seq: list[int | None] = [None] * len(entries)
+            pending: int | None = None
+            for index in range(len(entries) - 1, -1, -1):
+                event = entries[index].event
+                if event.event_seq is not None:
+                    pending = event.event_seq
+                next_persistent_seq[index] = pending
+
             replay = [
                 entry
-                for entry in record.replay_entries
-                if entry.ordinal <= high_water
-                and _entry_is_after(
+                for index, entry in enumerate(entries)
+                if _entry_is_after(
                     entry.event,
                     after_event_seq=after_event_seq,
                     after_offset=after_offset,
+                    next_persistent_seq=next_persistent_seq[index],
                 )
             ]
             subscriber: Subscriber | None = None
@@ -297,17 +361,16 @@ def _entry_is_after(
     *,
     after_event_seq: int,
     after_offset: int,
+    next_persistent_seq: int | None,
 ) -> bool:
     if event.event_seq is not None:
         return event.event_seq > after_event_seq
     if isinstance(event.data, AgentChunkPayload):
-        # Replay an overlapping chunk in full. The client can safely keep the
-        # suffix when the cursor is on a UTF-8 boundary, or fall back to the
-        # authoritative snapshot when an arbitrary cursor splits a code point.
         return event.data.end_offset > after_offset
     if event.event_type is EventType.MEMORY_RETRIEVAL_STARTED:
-        # This idempotent transient event has no independent cursor. Replaying
-        # it on every subscription is the only way to avoid losing it when a
-        # disconnect happens between adjacent persistent metadata events.
-        return True
+        # This transient stage event carries no persistent seq. Replay it only
+        # when the client's persistent cursor is still before the next
+        # persistent event (i.e. it hasn't already consumed this stage). When
+        # there is no next persistent event, replay for a fresh connection.
+        return next_persistent_seq is None or next_persistent_seq > after_event_seq
     return False

@@ -1,29 +1,30 @@
-"""G0 task lifecycle: fingerprint, plan, static tool, and streamed answer."""
+"""G1 task lifecycle: fingerprint, plan, static tool, streamed answer, and SQLite persistence."""
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
 from dataclasses import dataclass
 from functools import partial
+from typing import Any
 
+from sqlalchemy import and_, update
+from sqlalchemy.orm import Session, sessionmaker
+
+from memtrace_api.database import session_scope
+from memtrace_api.db_models import (
+    AgentRunModel,
+    MessageModel,
+    TaskFingerprintModel,
+    ToolCallModel,
+)
 from memtrace_api.events import (
     AgentChunkPayload,
-    AgentPlanPublishedPayload,
-    ErrorPayload,
     EventType,
     MemoryRetrievalStartedPayload,
-    RunCompletedPayload,
-    RunFailedPayload,
-    RunMetricsPayload,
-    SafeToolArgsSummary,
-    StreamDonePayload,
-    TaskFingerprintedPayload,
-    TaskStagePayload,
-    ToolCalledPayload,
-    ToolResultPayload,
 )
 from memtrace_api.ids import new_prefixed_ulid
 from memtrace_api.logic import analyze_task, build_public_plan
@@ -33,8 +34,10 @@ from memtrace_api.providers import (
     ProviderUsage,
     StreamingProvider,
 )
+from memtrace_api.repositories import TaskRepository, UserContext
 from memtrace_api.schemas import (
     AsyncErrorCode,
+    MessageRole,
     MessageSnapshot,
     ProviderMode,
     RunErrorSnapshot,
@@ -68,10 +71,12 @@ class AgentOrchestrator:
         store: TaskStore,
         provider: StreamingProvider,
         tool_registry: ToolRegistry | None = None,
+        db_session_factory: sessionmaker[Session] | None = None,
     ) -> None:
         self.store = store
         self.provider = provider
         self.tool_registry = tool_registry or ToolRegistry()
+        self.db_session_factory = db_session_factory
 
     def start(self, record: TaskRecord) -> asyncio.Task[None]:
         task = asyncio.create_task(
@@ -88,6 +93,59 @@ class AgentOrchestrator:
         )
         return task
 
+    def _sync_db_event(
+        self,
+        user_ctx: UserContext,
+        task_id: str,
+        event_type: EventType,
+        metadata: dict[str, Any],
+    ) -> int:
+        """Allocate next_event_seq and append event_log inside a short sync transaction."""
+        if self.db_session_factory is None:
+            return 0
+        with session_scope(self.db_session_factory) as session:
+            task_repo = TaskRepository(user_ctx, session)
+            seq = task_repo.allocate_next_event_seq(task_id)
+            task_repo.append_event(
+                stream_type="task",
+                stream_id=task_id,
+                seq=seq,
+                event_type=event_type.value,
+                metadata=metadata,
+            )
+            return seq
+
+    async def _emit_db_persistent_event(
+        self,
+        record: TaskRecord,
+        event_type: EventType,
+        metadata: dict[str, Any],
+        *,
+        snapshot_updates: dict[str, Any] | None = None,
+    ) -> None:
+        if record.user_ctx is not None and self.db_session_factory is not None:
+            seq = await asyncio.to_thread(
+                self._sync_db_event,
+                record.user_ctx,
+                record.snapshot.task_id,
+                event_type,
+                metadata,
+            )
+            await self.store.emit_preallocated_persistent(
+                record,
+                event_type=event_type,
+                event_seq=seq,
+                data=metadata,
+                snapshot_updates=snapshot_updates,
+            )
+        else:
+            await self.store.emit(
+                record,
+                event_type,
+                metadata,
+                snapshot_updates=snapshot_updates,
+            )
+
     async def run(self, record: TaskRecord) -> None:
         measurements = RunMeasurements(started_at=time.perf_counter())
         try:
@@ -97,16 +155,38 @@ class AgentOrchestrator:
                 "fingerprinting_task",
             )
             analysis = analyze_task(record.request)
-            await self.store.emit(
+
+            # Persist fingerprint to DB if factory present
+            if record.user_ctx is not None and self.db_session_factory is not None:
+
+                def _save_fp() -> None:
+                    with session_scope(self.db_session_factory) as session:
+                        fp_model = TaskFingerprintModel(
+                            id=analysis.fingerprint.id,
+                            owner_id=record.user_ctx.user_id,
+                            task_id=record.snapshot.task_id,
+                            domain=analysis.fingerprint.domain.value,
+                            task_type=analysis.fingerprint.task_type.value,
+                            artifact_type=analysis.fingerprint.artifact_type.value,
+                            language=analysis.fingerprint.language.value,
+                            fingerprint_json=analysis.fingerprint.model_dump_json(),
+                            created_at=utc_now(),
+                        )
+                        session.add(fp_model)
+
+                await asyncio.to_thread(_save_fp)
+
+            fp_payload_dict = {
+                "fingerprint_id": analysis.fingerprint.id,
+                "domain": analysis.fingerprint.domain.value,
+                "task_type": analysis.fingerprint.task_type.value,
+                "artifact_type": analysis.fingerprint.artifact_type.value,
+                "language": analysis.fingerprint.language.value,
+            }
+            await self._emit_db_persistent_event(
                 record,
                 EventType.TASK_FINGERPRINTED,
-                TaskFingerprintedPayload(
-                    fingerprint_id=analysis.fingerprint.id,
-                    domain=analysis.fingerprint.domain,
-                    task_type=analysis.fingerprint.task_type,
-                    artifact_type=analysis.fingerprint.artifact_type,
-                    language=analysis.fingerprint.language,
-                ),
+                fp_payload_dict,
                 snapshot_updates={"fingerprint": analysis.fingerprint},
             )
 
@@ -119,14 +199,16 @@ class AgentOrchestrator:
 
             await self._stage(record, RunStatus.PLANNING, "publishing_plan")
             plan = build_public_plan(analysis)
-            await self.store.emit(
+            plan_payload_dict = {
+                "plan_id": plan.id,
+                "goal_code": analysis.goal_code,
+                "memory_summary_code": "no_long_term_memory_day1",
+                "next_action_code": analysis.next_action_code,
+            }
+            await self._emit_db_persistent_event(
                 record,
                 EventType.AGENT_PLAN_PUBLISHED,
-                AgentPlanPublishedPayload(
-                    plan_id=plan.id,
-                    goal_code=analysis.goal_code,
-                    next_action_code=analysis.next_action_code,
-                ),
+                plan_payload_dict,
                 snapshot_updates={
                     "public_plan": plan,
                     "tool_decision": analysis.tool_decision,
@@ -148,18 +230,23 @@ class AgentOrchestrator:
                     args_summary=analysis.extracted_python.summary,
                     status=ToolCallStatus.RUNNING,
                 )
-                await self.store.emit(
+                tool_called_dict = {
+                    "tool_call_id": tool_call_id,
+                    "tool_name": "python_ast_check",
+                    "reason_code": "python_code_detected",
+                    "args_summary": {
+                        "language": "python",
+                        "code_source": analysis.extracted_python.source.value,
+                        "code_bytes": analysis.extracted_python.byte_count,
+                    },
+                }
+                await self._emit_db_persistent_event(
                     record,
                     EventType.TOOL_CALLED,
-                    ToolCalledPayload(
-                        tool_call_id=tool_call_id,
-                        args_summary=SafeToolArgsSummary(
-                            code_source=analysis.extracted_python.source,
-                            code_bytes=analysis.extracted_python.byte_count,
-                        ),
-                    ),
+                    tool_called_dict,
                     snapshot_updates={"tool_calls": [running_call]},
                 )
+
                 execution = self.tool_registry.run(
                     "python_ast_check",
                     analysis.extracted_python,
@@ -175,15 +262,49 @@ class AgentOrchestrator:
                     result_ref=result_ref,
                     result=execution.result,
                 )
-                await self.store.emit(
+
+                # Persist tool call in DB
+                if record.user_ctx is not None and self.db_session_factory is not None:
+
+                    def _save_tc() -> None:
+                        with session_scope(self.db_session_factory) as session:
+                            tc_model = ToolCallModel(
+                                id=tool_call_id,
+                                owner_id=record.user_ctx.user_id,
+                                task_id=record.snapshot.task_id,
+                                run_id=record.snapshot.run_id,
+                                tool_name="python_ast_check",
+                                reason=analysis.tool_decision.reason,
+                                args_summary_json=json.dumps(
+                                    {
+                                        "language": "python",
+                                        "code_source": analysis.extracted_python.source.value,
+                                        "code_bytes": analysis.extracted_python.byte_count,
+                                    }
+                                ),
+                                result_summary_json=completed_call.result.model_dump_json()
+                                if completed_call.result
+                                else None,
+                                status="succeeded",
+                                duration_ms=execution.latency_ms,
+                                result_ref=result_ref,
+                                created_at=utc_now(),
+                            )
+                            session.add(tc_model)
+
+                    await asyncio.to_thread(_save_tc)
+
+                tool_result_dict = {
+                    "tool_call_id": tool_call_id,
+                    "tool_name": "python_ast_check",
+                    "status": "succeeded",
+                    "latency_ms": execution.latency_ms,
+                    "result_ref": result_ref,
+                }
+                await self._emit_db_persistent_event(
                     record,
                     EventType.TOOL_RESULT,
-                    ToolResultPayload(
-                        tool_call_id=tool_call_id,
-                        status="succeeded",
-                        latency_ms=execution.latency_ms,
-                        result_ref=result_ref,
-                    ),
+                    tool_result_dict,
                     snapshot_updates={"tool_calls": [completed_call]},
                 )
 
@@ -204,13 +325,49 @@ class AgentOrchestrator:
                 content=record.snapshot.partial_output,
                 created_at=utc_now(),
             )
-            await self.store.emit(
+
+            # Persist assistant message and run status in DB
+            if record.user_ctx is not None and self.db_session_factory is not None:
+
+                def _save_completed() -> None:
+                    with session_scope(self.db_session_factory) as session:
+                        msg_model = MessageModel(
+                            id=message.id,
+                            owner_id=record.user_ctx.user_id,
+                            task_id=record.snapshot.task_id,
+                            run_id=record.snapshot.run_id,
+                            role=MessageRole.ASSISTANT.value,
+                            content=message.content,
+                            created_at=utc_now(),
+                        )
+                        session.add(msg_model)
+                        session.execute(
+                            update(AgentRunModel)
+                            .where(
+                                and_(
+                                    AgentRunModel.id == record.snapshot.run_id,
+                                    AgentRunModel.owner_id == record.user_ctx.user_id,
+                                )
+                            )
+                            .values(
+                                status=RunStatus.SUCCEEDED.value,
+                                stage="succeeded",
+                                completed_at=utc_now(),
+                            )
+                        )
+
+                await asyncio.to_thread(_save_completed)
+
+            run_completed_dict = {
+                "status": "succeeded",
+                "message_id": message.id,
+                "end_offset": record.snapshot.end_offset,
+                "offset_unit": "utf8_bytes",
+            }
+            await self._emit_db_persistent_event(
                 record,
                 EventType.RUN_COMPLETED,
-                RunCompletedPayload(
-                    message_id=message.id,
-                    end_offset=record.snapshot.end_offset,
-                ),
+                run_completed_dict,
                 snapshot_updates={
                     "run_status": RunStatus.SUCCEEDED,
                     "terminal": True,
@@ -218,10 +375,10 @@ class AgentOrchestrator:
                     "error": None,
                 },
             )
-            await self.store.emit(
+            await self._emit_db_persistent_event(
                 record,
                 EventType.STREAM_DONE,
-                StreamDonePayload(status="succeeded"),
+                {"status": "succeeded", "final_snapshot_required": True},
             )
             await self.store.mark_closed(record)
         except asyncio.CancelledError:
@@ -265,10 +422,11 @@ class AgentOrchestrator:
         stage: RunStatus,
         progress_label: str,
     ) -> None:
-        await self.store.emit(
+        stage_dict = {"stage": stage.value, "progress_label": progress_label}
+        await self._emit_db_persistent_event(
             record,
             EventType.TASK_STAGE,
-            TaskStagePayload(stage=stage.value, progress_label=progress_label),
+            stage_dict,
             snapshot_updates={"run_status": stage},
         )
 
@@ -357,19 +515,49 @@ class AgentOrchestrator:
             token_source = "mock" if self.provider.mode is ProviderMode.MOCK else "actual"
             prompt_tokens = usage.prompt_tokens
             output_tokens = usage.output_tokens
-        await self.store.emit(
+
+        provider_label = _safe_metric_label(self.provider.name, fallback="unknown", limit=64)
+        model_label = _safe_metric_label(self.provider.model, fallback="unknown", limit=128)
+        total_time_ms = (time.perf_counter() - measurements.started_at) * 1000
+
+        # Update run metrics in DB
+        if record.user_ctx is not None and self.db_session_factory is not None:
+
+            def _save_metrics() -> None:
+                with session_scope(self.db_session_factory) as session:
+                    session.execute(
+                        update(AgentRunModel)
+                        .where(
+                            and_(
+                                AgentRunModel.id == record.snapshot.run_id,
+                                AgentRunModel.owner_id == record.user_ctx.user_id,
+                            )
+                        )
+                        .values(
+                            prompt_tokens=prompt_tokens,
+                            output_tokens=output_tokens,
+                            token_source=token_source,
+                            first_token_ms=measurements.first_token_ms,
+                            total_ms=total_time_ms,
+                        )
+                    )
+
+            await asyncio.to_thread(_save_metrics)
+
+        metrics_dict = {
+            "provider": provider_label,
+            "model": model_label,
+            "provider_mode": self.provider.mode.value,
+            "first_token_ms": measurements.first_token_ms,
+            "total_ms": total_time_ms,
+            "prompt_tokens": prompt_tokens,
+            "output_tokens": output_tokens,
+            "token_source": token_source,
+        }
+        await self._emit_db_persistent_event(
             record,
             EventType.RUN_METRICS,
-            RunMetricsPayload(
-                provider=_safe_metric_label(self.provider.name, fallback="unknown", limit=64),
-                model=_safe_metric_label(self.provider.model, fallback="unknown", limit=128),
-                provider_mode=self.provider.mode,
-                first_token_ms=measurements.first_token_ms,
-                total_ms=(time.perf_counter() - measurements.started_at) * 1000,
-                prompt_tokens=prompt_tokens,
-                output_tokens=output_tokens,
-                token_source=token_source,
-            ),
+            metrics_dict,
         )
         measurements.metrics_emitted = True
 
@@ -391,14 +579,47 @@ class AgentOrchestrator:
                 record.snapshot.run_id,
                 type(exc).__name__,
             )
-        # The public failed stage must precede run.failed, but TaskSnapshot's
-        # failed state is terminal and therefore cannot be published until the
-        # structured RunErrorSnapshot exists. Keep the last active snapshot
-        # state for this metadata event, then commit the terminal state below.
-        await self.store.emit(
+
+        # Update run status to failed in DB, persisting any partial assistant
+        # output so restart recovery returns the accumulated partial_output.
+        if record.user_ctx is not None and self.db_session_factory is not None:
+
+            def _save_failed() -> None:
+                with session_scope(self.db_session_factory) as session:
+                    if record.snapshot.end_offset > 0:
+                        session.add(
+                            MessageModel(
+                                id=new_prefixed_ulid("msg"),
+                                owner_id=record.user_ctx.user_id,
+                                task_id=record.snapshot.task_id,
+                                run_id=record.snapshot.run_id,
+                                role=MessageRole.ASSISTANT.value,
+                                content=record.snapshot.partial_output,
+                                created_at=utc_now(),
+                            )
+                        )
+                    session.execute(
+                        update(AgentRunModel)
+                        .where(
+                            and_(
+                                AgentRunModel.id == record.snapshot.run_id,
+                                AgentRunModel.owner_id == record.user_ctx.user_id,
+                            )
+                        )
+                        .values(
+                            status=RunStatus.FAILED.value,
+                            stage="failed",
+                            error_code=code.value,
+                            completed_at=utc_now(),
+                        )
+                    )
+
+            await asyncio.to_thread(_save_failed)
+
+        await self._emit_db_persistent_event(
             record,
             EventType.TASK_STAGE,
-            TaskStagePayload(stage="failed", progress_label="run_failed"),
+            {"stage": "failed", "progress_label": "run_failed"},
         )
         error = RunErrorSnapshot(
             error_id=new_prefixed_ulid("err"),
@@ -407,15 +628,18 @@ class AgentOrchestrator:
             retryable=retryable,
         )
         partial_message_id = new_prefixed_ulid("msg") if record.snapshot.end_offset > 0 else None
-        await self.store.emit(
+        failed_payload_dict = {
+            "status": "failed",
+            "error_code": code.value,
+            "retryable": retryable,
+            "partial_message_id": partial_message_id,
+            "end_offset": record.snapshot.end_offset,
+            "offset_unit": "utf8_bytes",
+        }
+        await self._emit_db_persistent_event(
             record,
             EventType.RUN_FAILED,
-            RunFailedPayload(
-                error_code=code,
-                retryable=retryable,
-                partial_message_id=partial_message_id,
-                end_offset=record.snapshot.end_offset,
-            ),
+            failed_payload_dict,
             snapshot_updates={
                 "run_status": RunStatus.FAILED,
                 "terminal": True,
@@ -423,20 +647,21 @@ class AgentOrchestrator:
                 "error": error,
             },
         )
-        await self.store.emit(
+        error_payload_dict = {
+            "error_id": error.error_id,
+            "code": code.value,
+            "message": message,
+            "retryable": retryable,
+        }
+        await self._emit_db_persistent_event(
             record,
             EventType.ERROR,
-            ErrorPayload(
-                error_id=error.error_id,
-                code=code,
-                message=message,
-                retryable=retryable,
-            ),
+            error_payload_dict,
         )
-        await self.store.emit(
+        await self._emit_db_persistent_event(
             record,
             EventType.STREAM_DONE,
-            StreamDonePayload(status="failed"),
+            {"status": "failed", "final_snapshot_required": True},
         )
         await self.store.mark_closed(record)
 
