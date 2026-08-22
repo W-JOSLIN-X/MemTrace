@@ -349,12 +349,19 @@ def test_feedback_same_transaction_creates_feedback_job_and_event(tmp_path: Path
 
         job = client.get(f"/api/v1/memory-jobs/{fb_body['memory_job_id']}")
         assert job.status_code == 200
-        assert job.json()["status"] == "pending"
+        job_body = job.json()
+        assert job_body["status"] == "pending"
+        assert job_body["created_at"].endswith("Z")
+        assert job_body["updated_at"].endswith("Z")
 
         snap = client.get(f"/api/v1/tasks/{task_id}").json()
         assert len(snap["feedback_events"]) == 1
         assert snap["feedback_events"][0]["feedback_id"] == fb_body["feedback_id"]
         assert snap["feedback_events"][0]["memory_job_id"] == fb_body["memory_job_id"]
+        assert snap["updated_at"].endswith("Z")
+        assert snap["final_message"]["created_at"].endswith("Z")
+        assert all(message["created_at"].endswith("Z") for message in snap["messages"])
+        assert snap["feedback_events"][0]["created_at"].endswith("Z")
 
 
 def test_feedback_mid_transaction_failure_rolls_back_every_durable_row(

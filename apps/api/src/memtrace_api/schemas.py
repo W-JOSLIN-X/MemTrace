@@ -11,6 +11,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    field_serializer,
     field_validator,
     model_validator,
 )
@@ -35,8 +36,29 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _serialize_utc_datetime(value: datetime) -> str:
+    """Emit RFC 3339 UTC timestamps even when SQLite returns naive values.
+
+    SQLite does not retain timezone information for ``DateTime(timezone=True)``.
+    All persisted timestamps in this service originate from ``utc_now()``, so a
+    naive value read back from SQLite is UTC rather than local time.
+    """
+
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    else:
+        value = value.astimezone(UTC)
+    return value.isoformat().replace("+00:00", "Z")
+
+
 class ContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    @field_serializer("*", when_used="json", check_fields=False)
+    def serialize_utc_datetimes(self, value: object) -> object:
+        if isinstance(value, datetime):
+            return _serialize_utc_datetime(value)
+        return value
 
 
 class ProviderMode(StrEnum):
