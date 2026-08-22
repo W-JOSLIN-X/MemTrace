@@ -16,6 +16,7 @@ function acceptedState() {
   return g0Reducer(createInitialG0State(), {
     type: 'task_accepted',
     accepted: makeAccepted(),
+    taskText: '解释列表越界',
   })
 }
 

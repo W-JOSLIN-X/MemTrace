@@ -1,10 +1,19 @@
 import {
+  parseDemoSessionResponse,
   parseErrorResponse,
+  parseFeedbackCreateAccepted,
+  parseMemoryJobResponse,
   parseTaskCreateAccepted,
   parseTaskSnapshot,
 } from './runtime'
 import type {
+  DemoAlias,
+  DemoSessionResponse,
   ErrorCode,
+  FeedbackCreateAccepted,
+  FeedbackCreateRequest,
+  MemoryJobId,
+  MemoryJobResponse,
   TaskCreateAccepted,
   TaskCreateRequest,
   TaskId,
@@ -15,8 +24,24 @@ export interface G0Api {
   createTask(
     request: TaskCreateRequest,
     signal?: AbortSignal,
+    idempotencyKey?: string,
   ): Promise<TaskCreateAccepted>
   getTask(taskId: TaskId, signal?: AbortSignal): Promise<TaskSnapshot>
+  getSession?(signal?: AbortSignal): Promise<DemoSessionResponse>
+  createDemoSession?(
+    demoAlias: DemoAlias,
+    signal?: AbortSignal,
+  ): Promise<DemoSessionResponse>
+  createFeedback?(
+    taskId: TaskId,
+    request: FeedbackCreateRequest,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<FeedbackCreateAccepted>
+  getMemoryJob?(
+    memoryJobId: MemoryJobId,
+    signal?: AbortSignal,
+  ): Promise<MemoryJobResponse>
 }
 
 export class G0ApiError extends Error {
@@ -41,11 +66,15 @@ export class G0ApiError extends Error {
 }
 
 export const browserG0Api: G0Api = {
-  async createTask(request, signal) {
+  async createTask(request, signal, idempotencyKey = newIdempotencyKey()) {
     const response = await safeFetch('/api/v1/tasks', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+      },
       body: JSON.stringify(request),
+      credentials: 'same-origin',
       signal,
     })
     const body = await readJson(response)
@@ -61,6 +90,7 @@ export const browserG0Api: G0Api = {
     const response = await safeFetch(`/api/v1/tasks/${encodeURIComponent(taskId)}`, {
       method: 'GET',
       headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
       signal,
     })
     const body = await readJson(response)
@@ -71,6 +101,96 @@ export const browserG0Api: G0Api = {
       throw invalidResponse()
     }
   },
+
+  async getSession(signal) {
+    const response = await safeFetch('/api/v1/session', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+      signal,
+    })
+    const body = await readJson(response)
+    if (!response.ok) throw responseError(response.status, body)
+    try {
+      return parseDemoSessionResponse(body)
+    } catch {
+      throw invalidResponse()
+    }
+  },
+
+  async createDemoSession(demoAlias, signal) {
+    const response = await safeFetch('/api/v1/session/demo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ demo_alias: demoAlias }),
+      credentials: 'same-origin',
+      signal,
+    })
+    const body = await readJson(response)
+    if (!response.ok) throw responseError(response.status, body)
+    try {
+      return parseDemoSessionResponse(body)
+    } catch {
+      throw invalidResponse()
+    }
+  },
+
+  async createFeedback(taskId, request, idempotencyKey, signal) {
+    const response = await safeFetch(
+      `/api/v1/tasks/${encodeURIComponent(taskId)}/feedback`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey,
+        },
+        body: JSON.stringify(request),
+        credentials: 'same-origin',
+        signal,
+      },
+    )
+    const body = await readJson(response)
+    if (!response.ok) throw responseError(response.status, body)
+    try {
+      return parseFeedbackCreateAccepted(body)
+    } catch {
+      throw invalidResponse()
+    }
+  },
+
+  async getMemoryJob(memoryJobId, signal) {
+    const response = await safeFetch(
+      `/api/v1/memory-jobs/${encodeURIComponent(memoryJobId)}`,
+      {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        credentials: 'same-origin',
+        signal,
+      },
+    )
+    const body = await readJson(response)
+    if (!response.ok) throw responseError(response.status, body)
+    try {
+      return parseMemoryJobResponse(body)
+    } catch {
+      throw invalidResponse()
+    }
+  },
+}
+
+export function newIdempotencyKey(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return `memtrace-${globalThis.crypto.randomUUID()}`
+  }
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16)
+    globalThis.crypto.getRandomValues(bytes)
+    const randomHex = Array.from(bytes, (value) =>
+      value.toString(16).padStart(2, '0'),
+    ).join('')
+    return `memtrace-${randomHex}`
+  }
+  return `memtrace-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
 async function safeFetch(input: RequestInfo | URL, init: RequestInit) {
@@ -105,7 +225,7 @@ function responseError(status: number, body: unknown): G0ApiError {
 }
 
 function invalidResponse(status: number | null = null): G0ApiError {
-  return new G0ApiError('服务返回了不符合 G0 契约的数据，已停止处理。', {
+  return new G0ApiError('服务返回了不符合 G1 契约的数据，已停止处理。', {
     code: 'INVALID_RESPONSE',
     retryable: false,
     status,

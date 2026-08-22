@@ -115,6 +115,7 @@ describe('G0 Chat experience', () => {
         memory_mode: 'on',
       }),
       expect.any(AbortSignal),
+      expect.stringMatching(/^memtrace-[A-Za-z0-9-]+$/),
     )
     expect(createTask.mock.calls[0]?.[0]).not.toHaveProperty('scenario')
     expect(screen.queryByText(/使用场景|选择场景/)).not.toBeInTheDocument()
@@ -156,7 +157,7 @@ describe('G0 Chat experience', () => {
         selector: 'span[aria-live="polite"]',
       }),
     ).toBeInTheDocument()
-    expect(screen.getByText('你好，世界')).toBeInTheDocument()
+    expect(screen.getByLabelText('原始输出')).toHaveTextContent('你好，世界')
     expect(screen.getByText('Python 语法结构有效')).toBeInTheDocument()
     expect(screen.getByText('15')).toBeInTheDocument()
     expect(screen.getByLabelText('Provider 模式：Mock')).toBeInTheDocument()
@@ -308,7 +309,7 @@ describe('G0 Chat experience', () => {
         selector: 'span[aria-live="polite"]',
       }),
     ).toBeInTheDocument()
-    expect(screen.getByText('你好，世界')).toBeInTheDocument()
+    expect(screen.getByLabelText('原始输出')).toHaveTextContent('你好，世界')
     expect(screen.getByText('mock-deterministic')).toBeInTheDocument()
     expect(recovered.closed).toBe(true)
   })

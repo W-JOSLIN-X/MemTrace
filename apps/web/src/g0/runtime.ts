@@ -2,8 +2,11 @@ import {
   G0_EVENT_TYPES,
   type ErrorCode,
   type ErrorResponse,
+  type DemoSessionResponse,
+  type FeedbackCreateAccepted,
   type G0EventType,
   type G0SseEvent,
+  type MemoryJobResponse,
   type TaskCreateAccepted,
   type TaskSnapshot,
 } from './types'
@@ -100,6 +103,78 @@ export function parseTaskCreateAccepted(value: unknown): TaskCreateAccepted {
     'effective_memory_mode',
   )
   return body as unknown as TaskCreateAccepted
+}
+
+export function parseDemoSessionResponse(value: unknown): DemoSessionResponse {
+  const body = record(value, 'DemoSessionResponse')
+  exactKeys(body, ['request_id', 'demo_alias', 'expires_at'])
+  patternString(body.request_id, requestIdPattern, 'request_id')
+  enumValue(body.demo_alias, ['blank_demo', 'seeded_demo'] as const, 'demo_alias')
+  timestamp(body.expires_at, 'expires_at')
+  return body as unknown as DemoSessionResponse
+}
+
+export function parseFeedbackCreateAccepted(
+  value: unknown,
+): FeedbackCreateAccepted {
+  const body = record(value, 'FeedbackCreateAccepted')
+  exactKeys(body, [
+    'request_id',
+    'feedback_id',
+    'memory_job_id',
+    'feedback_type',
+    'job_status',
+  ])
+  patternString(body.request_id, requestIdPattern, 'request_id')
+  patternString(body.feedback_id, feedbackIdPattern, 'feedback_id')
+  patternString(body.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+  enumValue(
+    body.feedback_type,
+    [
+      'explicit_text',
+      'edited_output',
+      'rating',
+      'accepted',
+      'rejected',
+      'composite',
+    ] as const,
+    'feedback_type',
+  )
+  constant(body.job_status, 'pending', 'job_status')
+  return body as unknown as FeedbackCreateAccepted
+}
+
+export function parseMemoryJobResponse(value: unknown): MemoryJobResponse {
+  const body = record(value, 'MemoryJobResponse')
+  exactKeys(body, [
+    'request_id',
+    'memory_job_id',
+    'job_type',
+    'status',
+    'stage',
+    'attempt',
+    'error',
+    'created_at',
+    'updated_at',
+  ])
+  patternString(body.request_id, requestIdPattern, 'request_id')
+  patternString(body.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+  constant(body.job_type, 'extract_feedback', 'job_type')
+  enumValue(
+    body.status,
+    ['pending', 'running', 'completed', 'failed'] as const,
+    'status',
+  )
+  enumValue(
+    body.stage,
+    ['queued', 'extracting', 'done', 'failed'] as const,
+    'stage',
+  )
+  nonNegativeInteger(body.attempt, 'attempt')
+  if (body.error !== null) boundedString(body.error, 240, 'error')
+  timestamp(body.created_at, 'created_at')
+  timestamp(body.updated_at, 'updated_at')
+  return body as unknown as MemoryJobResponse
 }
 
 export function parseTaskSnapshot(value: unknown): TaskSnapshot {

@@ -12,6 +12,7 @@ export type MemoryJobId = `job_${string}`
 export type SessionId = `sess_${string}`
 export type UserId = `usr_${string}`
 
+export type DemoAlias = 'blank_demo' | 'seeded_demo'
 export type ProviderMode = 'mock' | 'real'
 export type EffectiveMemoryMode = 'on' | 'off'
 export type Scenario =
@@ -95,6 +96,12 @@ export interface TaskCreateAccepted {
   events_url: string
   provider_mode: ProviderMode
   effective_memory_mode: EffectiveMemoryMode
+}
+
+export interface DemoSessionResponse {
+  request_id: RequestId
+  demo_alias: DemoAlias
+  expires_at: string
 }
 
 export interface TaskFingerprint {
@@ -203,6 +210,33 @@ export type FeedbackType =
   | 'accepted'
   | 'rejected'
   | 'composite'
+
+export interface FeedbackCreateRequest {
+  explicit_text?: string | null
+  edited_output?: string | null
+  rating?: number | null
+  accepted?: boolean | null
+}
+
+export interface FeedbackCreateAccepted {
+  request_id: RequestId
+  feedback_id: FeedbackId
+  memory_job_id: MemoryJobId
+  feedback_type: FeedbackType
+  job_status: 'pending'
+}
+
+export interface MemoryJobResponse {
+  request_id: RequestId
+  memory_job_id: MemoryJobId
+  job_type: 'extract_feedback'
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  stage: 'queued' | 'extracting' | 'done' | 'failed'
+  attempt: number
+  error: string | null
+  created_at: string
+  updated_at: string
+}
 
 export interface FeedbackEventRecord {
   feedback_id: FeedbackId
