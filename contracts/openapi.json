@@ -51,27 +51,27 @@
         }
       }
     },
-    "/api/v1/tasks": {
+    "/api/v1/session/demo": {
       "post": {
-        "summary": "Create Task",
-        "operationId": "create_task_api_v1_tasks_post",
+        "summary": "Create Demo Session",
+        "operationId": "create_demo_session_api_v1_session_demo_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TaskCreateRequest"
+                "$ref": "#/components/schemas/DemoSessionCreateRequest"
               }
             }
           },
           "required": true
         },
         "responses": {
-          "202": {
+          "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskCreateAccepted"
+                  "$ref": "#/components/schemas/DemoSessionResponse"
                 }
               }
             }
@@ -85,16 +85,203 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/session": {
+      "get": {
+        "summary": "Get Session",
+        "operationId": "get_session_api_v1_session_get",
+        "parameters": [
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemoSessionResponse"
+                }
+              }
+            }
           },
-          "503": {
-            "description": "Service Unavailable",
+          "401": {
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorEnvelope"
                 }
               }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/session/logout": {
+      "post": {
+        "summary": "Logout",
+        "operationId": "logout_api_v1_session_logout_post",
+        "parameters": [
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks": {
+      "post": {
+        "summary": "Create Task",
+        "operationId": "create_task_api_v1_tasks_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCreateAccepted"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         }
       }
@@ -113,6 +300,22 @@
               "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
               "title": "Task Id"
             }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
           }
         ],
         "responses": {
@@ -125,6 +328,16 @@
                 }
               }
             }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
           },
           "404": {
             "content": {
@@ -208,11 +421,27 @@
               ],
               "title": "Last-Event-Id"
             }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "G0 task event stream",
+            "description": "G0/G1 task event stream",
             "content": {
               "text/event-stream": {
                 "schema": {
@@ -220,6 +449,16 @@
                 }
               }
             }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
           },
           "404": {
             "content": {
@@ -250,6 +489,194 @@
               }
             },
             "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/feedback": {
+      "post": {
+        "summary": "Create Feedback",
+        "operationId": "create_feedback_api_v1_tasks__task_id__feedback_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackCreateAccepted"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/memory-jobs/{job_id}": {
+      "get": {
+        "summary": "Get Memory Job",
+        "operationId": "get_memory_job_api_v1_memory_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryJobResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
         }
       }
@@ -389,6 +816,52 @@
           "source"
         ],
         "title": "CurrentConstraints"
+      },
+      "DemoAlias": {
+        "type": "string",
+        "enum": [
+          "blank_demo",
+          "seeded_demo"
+        ],
+        "title": "DemoAlias"
+      },
+      "DemoSessionCreateRequest": {
+        "properties": {
+          "demo_alias": {
+            "$ref": "#/components/schemas/DemoAlias"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "demo_alias"
+        ],
+        "title": "DemoSessionCreateRequest"
+      },
+      "DemoSessionResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "demo_alias": {
+            "$ref": "#/components/schemas/DemoAlias"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "demo_alias",
+          "expires_at"
+        ],
+        "title": "DemoSessionResponse"
       },
       "Domain": {
         "type": "string",
@@ -556,6 +1029,100 @@
         ],
         "title": "ErrorEnvelope"
       },
+      "FeedbackCreateAccepted": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "feedback_id": {
+            "type": "string",
+            "pattern": "^feedback_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Feedback Id"
+          },
+          "memory_job_id": {
+            "type": "string",
+            "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Job Id"
+          },
+          "feedback_type": {
+            "$ref": "#/components/schemas/FeedbackType"
+          },
+          "job_status": {
+            "type": "string",
+            "const": "pending",
+            "title": "Job Status",
+            "default": "pending"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "feedback_id",
+          "memory_job_id",
+          "feedback_type"
+        ],
+        "title": "FeedbackCreateAccepted"
+      },
+      "FeedbackCreateRequest": {
+        "properties": {
+          "explicit_text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Explicit Text"
+          },
+          "edited_output": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edited Output"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 5.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          },
+          "accepted": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "FeedbackCreateRequest"
+      },
       "FeedbackEventRecord": {
         "properties": {
           "feedback_id": {
@@ -657,6 +1224,19 @@
         "title": "FeedbackType",
         "description": "Derived feedback category. ``rejected`` is the derived type when the\nclient sets ``accepted=false`` without any other signal; ``composite`` is\nused when more than one signal is present."
       },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
       "HealthResponse": {
         "properties": {
           "request_id": {
@@ -706,6 +1286,84 @@
           "at"
         ],
         "title": "HealthResponse"
+      },
+      "MemoryJobResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "memory_job_id": {
+            "type": "string",
+            "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Job Id"
+          },
+          "job_type": {
+            "type": "string",
+            "const": "extract_feedback",
+            "title": "Job Type",
+            "default": "extract_feedback"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed"
+            ],
+            "title": "Status",
+            "default": "pending"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "extracting",
+              "done",
+              "failed"
+            ],
+            "title": "Stage",
+            "default": "queued"
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Attempt",
+            "default": 0
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "memory_job_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MemoryJobResponse"
       },
       "MessageRole": {
         "type": "string",
@@ -1525,6 +2183,46 @@
           "urgent"
         ],
         "title": "Urgency"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
       },
       "ValidationFieldError": {
         "properties": {
