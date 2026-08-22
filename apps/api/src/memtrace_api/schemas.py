@@ -55,7 +55,7 @@ class ContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @field_serializer("*", when_used="json", check_fields=False)
-    def serialize_utc_datetimes(self, value: object) -> object:
+    def serialize_utc_datetimes(self, value: object):
         if isinstance(value, datetime):
             return _serialize_utc_datetime(value)
         return value
