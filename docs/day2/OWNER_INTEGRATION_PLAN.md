@@ -5,6 +5,25 @@
 `integration/day2` 始终接近可运行版本，你先从对方 PR head 继续开发，晚间才依次合并
 后端和前端 PR。
 
+## 0. 2026-08-22 设计修正（优先于本文后续旧描述）
+
+当前代码要求用户在 Chat 页选择 `scenario`，并把它贯穿前端请求、后端
+`TaskCreateRequest`、数据库和 Task Fingerprint。这与产品目标不符：系统应根据任务内容
+自动识别 domain，用户不负责理解或选择内部分类体系。
+
+负责人接手 Day 2 时必须先完成以下跨层修正：
+
+- 删除 Chat 页的场景下拉框和请求中的 `scenario`；
+- 用确定性规则生成 server-derived domain、置信度和受控理由代码；
+- 暂时保留数据库 `tasks.scenario` 列，但只保存服务端检测值；
+- 同步更新 Pydantic、OpenAPI、JSON Schema、TypeScript runtime、fixture、smoke 和总计划；
+- Day 2 只完成自动 Task Fingerprint 与可靠反馈采集，Day 3 再自动判断候选内容属于
+  preference、rule、experience 或 one-shot；不得把 pending job 说成已经形成记忆。
+
+完整执行要求见
+[`OWNER_AGENT_CONTINUATION_PROMPT.md`](./OWNER_AGENT_CONTINUATION_PROMPT.md)。若本文后续
+仍出现要求用户手工选择场景的内容，以该新 Prompt 为准。
+
 ## 1. 已固定的分支关系
 
 ```text
