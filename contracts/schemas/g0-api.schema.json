@@ -110,21 +110,20 @@
     },
     "TaskCreateRequest": {
       "type": "object",
-      "description": "The server trims task_text before enforcing 1..20000 Unicode scalar values. Effective memory is off when either memory_mode is off or current_constraints.memory_disabled is true.",
+      "description": "The server trims task_text before enforcing 1..20000 Unicode scalar values. The task domain is derived server-side; clients must not send scenario. Effective memory is off when either memory_mode is off or current_constraints.memory_disabled is true.",
       "properties": {
         "task_text": {
           "type": "string",
           "minLength": 1,
           "maxLength": 20000
         },
-        "scenario": {"$ref": "#/$defs/Scenario"},
         "memory_mode": {
           "type": "string",
           "enum": ["on", "off"]
         },
         "current_constraints": {"$ref": "#/$defs/CurrentConstraints"}
       },
-      "required": ["task_text", "scenario", "memory_mode", "current_constraints"],
+      "required": ["task_text", "memory_mode", "current_constraints"],
       "additionalProperties": false
     },
     "TaskCreateAccepted": {
@@ -147,6 +146,10 @@
       "type": "string",
       "enum": ["programming_learning", "software_development", "general_text", "other"]
     },
+    "ClassificationReasonCode": {
+      "type": "string",
+      "enum": ["code_present", "technical_context", "debugging_cue", "learning_cue", "explanation_intent", "development_action", "deployment_cue", "text_task", "ambiguous"]
+    },
     "TaskType": {
       "type": "string",
       "enum": ["debugging_guidance", "code_review", "code_explanation", "code_generation", "environment_configuration", "general_question", "other"]
@@ -165,9 +168,17 @@
         "id": {"$ref": "#/$defs/FingerprintId"},
         "schema_version": {
           "type": "string",
-          "const": "1.0"
+          "const": "1.1"
         },
         "domain": {"$ref": "#/$defs/Domain"},
+        "classification_source": {"type": "string", "const": "auto_rule_v1"},
+        "classification_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "classification_reasons": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/ClassificationReasonCode"},
+          "maxItems": 5,
+          "uniqueItems": true
+        },
         "task_type": {"$ref": "#/$defs/TaskType"},
         "artifact_type": {"$ref": "#/$defs/ArtifactType"},
         "audience": {
@@ -210,7 +221,7 @@
           "maxLength": 512
         }
       },
-      "required": ["id", "schema_version", "domain", "task_type", "artifact_type", "audience", "project_key", "language", "framework", "concepts", "tool_context", "current_constraints", "semantic_query"],
+      "required": ["id", "schema_version", "domain", "classification_source", "classification_confidence", "classification_reasons", "task_type", "artifact_type", "audience", "project_key", "language", "framework", "concepts", "tool_context", "current_constraints", "semantic_query"],
       "additionalProperties": false
     },
     "PublicPlan": {

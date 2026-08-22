@@ -314,6 +314,9 @@ function mergeSnapshot(
       ? {
           fingerprint_id: snapshot.fingerprint.id,
           domain: snapshot.fingerprint.domain,
+          classification_source: snapshot.fingerprint.classification_source,
+          classification_confidence: snapshot.fingerprint.classification_confidence,
+          classification_reasons: snapshot.fingerprint.classification_reasons,
           task_type: snapshot.fingerprint.task_type,
           artifact_type: snapshot.fingerprint.artifact_type,
           language: snapshot.fingerprint.language,

@@ -5,7 +5,6 @@
   "provider_evidence_label": "MockProvider fixture",
   "request": {
     "task_text": "请用一句话解释什么是递归，并给我一个直观比喻。🙂",
-    "scenario": "programming_learning",
     "memory_mode": "on",
     "current_constraints": {
       "response_policy": "guided_hint",
@@ -51,6 +50,9 @@
       "data": {
         "fingerprint_id": "fp_01J00000000000000000000011",
         "domain": "programming_learning",
+        "classification_source": "auto_rule_v1",
+        "classification_confidence": 0.78,
+        "classification_reasons": ["technical_context", "explanation_intent"],
         "task_type": "general_question",
         "artifact_type": "none",
         "language": "unknown"
@@ -180,18 +182,21 @@
     "effective_memory_mode": "on",
     "fingerprint": {
       "id": "fp_01J00000000000000000000011",
-      "schema_version": "1.0",
+      "schema_version": "1.1",
       "domain": "programming_learning",
+      "classification_source": "auto_rule_v1",
+      "classification_confidence": 0.78,
+      "classification_reasons": ["technical_context", "explanation_intent"],
       "task_type": "general_question",
       "artifact_type": "none",
-      "audience": "beginner",
+      "audience": "unknown",
       "project_key": null,
       "language": "unknown",
       "framework": null,
       "concepts": ["recursion"],
       "tool_context": [],
       "current_constraints": {"response_policy": "guided_hint", "urgency": "normal", "memory_disabled": false, "source": "ui"},
-      "semantic_query": "用直观比喻向初学者解释递归"
+      "semantic_query": "domain:programming_learning task_type:code_explanation language:unknown concept:recursion"
     },
     "public_plan": {
       "id": "plan_01J00000000000000000000011",

@@ -1,5 +1,7 @@
 # MemTrace Day 2 后端交接报告（feat/day2-backend-feedback）
 
+> **历史报告，不能作为当前验收结论。** 独立复核已确认本文 head、网络状态和若干“完成”判断过时；当前执行入口见 `../MEMTRACE_D2_D7_TWO_PERSON_EXECUTION_PLAN.md`，自动分类决策见 `AUTO_CLASSIFICATION_DECISION.md`，最终结果以实际测试报告为准。以下原文保留用于追溯。
+
 > 生成时间：2026-08-22
 > 角色：Day 2 后端负责人
 > 本报告只记录有证据的通过项；未实测的明确标注「未验证」。

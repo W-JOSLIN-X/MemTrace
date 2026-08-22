@@ -79,7 +79,6 @@ TrimmedTaskText = Annotated[str, StringConstraints(min_length=1, max_length=20_0
 
 class TaskCreateRequest(ContractModel):
     task_text: TrimmedTaskText
-    scenario: Scenario
     memory_mode: EffectiveMemoryMode
     current_constraints: CurrentConstraints
 
@@ -159,13 +158,28 @@ class Audience(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ClassificationReasonCode(StrEnum):
+    CODE_PRESENT = "code_present"
+    TECHNICAL_CONTEXT = "technical_context"
+    DEBUGGING_CUE = "debugging_cue"
+    LEARNING_CUE = "learning_cue"
+    EXPLANATION_INTENT = "explanation_intent"
+    DEVELOPMENT_ACTION = "development_action"
+    DEPLOYMENT_CUE = "deployment_cue"
+    TEXT_TASK = "text_task"
+    AMBIGUOUS = "ambiguous"
+
+
 Concept = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")]
 
 
 class TaskFingerprint(ContractModel):
     id: FingerprintId
-    schema_version: Literal["1.0"] = "1.0"
+    schema_version: Literal["1.1"] = "1.1"
     domain: Domain
+    classification_source: Literal["auto_rule_v1"] = "auto_rule_v1"
+    classification_confidence: float = Field(ge=0, le=1)
+    classification_reasons: Annotated[list[ClassificationReasonCode], Field(max_length=5)]
     task_type: TaskType
     artifact_type: ArtifactType
     audience: Audience
@@ -177,7 +191,7 @@ class TaskFingerprint(ContractModel):
     current_constraints: CurrentConstraints
     semantic_query: Annotated[str, StringConstraints(min_length=1, max_length=512)]
 
-    @field_validator("concepts", "tool_context")
+    @field_validator("classification_reasons", "concepts", "tool_context")
     @classmethod
     def items_are_unique(cls, value: list[str]) -> list[str]:
         if len(value) != len(set(value)):

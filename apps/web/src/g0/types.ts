@@ -19,6 +19,16 @@ export type Scenario =
   | 'software_development'
   | 'general_text'
   | 'other'
+export type ClassificationReasonCode =
+  | 'code_present'
+  | 'technical_context'
+  | 'debugging_cue'
+  | 'learning_cue'
+  | 'explanation_intent'
+  | 'development_action'
+  | 'deployment_cue'
+  | 'text_task'
+  | 'ambiguous'
 export type ResponsePolicy = 'default' | 'guided_hint' | 'direct_fix'
 export type RunStatus =
   | 'queued'
@@ -74,7 +84,6 @@ export interface CurrentConstraints {
 
 export interface TaskCreateRequest {
   task_text: string
-  scenario: Scenario
   memory_mode: 'on' | 'off'
   current_constraints: CurrentConstraints
 }
@@ -90,8 +99,11 @@ export interface TaskCreateAccepted {
 
 export interface TaskFingerprint {
   id: FingerprintId
-  schema_version: '1.0'
+  schema_version: '1.1'
   domain: Scenario
+  classification_source: 'auto_rule_v1'
+  classification_confidence: number
+  classification_reasons: ClassificationReasonCode[]
   task_type:
     | 'debugging_guidance'
     | 'code_review'
@@ -272,6 +284,9 @@ export type TaskFingerprintedEvent = EventEnvelope<
   {
     fingerprint_id: FingerprintId
     domain: Scenario
+    classification_source: 'auto_rule_v1'
+    classification_confidence: number
+    classification_reasons: ClassificationReasonCode[]
     task_type: TaskFingerprint['task_type']
     artifact_type: TaskFingerprint['artifact_type']
     language: TaskFingerprint['language']

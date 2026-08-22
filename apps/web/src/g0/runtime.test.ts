@@ -89,8 +89,11 @@ describe('G0 runtime contract parser', () => {
     const snapshot = makeSnapshot({
       fingerprint: {
         id: 'fp_01J00000000000000000000000',
-        schema_version: '1.0',
+        schema_version: '1.1',
         domain: 'programming_learning',
+        classification_source: 'auto_rule_v1',
+        classification_confidence: 0.95,
+        classification_reasons: ['code_present', 'debugging_cue'],
         task_type: 'debugging_guidance',
         artifact_type: 'source_code',
         audience: 'beginner',

@@ -27,7 +27,7 @@ from memtrace_api.events import (
     MemoryRetrievalStartedPayload,
 )
 from memtrace_api.ids import new_prefixed_ulid
-from memtrace_api.logic import analyze_task, build_public_plan
+from memtrace_api.logic import build_public_plan
 from memtrace_api.providers import (
     ProviderFailure,
     ProviderRequest,
@@ -154,7 +154,7 @@ class AgentOrchestrator:
                 RunStatus.FINGERPRINTING,
                 "fingerprinting_task",
             )
-            analysis = analyze_task(record.request)
+            analysis = record.analysis
 
             # Persist fingerprint to DB if factory present
             if record.user_ctx is not None and self.db_session_factory is not None:
@@ -179,6 +179,11 @@ class AgentOrchestrator:
             fp_payload_dict = {
                 "fingerprint_id": analysis.fingerprint.id,
                 "domain": analysis.fingerprint.domain.value,
+                "classification_source": analysis.fingerprint.classification_source,
+                "classification_confidence": analysis.fingerprint.classification_confidence,
+                "classification_reasons": [
+                    reason.value for reason in analysis.fingerprint.classification_reasons
+                ],
                 "task_type": analysis.fingerprint.task_type.value,
                 "artifact_type": analysis.fingerprint.artifact_type.value,
                 "language": analysis.fingerprint.language.value,

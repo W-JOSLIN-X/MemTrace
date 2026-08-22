@@ -30,6 +30,7 @@ def test_whole_task_must_be_valid_python() -> None:
     assert valid.source is CodeSource.WHOLE_TASK_VALID_PYTHON
     assert python_ast_check(valid).valid is True
     assert extract_python("def invalid(:") is None
+    assert extract_python("帮我处理一下") is None
 
 
 def test_blank_python_fence_is_not_a_tool_input() -> None:

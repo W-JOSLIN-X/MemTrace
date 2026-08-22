@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import type { G0Api } from '../g0/api'
 import type { EventSourceFactory } from '../g0/eventStream'
 import type { G0Phase, G0State, StageRecord } from '../g0/reducer'
-import type { ResponsePolicy, Scenario, ToolCallSnapshot } from '../g0/types'
+import type { ResponsePolicy, ToolCallSnapshot } from '../g0/types'
 import { useG0Agent } from '../g0/useG0Agent'
 
 export interface ChatPageProps {
@@ -38,7 +38,6 @@ export function ChatPage({
   retryDelaysMs,
 }: ChatPageProps) {
   const [taskText, setTaskText] = useState('')
-  const [scenario, setScenario] = useState<Scenario>('programming_learning')
   const [responsePolicy, setResponsePolicy] =
     useState<ResponsePolicy>('default')
   const [memoryEnabled, setMemoryEnabled] = useState(true)
@@ -60,7 +59,6 @@ export function ChatPage({
     event.preventDefault()
     if (invalidLength || isSubmitting) return
     void submitTask(taskText, {
-      scenario,
       memoryMode: memoryEnabled ? 'on' : 'off',
       responsePolicy,
     })
@@ -110,20 +108,7 @@ export function ChatPage({
               提交新任务会安全关闭当前事件流；提交失败不会清空输入。
             </p>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label className="text-xs font-black text-slate-700">
-                使用场景
-                <select
-                  className="mt-2 w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm font-semibold outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100"
-                  onChange={(event) => setScenario(event.target.value as Scenario)}
-                  value={scenario}
-                >
-                  <option value="programming_learning">编程学习</option>
-                  <option value="software_development">软件开发</option>
-                  <option value="general_text">通用文本</option>
-                  <option value="other">其他</option>
-                </select>
-              </label>
+            <div className="mt-4 max-w-sm">
               <label className="text-xs font-black text-slate-700">
                 回答方式
                 <select

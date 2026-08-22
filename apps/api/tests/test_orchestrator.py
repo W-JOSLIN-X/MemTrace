@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import pytest
 
 from memtrace_api.events import EventType
+from memtrace_api.logic import analyze_task
 from memtrace_api.orchestrator import AgentOrchestrator, _consume_task_exception
 from memtrace_api.providers import (
     ProviderFailure,
@@ -23,7 +24,6 @@ def _request() -> TaskCreateRequest:
     return TaskCreateRequest.model_validate(
         {
             "task_text": "解释递归",
-            "scenario": "programming_learning",
             "memory_mode": "on",
             "current_constraints": {
                 "response_policy": "default",
@@ -59,8 +59,10 @@ async def _run(provider: AttemptProvider):
         max_subscribers_per_task=2,
         subscriber_queue_size=16,
     )
+    request = _request()
     record = await store.create(
-        request=_request(),
+        request=request,
+        analysis=analyze_task(request),
         request_id="req_01J00000000000000000000001",
         provider_mode=ProviderMode.MOCK,
     )
@@ -169,8 +171,10 @@ async def test_invalid_provider_metric_labels_cannot_block_terminal_failure() ->
         max_subscribers_per_task=2,
         subscriber_queue_size=16,
     )
+    request = _request()
     record = await store.create(
-        request=_request(),
+        request=request,
+        analysis=analyze_task(request),
         request_id="req_01J00000000000000000000001",
         provider_mode=ProviderMode.MOCK,
     )

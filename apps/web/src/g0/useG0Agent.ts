@@ -18,7 +18,6 @@ import { parseSseEvent } from './runtime'
 import type {
   G0EventType,
   ResponsePolicy,
-  Scenario,
   TaskCreateRequest,
   TaskId,
   TaskSnapshot,
@@ -27,7 +26,6 @@ import type {
 const DEFAULT_RETRY_DELAYS_MS = [250, 500, 1000, 2000] as const
 
 export interface SubmitTaskOptions {
-  scenario: Scenario
   memoryMode: 'on' | 'off'
   responsePolicy: ResponsePolicy
 }
@@ -388,7 +386,6 @@ export function useG0Agent({
       commit({ type: 'submit_started' })
       const request: TaskCreateRequest = {
         task_text: trimmed,
-        scenario: options.scenario,
         memory_mode: options.memoryMode,
         current_constraints: {
           response_policy: options.responsePolicy,

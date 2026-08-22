@@ -32,6 +32,7 @@ from memtrace_api.events import EventType, make_event, serialize_sse
 from memtrace_api.idempotency import compute_request_hash, validate_idempotency_key
 from memtrace_api.ids import new_prefixed_ulid
 from memtrace_api.logging_config import configure_logging
+from memtrace_api.logic import analyze_task
 from memtrace_api.middleware import RequestIdMiddleware
 from memtrace_api.orchestrator import AgentOrchestrator
 from memtrace_api.providers import DeepSeekProvider, MockProvider, StreamingProvider
@@ -377,11 +378,13 @@ def create_app(
                     return JSONResponse(status_code=existing.response_status, content=saved_json)
 
                 # Insert task in DB
+                analysis = analyze_task(body)
                 task_repo = TaskRepository(user_ctx, session)
                 task_repo.create_task(
                     task_id=task_id,
                     run_id=run_id,
                     request=body,
+                    detected_domain=analysis.fingerprint.domain,
                     provider_mode=current_orchestrator.provider.mode,
                     model=current_orchestrator.provider.model,
                 )
@@ -411,6 +414,7 @@ def create_app(
             try:
                 record = await resolved_store.create(
                     request=body,
+                    analysis=analysis,
                     request_id=request.state.request_id,
                     provider_mode=current_orchestrator.provider.mode,
                     task_id=task_id,

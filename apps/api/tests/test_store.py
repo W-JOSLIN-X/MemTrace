@@ -12,6 +12,7 @@ from memtrace_api.events import (
     TaskStagePayload,
 )
 from memtrace_api.ids import new_prefixed_ulid
+from memtrace_api.logic import TaskAnalysis, analyze_task
 from memtrace_api.main import _subscription_body
 from memtrace_api.schemas import (
     MessageSnapshot,
@@ -31,7 +32,6 @@ def request_model() -> TaskCreateRequest:
     return TaskCreateRequest.model_validate(
         {
             "task_text": "解释递归",
-            "scenario": "programming_learning",
             "memory_mode": "on",
             "current_constraints": {
                 "response_policy": "default",
@@ -41,6 +41,10 @@ def request_model() -> TaskCreateRequest:
             },
         }
     )
+
+
+def analysis_model() -> TaskAnalysis:
+    return analyze_task(request_model())
 
 
 def make_store(**overrides: int) -> TaskStore:
@@ -58,6 +62,7 @@ async def test_replay_preserves_original_metadata_chunk_interleaving() -> None:
     store = make_store()
     record = await store.create(
         request=request_model(),
+        analysis=analysis_model(),
         request_id=new_prefixed_ulid("req"),
         provider_mode=ProviderMode.MOCK,
     )
@@ -112,6 +117,7 @@ async def test_transient_memory_event_is_available_to_first_late_subscription() 
     store = make_store()
     record = await store.create(
         request=request_model(),
+        analysis=analysis_model(),
         request_id=new_prefixed_ulid("req"),
         provider_mode=ProviderMode.MOCK,
     )
@@ -143,6 +149,7 @@ async def test_transient_memory_replay_ignores_an_advanced_output_cursor() -> No
     store = make_store()
     record = await store.create(
         request=request_model(),
+        analysis=analysis_model(),
         request_id=new_prefixed_ulid("req"),
         provider_mode=ProviderMode.MOCK,
     )
@@ -186,6 +193,7 @@ async def test_overlapping_utf8_chunk_is_replayed_for_boundary_or_split_cursor(c
     store = make_store()
     record = await store.create(
         request=request_model(),
+        analysis=analysis_model(),
         request_id=new_prefixed_ulid("req"),
         provider_mode=ProviderMode.MOCK,
     )
@@ -222,6 +230,7 @@ async def test_chunk_at_exact_end_cursor_is_not_replayed() -> None:
     store = make_store()
     record = await store.create(
         request=request_model(),
+        analysis=analysis_model(),
         request_id=new_prefixed_ulid("req"),
         provider_mode=ProviderMode.MOCK,
     )
@@ -251,6 +260,7 @@ async def test_terminal_late_subscription_gets_metadata_through_stream_done() ->
     store = make_store()
     record = await store.create(
         request=request_model(),
+        analysis=analysis_model(),
         request_id=new_prefixed_ulid("req"),
         provider_mode=ProviderMode.MOCK,
     )
@@ -288,12 +298,14 @@ async def test_task_subscriber_and_slow_queue_capacities_are_enforced() -> None:
     store = make_store(max_tasks=1, max_subscribers_per_task=1, subscriber_queue_size=1)
     first = await store.create(
         request=request_model(),
+        analysis=analysis_model(),
         request_id=new_prefixed_ulid("req"),
         provider_mode=ProviderMode.MOCK,
     )
     with pytest.raises(TaskCapacityError):
         await store.create(
             request=request_model(),
+            analysis=analysis_model(),
             request_id=new_prefixed_ulid("req"),
             provider_mode=ProviderMode.MOCK,
         )
@@ -330,6 +342,7 @@ async def test_idle_subscription_sends_heartbeat_and_unsubscribes_on_close() -> 
     store = make_store()
     record = await store.create(
         request=request_model(),
+        analysis=analysis_model(),
         request_id=new_prefixed_ulid("req"),
         provider_mode=ProviderMode.MOCK,
     )

@@ -781,6 +781,21 @@
         ],
         "title": "Audience"
       },
+      "ClassificationReasonCode": {
+        "type": "string",
+        "enum": [
+          "code_present",
+          "technical_context",
+          "debugging_cue",
+          "learning_cue",
+          "explanation_intent",
+          "development_action",
+          "deployment_cue",
+          "text_task",
+          "ambiguous"
+        ],
+        "title": "ClassificationReasonCode"
+      },
       "CodeSource": {
         "type": "string",
         "enum": [
@@ -1675,9 +1690,6 @@
             "minLength": 1,
             "title": "Task Text"
           },
-          "scenario": {
-            "$ref": "#/components/schemas/Scenario"
-          },
           "memory_mode": {
             "$ref": "#/components/schemas/EffectiveMemoryMode"
           },
@@ -1689,7 +1701,6 @@
         "type": "object",
         "required": [
           "task_text",
-          "scenario",
           "memory_mode",
           "current_constraints"
         ],
@@ -1704,12 +1715,32 @@
           },
           "schema_version": {
             "type": "string",
-            "const": "1.0",
+            "const": "1.1",
             "title": "Schema Version",
-            "default": "1.0"
+            "default": "1.1"
           },
           "domain": {
             "$ref": "#/components/schemas/Domain"
+          },
+          "classification_source": {
+            "type": "string",
+            "const": "auto_rule_v1",
+            "title": "Classification Source",
+            "default": "auto_rule_v1"
+          },
+          "classification_confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Classification Confidence"
+          },
+          "classification_reasons": {
+            "items": {
+              "$ref": "#/components/schemas/ClassificationReasonCode"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "title": "Classification Reasons"
           },
           "task_type": {
             "$ref": "#/components/schemas/TaskType"
@@ -1782,6 +1813,8 @@
         "required": [
           "id",
           "domain",
+          "classification_confidence",
+          "classification_reasons",
           "task_type",
           "artifact_type",
           "audience",

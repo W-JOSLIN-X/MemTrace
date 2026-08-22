@@ -11,6 +11,7 @@ from pydantic import Field, StringConstraints, model_validator
 from memtrace_api.schemas import (
     ArtifactType,
     AsyncErrorCode,
+    ClassificationReasonCode,
     CodeSource,
     ContractModel,
     Domain,
@@ -89,6 +90,9 @@ class TaskStagePayload(ContractModel):
 class TaskFingerprintedPayload(ContractModel):
     fingerprint_id: FingerprintId
     domain: Domain
+    classification_source: Literal["auto_rule_v1"] = "auto_rule_v1"
+    classification_confidence: float = Field(ge=0, le=1)
+    classification_reasons: Annotated[list[ClassificationReasonCode], Field(max_length=5)]
     task_type: TaskType
     artifact_type: ArtifactType
     language: ProgrammingLanguage

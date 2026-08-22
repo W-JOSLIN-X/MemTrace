@@ -1034,8 +1034,11 @@ P0 不建 UserProfile 表或 API。稳定信息也写成 MemoryCard，例如：
 
 ~~~json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "domain": "programming_learning",
+  "classification_source": "auto_rule_v1",
+  "classification_confidence": 0.95,
+  "classification_reasons": ["technical_context", "debugging_cue", "learning_cue"],
   "task_type": "debugging_guidance",
   "artifact_type": "source_code",
   "audience": "beginner",
@@ -1054,7 +1057,7 @@ P0 不建 UserProfile 表或 API。稳定信息也写成 MemoryCard，例如：
 }
 ~~~
 
-domain、task_type、artifact_type 使用受控枚举加 other；concepts 是规范化标签。TaskFingerprint 中 project_key=null 只表示当前任务未提供项目，不表示“所有项目”。只有记忆作用域中的显式 ANY 才是通配。当前任务明确传入的 scenario_hint 和 UI constraint 优先，模型只补充可审计指纹，不能覆盖用户选择。
+domain、task_type、artifact_type 使用受控枚举加 other；concepts 是规范化标签。TaskFingerprint 中 project_key=null 只表示当前任务未提供项目，不表示“所有项目”。只有记忆作用域中的显式 ANY 才是通配。domain 由服务端本地 `auto_rule_v1` 根据任务文本自动识别，用户不提交 `scenario` 或 `scenario_hint`；`classification_confidence` 是确定性规则分数，不是统计概率，`classification_reasons` 只保存受控代码。response_policy、memory_mode 等 UI constraint 仍由用户控制，但不能覆盖自动分类。
 
 ### 11.4 MemoryCard
 
@@ -1272,7 +1275,6 @@ DELETE /api/v1/tasks/{task_id}
 ~~~json
 {
   "task_text": "帮我理解这段 Python 为什么越界",
-  "scenario": "programming_learning",
   "memory_mode": "on",
   "attachments": [],
   "current_constraints": {
@@ -1283,6 +1285,8 @@ DELETE /api/v1/tasks/{task_id}
   }
 }
 ~~~
+
+服务端在幂等重放和容量 admission 后只分析一次请求，生成 server-derived domain，并让 DB、TaskStore、Orchestrator 和 snapshot 复用同一 TaskAnalysis。旧客户端继续发送 `scenario` 时因严格契约返回 422，不悄悄信任。
 
 current_constraints 使用受控枚举：response_policy 为 default、guided_hint 或 direct_fix；urgency 为 normal 或 urgent。用户可在 UI 明确选择。自然语言出现“这次 + 直接/最小修复”等确定组合时，规则解析器可提出 direct_fix，但页面必须可见；无法确定时不擅自设置。长期卡 exceptions 只能引用这些受控 flag，不能写自由字符串执行逻辑。
 
@@ -1469,7 +1473,7 @@ SSE 是单向服务端推送，正适合“REST 提交、事件返回”；不�
 |---|---|---|
 | users | id, demo_alias, created_at | 演示用户 |
 | demo_sessions | id, owner_id, expires_at, revoked_at | Cookie 只持有随机 session_id；服务端据此恢复 owner |
-| tasks | id, owner_id, text, scenario, status | 用户任务 |
+| tasks | id, owner_id, text, scenario, status | 用户任务；D2 的 scenario 兼容列只保存服务端检测 domain |
 | task_fingerprints | task_id, schema_version, fields, semantic_query | 每任务一个 |
 | agent_runs | id, task_id, owner_id, provider, model, status, partial_output_ref, timings, token_usage | 每次生成尝试 |
 | messages | id, task_id, run_id, role, content, created_at | 原始对话与结果 |
@@ -2165,7 +2169,7 @@ preview 成功后，服务器在 import_batches 中暂存校验后的 canonical_
 
 | 调用 | 会发送 | 不发送 |
 |---|---|---|
-| Task Fingerprint | 当前任务文本、用户显式 scenario/constraint | 其他历史、全记忆库 |
+| Task Fingerprint | 本地规则处理当前任务文本和显式 constraint，不调用外部 Provider | 其他历史、全记忆库；不存在用户 scenario |
 | 最终生成/工具选择 | 当前任务、当前会话必要消息、工具 Schema/必要结果、最多 3 张压缩卡 | 卡片证据全文、其他任务 |
 | 反馈提取 | TaskFingerprint、反馈文本、必要的原结果/修改 Diff 片段、used_memory_ids | 全量历史和无变化代码 |
 | duplicate/conflict 分类 | 新候选与同 owner 的最多 5 张摘要卡 | 原任务代码和原始证据 |
@@ -2897,14 +2901,15 @@ python -m pip install fastapi uvicorn pydantic-settings sqlalchemy alembic opena
 #### 成员 B 具体操作
 
 1. 接真实 task 创建、SSE 和 task 恢复。
-2. 在回答下加入“编辑结果”模式：保留原稿只读、修改稿可编辑、提交前显示变化字数。
-3. 加入自然语言反馈、1–5 评分、采纳、拒绝。
-4. 实现提交 loading、成功、失败重试；失败不清空输入。
-5. 实时事件区显示 feedback.recorded。
-6. 刷新页面后 GET task 恢复消息和当前状态。
-7. 加 demo 用户切换，下拉切换后清空另一用户前端缓存。
-8. 写编辑器、反馈 payload、跨用户切换组件测试。
-9. 把 learning_events 扩为 24 条（三场景各 8），完成第一轮独立标注。
+2. 删除任务类别下拉框；提交请求不含 `scenario`，fingerprint 到达后只读显示系统检测 domain、规则分数和受控理由。
+3. 在回答下加入“编辑结果”模式：保留原稿只读、修改稿可编辑、提交前显示变化字数。
+4. 加入自然语言反馈、1–5 评分、采纳、拒绝。
+5. 实现提交 loading、成功、失败重试；失败不清空输入。
+6. 实时事件区显示 feedback.recorded。
+7. 刷新页面后 GET task 恢复消息和当前状态。
+8. 加 demo 用户切换，下拉切换后清空另一用户前端缓存。
+9. 写自动分类展示、编辑器、反馈 payload、跨用户切换组件测试。
+10. 把 learning_events 扩为 24 条（三场景各 8），完成第一轮独立标注并记录 expected domain。
 
 #### 共同任务
 
@@ -2970,8 +2975,8 @@ python -m pip install fastapi uvicorn pydantic-settings sqlalchemy alembic opena
 1. 新 migration：memory_cards、memory_versions、memory_evidence、links、relations；memory_jobs 已在 Day 2。
 2. 实现 SQLite job + asyncio 单 worker，启动恢复 pending。
 3. 实现 DiffService 和 normalized edit cost。
-4. 实现 deterministic durability detector。
-5. 编写 feedback extraction Prompt 和 JSON 示例，限制 0–3 张。
+4. 实现 deterministic durability detector；结合服务端 TaskFingerprint 自动判断 preference、rule、experience 或 one-shot，不要求用户先选类型。
+5. 编写 feedback extraction Prompt 和 JSON 示例，限制 0–3 张；scope 从自动 fingerprint 派生，低置信 other 不自动扩大作用域。
 6. 调用 complete_json，Pydantic 校验、修复重试一次。
 7. 实现 Source/Reusability/One-shot/Atomicity/Scope/Evidence Gate。
 8. 只创建 candidate MemoryCard；explicit remember 生成预选保存的 candidate，edit diff 生成普通 candidate；one_shot 只保存 episode 并以 reason=episode_only 拒绝候选；只有 resolve 确认后才 active。

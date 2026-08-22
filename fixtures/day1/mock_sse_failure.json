@@ -5,7 +5,6 @@
   "provider_evidence_label": "MockProvider forced-failure fixture",
   "request": {
     "task_text": "请解释这个异常产生的常见原因；测试时在首个 chunk 后强制 Provider 失败。",
-    "scenario": "software_development",
     "memory_mode": "on",
     "current_constraints": {
       "response_policy": "default",
@@ -50,9 +49,12 @@
       "at": "2026-08-21T00:20:03Z",
       "data": {
         "fingerprint_id": "fp_01J00000000000000000000021",
-        "domain": "software_development",
-        "task_type": "general_question",
-        "artifact_type": "text",
+        "domain": "programming_learning",
+        "classification_source": "auto_rule_v1",
+        "classification_confidence": 0.78,
+        "classification_reasons": ["technical_context", "explanation_intent"],
+        "task_type": "code_explanation",
+        "artifact_type": "none",
         "language": "unknown"
       }
     },
@@ -180,18 +182,21 @@
     "effective_memory_mode": "off",
     "fingerprint": {
       "id": "fp_01J00000000000000000000021",
-      "schema_version": "1.0",
-      "domain": "software_development",
-      "task_type": "general_question",
-      "artifact_type": "text",
+      "schema_version": "1.1",
+      "domain": "programming_learning",
+      "classification_source": "auto_rule_v1",
+      "classification_confidence": 0.78,
+      "classification_reasons": ["technical_context", "explanation_intent"],
+      "task_type": "code_explanation",
+      "artifact_type": "none",
       "audience": "unknown",
       "project_key": null,
       "language": "unknown",
       "framework": null,
-      "concepts": ["exception"],
+      "concepts": ["exception", "testing"],
       "tool_context": [],
       "current_constraints": {"response_policy": "default", "urgency": "normal", "memory_disabled": true, "source": "ui"},
-      "semantic_query": "解释异常的常见原因"
+      "semantic_query": "domain:programming_learning task_type:code_explanation language:unknown concept:exception concept:testing"
     },
     "public_plan": {
       "id": "plan_01J00000000000000000000021",

@@ -139,6 +139,10 @@
       "type": "string",
       "enum": ["programming_learning", "software_development", "general_text", "other"]
     },
+    "ClassificationReasonCode": {
+      "type": "string",
+      "enum": ["code_present", "technical_context", "debugging_cue", "learning_cue", "explanation_intent", "development_action", "deployment_cue", "text_task", "ambiguous"]
+    },
     "TaskType": {
       "type": "string",
       "enum": ["debugging_guidance", "code_review", "code_explanation", "code_generation", "environment_configuration", "general_question", "other"]
@@ -208,11 +212,19 @@
       "properties": {
         "fingerprint_id": {"$ref": "#/$defs/FingerprintId"},
         "domain": {"$ref": "#/$defs/Domain"},
+        "classification_source": {"type": "string", "const": "auto_rule_v1"},
+        "classification_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "classification_reasons": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/ClassificationReasonCode"},
+          "maxItems": 5,
+          "uniqueItems": true
+        },
         "task_type": {"$ref": "#/$defs/TaskType"},
         "artifact_type": {"$ref": "#/$defs/ArtifactType"},
         "language": {"$ref": "#/$defs/ProgrammingLanguage"}
       },
-      "required": ["fingerprint_id", "domain", "task_type", "artifact_type", "language"],
+      "required": ["fingerprint_id", "domain", "classification_source", "classification_confidence", "classification_reasons", "task_type", "artifact_type", "language"],
       "additionalProperties": false
     },
     "MemoryRetrievalStartedPayload": {

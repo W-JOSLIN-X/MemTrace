@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.0.0",
+  "contract_version": "1.1.0",
   "document_role": "audit_manifest",
   "normative_contracts": {
     "api_bodies": "contracts/schemas/g0-api.schema.json",
@@ -15,6 +15,7 @@
     "session_cookie": true,
     "owner_isolation": true,
     "idempotency_key": true,
+    "task_classification": "server-derived deterministic auto_rule_v1; clients sending scenario are rejected",
     "restart_behavior": "terminal tasks, messages, and event metadata recover from SQLite; non-terminal runs marked failed with RUN_INTERRUPTED",
     "session_idempotency_exception": "Session bootstrap (/api/v1/session/demo) and logout (/api/v1/session/logout) are explicit G1 exceptions to Idempotency-Key"
   },
@@ -49,7 +50,7 @@
       "success_status": 200,
       "failure_status": 503,
       "auth_required": false,
-      "rule": "checks local configuration, data-directory writability, and database connectivity"
+      "rule": "checks local configuration, data-directory writability, database connectivity, and current Alembic revision equals head"
     },
     {
       "method": "POST",
@@ -86,7 +87,7 @@
       "success_status": 200,
       "failure_status": 404,
       "auth_required": true,
-      "rule": "returns owner-isolated TaskSnapshot with task_text, scenario, messages, and feedback_events"
+      "rule": "returns owner-isolated TaskSnapshot with task_text, server-derived scenario, classification provenance, messages, and feedback_events"
     },
     {
       "method": "GET",

@@ -1,5 +1,7 @@
 # MemTrace Day 2：项目负责人接手、联调、合并与提交计划
 
+> **已由更完整计划取代。** 当前 D2–D7 分工、绿色整合 PR 策略和实际验收门禁见 `../MEMTRACE_D2_D7_TWO_PERSON_EXECUTION_PLAN.md`。本文保留为历史设计记录；冲突时以新计划、自动分类决策、契约和实际测试为准。
+
 本计划从第二成员提交 `feat/day2-backend-feedback` Draft PR 后开始。目标是你接手后完成
 前端反馈体验、全链路 G1 验收，并通过受保护的 PR 把 Day 2 合入 `main`。为保持
 `integration/day2` 始终接近可运行版本，你先从对方 PR head 继续开发，晚间才依次合并

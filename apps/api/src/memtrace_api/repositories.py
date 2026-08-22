@@ -27,6 +27,7 @@ from memtrace_api.events import EventType
 from memtrace_api.ids import new_prefixed_ulid
 from memtrace_api.schemas import (
     AsyncErrorCode,
+    Domain,
     EffectiveMemoryMode,
     FeedbackEventRecord,
     FeedbackType,
@@ -153,6 +154,7 @@ class TaskRepository:
         task_id: str,
         run_id: str,
         request: TaskCreateRequest,
+        detected_domain: Domain,
         provider_mode: ProviderMode,
         model: str,
     ) -> tuple[TaskModel, AgentRunModel, MessageModel, EventLogModel]:
@@ -160,7 +162,7 @@ class TaskRepository:
         task = TaskModel(
             id=task_id,
             owner_id=self.user_ctx.user_id,
-            scenario=request.scenario.value,
+            scenario=detected_domain.value,
             task_text=request.task_text,
             effective_memory_mode=request.effective_memory_mode.value,
             status="active",

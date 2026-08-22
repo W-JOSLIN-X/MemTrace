@@ -112,11 +112,12 @@ describe('G0 Chat experience', () => {
     expect(createTask).toHaveBeenCalledWith(
       expect.objectContaining({
         task_text: '解释列表越界',
-        scenario: 'programming_learning',
         memory_mode: 'on',
       }),
       expect.any(AbortSignal),
     )
+    expect(createTask.mock.calls[0]?.[0]).not.toHaveProperty('scenario')
+    expect(screen.queryByText(/使用场景|选择场景/)).not.toBeInTheDocument()
     expect(connections[0]?.url).toBe(
       `/api/v1/tasks/${TASK_ID}/events?after_event_seq=0&after_offset=0`,
     )
@@ -552,6 +553,9 @@ function fingerprinted(eventSeq: number): TaskFingerprintedEvent {
   return envelope('task.fingerprinted', eventSeq, {
     fingerprint_id: FINGERPRINT_ID,
     domain: 'programming_learning',
+    classification_source: 'auto_rule_v1',
+    classification_confidence: 0.95,
+    classification_reasons: ['code_present', 'debugging_cue'],
     task_type: 'debugging_guidance',
     artifact_type: 'source_code',
     language: 'python',
@@ -690,8 +694,11 @@ function makeTerminalSnapshot() {
     run_status: 'succeeded',
     fingerprint: {
       id: FINGERPRINT_ID,
-      schema_version: '1.0',
+      schema_version: '1.1',
       domain: 'programming_learning',
+      classification_source: 'auto_rule_v1',
+      classification_confidence: 0.95,
+      classification_reasons: ['code_present', 'debugging_cue'],
       task_type: 'debugging_guidance',
       artifact_type: 'source_code',
       audience: 'beginner',

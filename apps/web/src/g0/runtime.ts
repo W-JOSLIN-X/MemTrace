@@ -287,6 +287,9 @@ function validateEventPayload(
       exactKeys(data, [
         'fingerprint_id',
         'domain',
+        'classification_source',
+        'classification_confidence',
+        'classification_reasons',
         'task_type',
         'artifact_type',
         'language',
@@ -301,6 +304,15 @@ function validateEventPayload(
           'other',
         ] as const,
         'domain',
+      )
+      constant(data.classification_source, 'auto_rule_v1', 'classification_source')
+      validateClassificationConfidence(
+        data.classification_confidence,
+        'classification_confidence',
+      )
+      validateClassificationReasons(
+        data.classification_reasons,
+        'classification_reasons',
       )
       enumValue(
         data.task_type,
@@ -493,6 +505,9 @@ function validateFingerprint(value: unknown): void {
     'id',
     'schema_version',
     'domain',
+    'classification_source',
+    'classification_confidence',
+    'classification_reasons',
     'task_type',
     'artifact_type',
     'audience',
@@ -505,11 +520,24 @@ function validateFingerprint(value: unknown): void {
     'semantic_query',
   ])
   patternString(data.id, fingerprintIdPattern, 'fingerprint.id')
-  constant(data.schema_version, '1.0', 'fingerprint.schema_version')
+  constant(data.schema_version, '1.1', 'fingerprint.schema_version')
   enumValue(
     data.domain,
     ['programming_learning', 'software_development', 'general_text', 'other'] as const,
     'fingerprint.domain',
+  )
+  constant(
+    data.classification_source,
+    'auto_rule_v1',
+    'fingerprint.classification_source',
+  )
+  validateClassificationConfidence(
+    data.classification_confidence,
+    'fingerprint.classification_confidence',
+  )
+  validateClassificationReasons(
+    data.classification_reasons,
+    'fingerprint.classification_reasons',
   )
   enumValue(
     data.task_type,
@@ -558,6 +586,36 @@ function validateFingerprint(value: unknown): void {
     'fingerprint.semantic_query',
   )
   if (semanticQuery.length === 0) throw new ContractError('semantic_query is empty')
+}
+
+function validateClassificationConfidence(value: unknown, label: string): void {
+  const confidence = nonNegativeNumber(value, label)
+  if (confidence > 1) throw new ContractError(`${label} exceeds 1`)
+}
+
+function validateClassificationReasons(value: unknown, label: string): void {
+  const reasons = arrayValue(value, label)
+  if (reasons.length > 5) throw new ContractError(`${label} exceeds 5 entries`)
+  reasons.forEach((reason) =>
+    enumValue(
+      reason,
+      [
+        'code_present',
+        'technical_context',
+        'debugging_cue',
+        'learning_cue',
+        'explanation_intent',
+        'development_action',
+        'deployment_cue',
+        'text_task',
+        'ambiguous',
+      ] as const,
+      label,
+    ),
+  )
+  if (new Set(reasons).size !== reasons.length) {
+    throw new ContractError(`${label} contains duplicates`)
+  }
 }
 
 function validatePublicPlan(value: unknown): void {

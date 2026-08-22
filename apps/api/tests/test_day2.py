@@ -28,7 +28,6 @@ TEST_SESSION_SECRET = "test_session_secret_01234567890123456789"
 
 NO_TOOL_REQUEST: dict[str, Any] = {
     "task_text": "请用一句话解释什么是递归，并给我一个直观比喻。🙂",
-    "scenario": "programming_learning",
     "memory_mode": "on",
     "current_constraints": {
         "response_policy": "guided_hint",

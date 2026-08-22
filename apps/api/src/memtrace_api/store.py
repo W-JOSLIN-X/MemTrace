@@ -15,6 +15,7 @@ from memtrace_api.events import (
     make_event,
 )
 from memtrace_api.ids import new_prefixed_ulid
+from memtrace_api.logic import TaskAnalysis
 from memtrace_api.schemas import (
     ProviderMode,
     RunStatus,
@@ -62,6 +63,7 @@ class Subscriber:
 @dataclass(slots=True)
 class TaskRecord:
     request: TaskCreateRequest
+    analysis: TaskAnalysis
     snapshot: TaskSnapshot
     user_ctx: UserContext | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -116,6 +118,7 @@ class TaskStore:
         self,
         *,
         request: TaskCreateRequest,
+        analysis: TaskAnalysis,
         request_id: str,
         provider_mode: ProviderMode,
         task_id: str | None = None,
@@ -139,7 +142,7 @@ class TaskStore:
                 task_id=t_id,
                 run_id=r_id,
                 task_text=request.task_text,
-                scenario=request.scenario,
+                scenario=analysis.fingerprint.domain.value,
                 run_status=RunStatus.QUEUED,
                 provider_mode=provider_mode,
                 effective_memory_mode=request.effective_memory_mode,
@@ -148,7 +151,12 @@ class TaskStore:
                 feedback_events=[],
                 updated_at=utc_now(),
             )
-            record = TaskRecord(request=request, snapshot=snapshot, user_ctx=user_ctx)
+            record = TaskRecord(
+                request=request,
+                analysis=analysis,
+                snapshot=snapshot,
+                user_ctx=user_ctx,
+            )
             self._tasks[t_id] = record
 
         await self.emit_preallocated_persistent(
