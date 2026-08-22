@@ -74,7 +74,7 @@
       "task_id": "task_01J00000000000000000000011",
       "run_id": "run_01J00000000000000000000011",
       "at": "2026-08-21T00:10:05Z",
-      "data": {"memory_count": 0, "summary": "no_long_term_memory_day1"}
+      "data": {"memory_count": 0, "summary": "no_long_term_memory_day2"}
     },
     {
       "event_version": "1.0",
@@ -95,7 +95,7 @@
       "data": {
         "plan_id": "plan_01J00000000000000000000011",
         "goal_code": "explain_concept",
-        "memory_summary_code": "no_long_term_memory_day1",
+        "memory_summary_code": "no_long_term_memory_day2",
         "next_action_code": "generate_directly"
       }
     },
@@ -151,7 +151,7 @@
       "task_id": "task_01J00000000000000000000011",
       "run_id": "run_01J00000000000000000000011",
       "at": "2026-08-21T00:10:13Z",
-      "data": {"provider": "mock", "model": "fixture-g0", "provider_mode": "mock", "first_token_ms": 8.0, "total_ms": 22.0, "prompt_tokens": 26, "output_tokens": 16, "token_source": "mock"}
+      "data": {"provider": "mock", "model": "fixture-g1", "provider_mode": "mock", "first_token_ms": 8.0, "total_ms": 22.0, "prompt_tokens": 26, "output_tokens": 16, "token_source": "mock"}
     },
     {
       "event_version": "1.0",
@@ -203,7 +203,7 @@
     "public_plan": {
       "id": "plan_01J00000000000000000000011",
       "goal": "用一句话和直观比喻解释递归。",
-      "memory_summary": "Day 1 尚无长期记忆，本次不注入记忆。",
+      "memory_summary": "Day 2 尚无长期记忆，本次不注入记忆。",
       "next_action": "该任务没有可解析的 Python 代码，直接生成解释。"
     },
     "tool_decision": {"action": "skip", "tool_name": null, "reason_code": "non_python_task", "reason": "任务是概念解释，没有 Python 代码输入。"},

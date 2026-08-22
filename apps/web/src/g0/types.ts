@@ -329,7 +329,7 @@ export type TaskFingerprintedEvent = EventEnvelope<
 >
 export type MemoryRetrievalStartedEvent = EventEnvelope<
   'memory.retrieval.started',
-  { memory_count: 0; summary: 'no_long_term_memory_day1' },
+  { memory_count: 0; summary: 'no_long_term_memory_day2' },
   null
 >
 export type AgentPlanPublishedEvent = EventEnvelope<
@@ -337,7 +337,7 @@ export type AgentPlanPublishedEvent = EventEnvelope<
   {
     plan_id: PlanId
     goal_code: 'analyze_code' | 'answer_question' | 'explain_concept' | 'other'
-    memory_summary_code: 'no_long_term_memory_day1'
+    memory_summary_code: 'no_long_term_memory_day2'
     next_action_code: 'python_ast_check' | 'generate_directly'
   },
   number

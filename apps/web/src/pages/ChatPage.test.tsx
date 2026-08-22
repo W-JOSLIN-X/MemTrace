@@ -231,7 +231,7 @@ describe('G0 Chat experience', () => {
         public_plan: {
           id: PLAN_ID,
           goal: '回答非 Python 问题',
-          memory_summary: 'Day 1 尚无长期记忆',
+          memory_summary: 'Day 2 尚无长期记忆',
           next_action: '不调用 AST，直接生成回答',
         },
         tool_decision: {
@@ -566,7 +566,7 @@ function fingerprinted(eventSeq: number): TaskFingerprintedEvent {
 function memoryStarted(): MemoryRetrievalStartedEvent {
   return envelope('memory.retrieval.started', null, {
     memory_count: 0,
-    summary: 'no_long_term_memory_day1',
+    summary: 'no_long_term_memory_day2',
   })
 }
 
@@ -574,7 +574,7 @@ function planPublished(eventSeq: number): AgentPlanPublishedEvent {
   return envelope('agent.plan.published', eventSeq, {
     plan_id: PLAN_ID,
     goal_code: 'analyze_code',
-    memory_summary_code: 'no_long_term_memory_day1',
+    memory_summary_code: 'no_long_term_memory_day2',
     next_action_code: 'python_ast_check',
   })
 }
@@ -719,7 +719,7 @@ function makeTerminalSnapshot() {
     public_plan: {
       id: PLAN_ID,
       goal: '检查语法并解释问题',
-      memory_summary: 'Day 1 尚无长期记忆',
+      memory_summary: 'Day 2 尚无长期记忆',
       next_action: '运行 Python AST 静态检查后生成回答',
     },
     tool_decision: {

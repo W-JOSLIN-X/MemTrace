@@ -74,7 +74,7 @@
       "task_id": "task_01J00000000000000000000021",
       "run_id": "run_01J00000000000000000000021",
       "at": "2026-08-21T00:20:05Z",
-      "data": {"memory_count": 0, "summary": "no_long_term_memory_day1"}
+      "data": {"memory_count": 0, "summary": "no_long_term_memory_day2"}
     },
     {
       "event_version": "1.0",
@@ -95,7 +95,7 @@
       "data": {
         "plan_id": "plan_01J00000000000000000000021",
         "goal_code": "answer_question",
-        "memory_summary_code": "no_long_term_memory_day1",
+        "memory_summary_code": "no_long_term_memory_day2",
         "next_action_code": "generate_directly"
       }
     },
@@ -133,7 +133,7 @@
       "task_id": "task_01J00000000000000000000021",
       "run_id": "run_01J00000000000000000000021",
       "at": "2026-08-21T00:20:11Z",
-      "data": {"provider": "mock", "model": "fixture-g0", "provider_mode": "mock", "first_token_ms": 9.0, "total_ms": 30.0, "prompt_tokens": null, "output_tokens": null, "token_source": "unavailable"}
+      "data": {"provider": "mock", "model": "fixture-g1", "provider_mode": "mock", "first_token_ms": 9.0, "total_ms": 30.0, "prompt_tokens": null, "output_tokens": null, "token_source": "unavailable"}
     },
     {
       "event_version": "1.0",
@@ -203,7 +203,7 @@
     "public_plan": {
       "id": "plan_01J00000000000000000000021",
       "goal": "概括异常产生的常见原因。",
-      "memory_summary": "当前任务显式关闭记忆，且 Day 1 尚无长期记忆。",
+      "memory_summary": "当前任务显式关闭记忆，且 Day 2 尚无长期记忆。",
       "next_action": "该任务没有可解析的 Python 代码，直接生成解释。"
     },
     "tool_decision": {"action": "skip", "tool_name": null, "reason_code": "non_python_task", "reason": "输入没有可解析的 Python 代码。"},

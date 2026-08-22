@@ -89,7 +89,7 @@ async def test_replay_preserves_original_metadata_chunk_interleaving() -> None:
         EventType.RUN_METRICS,
         RunMetricsPayload(
             provider="mock",
-            model="fixture-g0",
+            model="fixture-g1",
             provider_mode="mock",
             first_token_ms=1,
             total_ms=2,

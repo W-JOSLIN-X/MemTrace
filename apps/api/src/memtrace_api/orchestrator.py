@@ -207,7 +207,7 @@ class AgentOrchestrator:
             plan_payload_dict = {
                 "plan_id": plan.id,
                 "goal_code": analysis.goal_code,
-                "memory_summary_code": "no_long_term_memory_day1",
+                "memory_summary_code": "no_long_term_memory_day2",
                 "next_action_code": analysis.next_action_code,
             }
             await self._emit_db_persistent_event(

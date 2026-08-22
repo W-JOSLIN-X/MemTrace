@@ -100,13 +100,13 @@ class TaskFingerprintedPayload(ContractModel):
 
 class MemoryRetrievalStartedPayload(ContractModel):
     memory_count: Literal[0] = 0
-    summary: Literal["no_long_term_memory_day1"] = "no_long_term_memory_day1"
+    summary: Literal["no_long_term_memory_day2"] = "no_long_term_memory_day2"
 
 
 class AgentPlanPublishedPayload(ContractModel):
     plan_id: PlanId
     goal_code: Literal["analyze_code", "answer_question", "explain_concept", "other"]
-    memory_summary_code: Literal["no_long_term_memory_day1"] = "no_long_term_memory_day1"
+    memory_summary_code: Literal["no_long_term_memory_day2"] = "no_long_term_memory_day2"
     next_action_code: Literal["python_ast_check", "generate_directly"]
 
 

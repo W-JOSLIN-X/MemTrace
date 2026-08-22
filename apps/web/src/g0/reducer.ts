@@ -215,7 +215,7 @@ export function g0Reducer(state: G0State, action: G0Action): G0State {
         recoveryReason: 'protocol_error',
         error: {
           code: 'INVALID_STREAM_EVENT',
-          message: '收到不符合 G0 契约的流事件，正在通过任务快照恢复。',
+          message: '收到不符合 G1 契约的流事件，正在通过任务快照恢复。',
           retryable: true,
         },
       }

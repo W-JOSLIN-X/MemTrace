@@ -231,7 +231,7 @@
       "type": "object",
       "properties": {
         "memory_count": {"type": "integer", "const": 0},
-        "summary": {"type": "string", "const": "no_long_term_memory_day1"}
+        "summary": {"type": "string", "const": "no_long_term_memory_day2"}
       },
       "required": ["memory_count", "summary"],
       "additionalProperties": false
@@ -242,7 +242,7 @@
       "properties": {
         "plan_id": {"$ref": "#/$defs/PlanId"},
         "goal_code": {"type": "string", "enum": ["analyze_code", "answer_question", "explain_concept", "other"]},
-        "memory_summary_code": {"type": "string", "const": "no_long_term_memory_day1"},
+        "memory_summary_code": {"type": "string", "const": "no_long_term_memory_day2"},
         "next_action_code": {"type": "string", "enum": ["python_ast_check", "generate_directly"]}
       },
       "required": ["plan_id", "goal_code", "memory_summary_code", "next_action_code"],

@@ -412,7 +412,7 @@ function validateEventPayload(
     case 'memory.retrieval.started':
       exactKeys(data, ['memory_count', 'summary'])
       constant(data.memory_count, 0, 'memory_count')
-      constant(data.summary, 'no_long_term_memory_day1', 'summary')
+      constant(data.summary, 'no_long_term_memory_day2', 'summary')
       return
     case 'agent.plan.published':
       exactKeys(data, [
@@ -429,7 +429,7 @@ function validateEventPayload(
       )
       constant(
         data.memory_summary_code,
-        'no_long_term_memory_day1',
+        'no_long_term_memory_day2',
         'memory_summary_code',
       )
       enumValue(

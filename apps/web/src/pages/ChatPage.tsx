@@ -31,7 +31,7 @@ const TASK_ID_PATTERN = /^task_[0-9A-HJKMNP-TV-Z]{26}$/
 
 const stageDefinitions = [
   { key: 'fingerprinting', label: '任务指纹', detail: '识别任务类型与编程语言' },
-  { key: 'retrieving', label: '记忆检索', detail: 'Day 1 明确返回空长期记忆' },
+  { key: 'retrieving', label: '记忆检索', detail: 'Day 2 明确不检索长期记忆' },
   { key: 'planning', label: '公开计划', detail: '展示目标与下一步动作' },
   { key: 'tool_running', label: '静态工具', detail: '只解析 Python AST' },
   { key: 'generating', label: '生成回答', detail: '通过 SSE 接收模型正文' },
@@ -601,7 +601,7 @@ function stageDescription(
   }
   const completedLabels: Record<TimelineKey, string> = {
     fingerprinting: '确定性任务指纹已生成',
-    retrieving: '检索完成：Day 1 尚无长期记忆',
+    retrieving: '检索完成：Day 2 尚无长期记忆',
     planning: '公开计划已发布',
     tool_running: 'Python AST 静态检查已完成',
     generating: '模型回答已接收',

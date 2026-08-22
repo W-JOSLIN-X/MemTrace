@@ -302,20 +302,20 @@ def _tool_decision(
             action=ToolAction.SKIP,
             tool_name=None,
             reason_code=ToolReasonCode.NO_EXTRACTABLE_PYTHON,
-            reason="任务涉及 Python，但没有可按 G0 规则提取的代码块。",
+            reason="任务涉及 Python，但没有可按 G1 规则提取的代码块。",
         )
     if language is not ProgrammingLanguage.UNKNOWN:
         return ToolDecision(
             action=ToolAction.SKIP,
             tool_name=None,
             reason_code=ToolReasonCode.NON_PYTHON_TASK,
-            reason="当前代码不是 Python，Day 1 的 Python AST 工具不适用。",
+            reason="当前代码不是 Python，Day 2 的 Python AST 工具不适用。",
         )
     return ToolDecision(
         action=ToolAction.SKIP,
         tool_name=None,
         reason_code=ToolReasonCode.NON_PYTHON_TASK,
-        reason="当前任务没有可解析的 Python 代码，Day 1 静态工具不适用。",
+        reason="当前任务没有可解析的 Python 代码，Day 2 静态工具不适用。",
     )
 
 
@@ -405,6 +405,6 @@ def build_public_plan(analysis: TaskAnalysis) -> PublicPlan:
     return PublicPlan(
         id=new_prefixed_ulid("plan"),
         goal=goals[analysis.goal_code],
-        memory_summary="Day 1 尚无长期记忆，本次不会注入历史偏好。",
+        memory_summary="Day 2 尚无长期记忆，本次不会注入历史偏好。",
         next_action=next_action,
     )
