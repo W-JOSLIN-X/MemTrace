@@ -50,6 +50,8 @@ from memtrace_api.schemas import (
 class UserContext:
     user_id: str
     demo_alias: str
+    session_id: str | None = None
+    session_expires_at: datetime | None = None
 
 
 class UserRepository:
@@ -95,18 +97,7 @@ class SessionRepository:
         token_hash: str,
         expires_at: datetime,
     ) -> DemoSessionModel:
-        # Revoke existing active sessions for this user to prevent dangling sessions
         now = utc_now()
-        self.session.execute(
-            update(DemoSessionModel)
-            .where(
-                and_(
-                    DemoSessionModel.owner_id == owner_id,
-                    DemoSessionModel.revoked_at.is_(None),
-                )
-            )
-            .values(revoked_at=now)
-        )
         session_obj = DemoSessionModel(
             id=new_prefixed_ulid("sess"),
             owner_id=owner_id,
@@ -215,21 +206,8 @@ class TaskRepository:
         ).scalar_one_or_none()
 
     def allocate_next_event_seq(self, task_id: str) -> int:
-        """Atomically increment and return the next event seq for this owner's task."""
-        row = self.session.execute(
-            select(TaskModel.next_event_seq)
-            .where(
-                and_(
-                    TaskModel.id == task_id,
-                    TaskModel.owner_id == self.user_ctx.user_id,
-                )
-            )
-            .with_for_update()
-        ).scalar_one_or_none()
-        if row is None:
-            raise ValueError(f"task not found for event seq allocation: {task_id}")
-        seq = row
-        self.session.execute(
+        """Allocate one sequence with SQLite's single-writer UPDATE semantics."""
+        next_value = self.session.execute(
             update(TaskModel)
             .where(
                 and_(
@@ -237,9 +215,15 @@ class TaskRepository:
                     TaskModel.owner_id == self.user_ctx.user_id,
                 )
             )
-            .values(next_event_seq=seq + 1, updated_at=utc_now())
-        )
-        return seq
+            .values(
+                next_event_seq=TaskModel.next_event_seq + 1,
+                updated_at=utc_now(),
+            )
+            .returning(TaskModel.next_event_seq)
+        ).scalar_one_or_none()
+        if next_value is None:
+            raise ValueError(f"task not found for event seq allocation: {task_id}")
+        return next_value - 1
 
     def append_event(
         self,

@@ -55,15 +55,33 @@
       "post": {
         "summary": "Create Demo Session",
         "operationId": "create_demo_session_api_v1_session_demo_post",
+        "parameters": [
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/DemoSessionCreateRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -77,14 +95,14 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorEnvelope"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Entity"
           }
         }
       }
@@ -1004,7 +1022,10 @@
                 "type": "string",
                 "enum": [
                   "provider_configuration",
-                  "data_directory"
+                  "data_directory",
+                  "database_connection",
+                  "migration_revision",
+                  "session_secret"
                 ]
               },
               {
@@ -1514,6 +1535,11 @@
             "title": "Config",
             "default": "pass"
           },
+          "session_secret": {
+            "type": "string",
+            "const": "pass",
+            "title": "Session Secret"
+          },
           "data_dir": {
             "type": "string",
             "const": "pass",
@@ -1533,12 +1559,25 @@
             "const": "unchecked",
             "title": "Provider Network",
             "default": "unchecked"
+          },
+          "database": {
+            "type": "string",
+            "const": "pass",
+            "title": "Database"
+          },
+          "migration_revision": {
+            "type": "string",
+            "const": "pass",
+            "title": "Migration Revision"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "provider_credentials"
+          "session_secret",
+          "provider_credentials",
+          "database",
+          "migration_revision"
         ],
         "title": "ReadinessChecks"
       },

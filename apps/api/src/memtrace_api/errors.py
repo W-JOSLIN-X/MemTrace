@@ -52,7 +52,13 @@ class ErrorDetails(ContractModel):
     task_id: str | None = None
     run_id: str | None = None
     provider_status: int | None = Field(default=None, ge=400, le=599)
-    check: Literal["provider_configuration", "data_directory"] | None = None
+    check: Literal[
+        "provider_configuration",
+        "data_directory",
+        "database_connection",
+        "migration_revision",
+        "session_secret",
+    ] | None = None
     http_status: int | None = Field(default=None, ge=400, le=599)
 
 

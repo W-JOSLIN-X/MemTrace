@@ -48,6 +48,11 @@ class ReplayCapacityError(Exception):
 
 
 @dataclass(frozen=True, slots=True)
+class TaskReservation:
+    reservation_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class ReplayEntry:
     ordinal: int
     event: EventEnvelope
@@ -112,7 +117,29 @@ class TaskStore:
         self.max_subscribers_per_task = max_subscribers_per_task
         self.subscriber_queue_size = subscriber_queue_size
         self._tasks: OrderedDict[str, TaskRecord] = OrderedDict()
+        self._reservations: set[str] = set()
         self._tasks_lock = asyncio.Lock()
+
+    async def reserve(self) -> TaskReservation:
+        """Reserve capacity before any durable task rows are created."""
+        async with self._tasks_lock:
+            while len(self._tasks) + len(self._reservations) >= self.max_tasks:
+                terminal_id = next(
+                    (task_id for task_id, record in self._tasks.items() if record.closed),
+                    None,
+                )
+                if terminal_id is None:
+                    raise TaskCapacityError
+                self._tasks.pop(terminal_id)
+
+            reservation = TaskReservation(new_prefixed_ulid("rsv"))
+            self._reservations.add(reservation.reservation_id)
+            return reservation
+
+    async def release(self, reservation: TaskReservation) -> None:
+        """Release an unused reservation; repeated release is harmless."""
+        async with self._tasks_lock:
+            self._reservations.discard(reservation.reservation_id)
 
     async def create(
         self,
@@ -124,16 +151,12 @@ class TaskStore:
         task_id: str | None = None,
         run_id: str | None = None,
         user_ctx: UserContext | None = None,
+        reservation: TaskReservation | None = None,
     ) -> TaskRecord:
+        active_reservation = reservation or await self.reserve()
         async with self._tasks_lock:
-            if len(self._tasks) >= self.max_tasks:
-                terminal_id = next(
-                    (tid for tid, rec in self._tasks.items() if rec.closed),
-                    None,
-                )
-                if terminal_id is None:
-                    raise TaskCapacityError
-                self._tasks.pop(terminal_id)
+            if active_reservation.reservation_id not in self._reservations:
+                raise TaskCapacityError("task capacity reservation is not active")
 
             t_id = task_id or new_prefixed_ulid("task")
             r_id = run_id or new_prefixed_ulid("run")
@@ -157,15 +180,33 @@ class TaskStore:
                 snapshot=snapshot,
                 user_ctx=user_ctx,
             )
+            self._reservations.remove(active_reservation.reservation_id)
             self._tasks[t_id] = record
 
-        await self.emit_preallocated_persistent(
-            record,
-            event_type=EventType.TASK_CREATED,
-            event_seq=1,
-            data={"task_status": "active", "run_status": "queued"},
-        )
+        try:
+            await self.emit_preallocated_persistent(
+                record,
+                event_type=EventType.TASK_CREATED,
+                event_seq=1,
+                data={"task_status": "active", "run_status": "queued"},
+            )
+        except Exception:
+            await self.discard(t_id)
+            raise
         return record
+
+    async def discard(self, task_id: str) -> None:
+        """Remove an unstarted live record after its durable transaction failed."""
+        async with self._tasks_lock:
+            record = self._tasks.pop(task_id, None)
+        if record is not None and record.worker is not None and not record.worker.done():
+            record.worker.cancel()
+            await asyncio.gather(record.worker, return_exceptions=True)
+
+    async def capacity_counts(self) -> tuple[int, int]:
+        """Return live task and outstanding reservation counts for diagnostics/tests."""
+        async with self._tasks_lock:
+            return len(self._tasks), len(self._reservations)
 
     async def get(self, task_id: str) -> TaskRecord:
         async with self._tasks_lock:

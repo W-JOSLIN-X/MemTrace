@@ -716,16 +716,19 @@
       "type": "object",
       "properties": {
         "config": {"type": "string", "const": "pass"},
+        "session_secret": {"type": "string", "const": "pass"},
         "data_dir": {"type": "string", "const": "pass"},
         "provider_credentials": {"type": "string", "enum": ["pass", "not_required"]},
-        "provider_network": {"type": "string", "const": "unchecked"}
+        "provider_network": {"type": "string", "const": "unchecked"},
+        "database": {"type": "string", "const": "pass"},
+        "migration_revision": {"type": "string", "const": "pass"}
       },
-      "required": ["config", "data_dir", "provider_credentials", "provider_network"],
+      "required": ["config", "session_secret", "data_dir", "provider_credentials", "provider_network", "database", "migration_revision"],
       "additionalProperties": false
     },
     "ReadyResponse": {
       "type": "object",
-      "description": "Returned only with HTTP 200. A readiness failure uses ErrorResponse with HTTP 503. G0 never probes provider network or a database.",
+      "description": "Returned only with HTTP 200. A readiness failure uses ErrorResponse with HTTP 503. Provider network remains unchecked; database connectivity and the unique Alembic head are required.",
       "properties": {
         "request_id": {"$ref": "#/$defs/RequestId"},
         "status": {"type": "string", "const": "ready"},
@@ -778,7 +781,7 @@
         "provider_status": {"type": ["integer", "null"], "minimum": 400, "maximum": 599},
         "check": {
           "type": "string",
-          "enum": ["provider_configuration", "data_directory"]
+          "enum": ["provider_configuration", "data_directory", "database_connection", "migration_revision", "session_secret"]
         },
         "http_status": {"type": "integer", "minimum": 400, "maximum": 599}
       },

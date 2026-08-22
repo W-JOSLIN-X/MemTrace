@@ -549,9 +549,12 @@ class HealthResponse(ContractModel):
 
 class ReadinessChecks(ContractModel):
     config: Literal["pass"] = "pass"
+    session_secret: Literal["pass"]
     data_dir: Literal["pass"] = "pass"
     provider_credentials: Literal["pass", "not_required"]
     provider_network: Literal["unchecked"] = "unchecked"
+    database: Literal["pass"]
+    migration_revision: Literal["pass"]
 
 
 class ReadyResponse(ContractModel):

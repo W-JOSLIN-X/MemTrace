@@ -50,21 +50,22 @@
       "success_status": 200,
       "failure_status": 503,
       "auth_required": false,
-      "rule": "checks local configuration, data-directory writability, database connectivity, and current Alembic revision equals head"
+      "rule": "checks provider configuration, non-empty production SESSION_SECRET, data-directory writability, database connectivity, and current Alembic revision equals the unique head"
     },
     {
       "method": "POST",
       "path": "/api/v1/session/demo",
       "success_status": 200,
       "auth_required": false,
-      "rule": "accepts blank_demo or seeded_demo alias, issues signed HttpOnly cookie"
+      "rule": "accepts blank_demo or seeded_demo alias, revokes the exact valid token presented by the current cookie, then issues a signed HttpOnly cookie"
     },
     {
       "method": "GET",
       "path": "/api/v1/session",
       "success_status": 200,
       "failure_status": 401,
-      "auth_required": true
+      "auth_required": true,
+      "rule": "returns the alias and expiry belonging to the exact authenticated token"
     },
     {
       "method": "POST",
@@ -79,7 +80,8 @@
       "success_status": 202,
       "failure_status": 401,
       "auth_required": true,
-      "headers": ["Idempotency-Key"]
+      "headers": ["Idempotency-Key"],
+      "rule": "resolves durable idempotent replay before capacity admission; a new request reserves TaskStore capacity, analyzes exactly once, and commits one consistent server-derived classification"
     },
     {
       "method": "GET",
@@ -137,6 +139,7 @@
     "stream.done",
     "feedback.recorded"
   ],
+  "persistent_event_sequence_rule": "SQLite allocates each task sequence with one UPDATE ... RETURNING statement; committed sequences are unique and contiguous",
   "transient_events": [
     "memory.retrieval.started",
     "agent.chunk"

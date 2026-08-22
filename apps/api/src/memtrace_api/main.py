@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -20,7 +21,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from memtrace_api.config import Settings, get_settings
 from memtrace_api.database import create_db_engine, create_session_factory, session_scope
-from memtrace_api.db_models import DemoSessionModel, MessageModel
+from memtrace_api.db_models import MessageModel
 from memtrace_api.errors import (
     ApiError,
     ErrorCode,
@@ -36,7 +37,11 @@ from memtrace_api.logic import analyze_task
 from memtrace_api.middleware import RequestIdMiddleware
 from memtrace_api.orchestrator import AgentOrchestrator
 from memtrace_api.providers import DeepSeekProvider, MockProvider, StreamingProvider
-from memtrace_api.readiness import ensure_directory_writable
+from memtrace_api.readiness import (
+    DatabaseRevisionError,
+    ensure_database_current,
+    ensure_directory_writable,
+)
 from memtrace_api.repositories import (
     FeedbackRepository,
     IdempotencyRepository,
@@ -86,6 +91,7 @@ from memtrace_api.store import (
 API_PREFIX = "/api/v1"
 TASK_ID_PATTERN = r"^task_[0-9A-HJKMNP-TV-Z]{26}$"
 JOB_ID_PATTERN = r"^job_[0-9A-HJKMNP-TV-Z]{26}$"
+logger = logging.getLogger(__name__)
 
 
 def create_app(
@@ -125,10 +131,16 @@ def create_app(
         # Startup logic: ensure demo users and cleanup interrupted runs. Doing
         # this here (not at import time) keeps ``create_app`` side-effect free
         # and lets tests build an app without touching the default database.
-        with session_scope(factory) as session:
-            UserRepository(session).ensure_demo_users()
-            raw_user_ctx = UserContext(user_id="bootstrap", demo_alias="bootstrap")
-            TaskRepository(raw_user_ctx, session).cleanup_interrupted_runs()
+        try:
+            with session_scope(factory) as session:
+                ensure_database_current(session)
+                UserRepository(session).ensure_demo_users()
+                raw_user_ctx = UserContext(user_id="bootstrap", demo_alias="bootstrap")
+                TaskRepository(raw_user_ctx, session).cleanup_interrupted_runs()
+        except Exception as exc:
+            # Liveness must remain available while readiness reports a missing
+            # or stale schema. Docker migrates before starting the API.
+            logger.warning("startup.database_not_ready type=%s", type(exc).__name__)
 
         yield
         await resolved_store.cancel_workers()
@@ -178,6 +190,16 @@ def create_app(
                 details={"check": "provider_configuration"},
             )
         try:
+            get_session_secret(current)
+        except RuntimeError as exc:
+            raise ApiError(
+                status_code=503,
+                code=ErrorCode.INTERNAL_ERROR,
+                message="SESSION_SECRET 未按要求配置。",
+                retryable=False,
+                details={"check": "session_secret"},
+            ) from exc
+        try:
             ensure_directory_writable(current.memtrace_data_dir)
         except OSError as exc:
             raise ApiError(
@@ -188,23 +210,34 @@ def create_app(
                 details={"check": "data_directory"},
             ) from exc
 
-        # Check DB readiness
         try:
             with session_scope(request.app.state.db_session_factory) as session:
-                UserRepository(session).ensure_demo_users()
+                ensure_database_current(session)
+        except DatabaseRevisionError as exc:
+            raise ApiError(
+                status_code=503,
+                code=ErrorCode.INTERNAL_ERROR,
+                message="数据库迁移版本未达到当前唯一 head。",
+                retryable=True,
+                details={"check": "migration_revision"},
+            ) from exc
         except Exception as exc:
             raise ApiError(
                 status_code=503,
                 code=ErrorCode.INTERNAL_ERROR,
                 message="数据库连接不可用。",
                 retryable=True,
+                details={"check": "database_connection"},
             ) from exc
 
         return ReadyResponse(
             request_id=request.state.request_id,
             provider_mode=ProviderMode(current.provider_mode),
             checks=ReadinessChecks(
-                provider_credentials="not_required" if current.mock_mode else "pass"
+                provider_credentials="not_required" if current.mock_mode else "pass",
+                session_secret="pass",
+                database="pass",
+                migration_revision="pass",
             ),
             at=utc_now(),
         )
@@ -219,6 +252,7 @@ def create_app(
         request: Request,
         response: Response,
         body: DemoSessionCreateRequest,
+        memtrace_demo_session: Annotated[str | None, Cookie()] = None,
     ) -> DemoSessionResponse:
         settings: Settings = request.app.state.settings
         secret = get_session_secret(settings)
@@ -226,6 +260,11 @@ def create_app(
         token_h = hash_token(token)
         cookie_val = sign_cookie_value(token, secret)
         expires_at = utc_now() + SESSION_DURATION
+        prior_token_hash: str | None = None
+        if memtrace_demo_session:
+            prior_token = verify_cookie_value(memtrace_demo_session, secret)
+            if prior_token is not None:
+                prior_token_hash = hash_token(prior_token)
 
         session_factory = request.app.state.db_session_factory
         with session_scope(session_factory) as session:
@@ -236,6 +275,8 @@ def create_app(
                 users = user_repo.ensure_demo_users()
                 user = users[body.demo_alias.value]
             session_repo = SessionRepository(session)
+            if prior_token_hash is not None:
+                session_repo.revoke_by_token_hash(prior_token_hash)
             session_repo.create_session(
                 owner_id=user.id,
                 token_hash=token_h,
@@ -263,31 +304,17 @@ def create_app(
         request: Request,
         user_ctx: UserContext = Depends(get_current_user),
     ) -> DemoSessionResponse:
-        # Get active session
-        session_factory = request.app.state.db_session_factory
-        expires_at = utc_now() + SESSION_DURATION
-        with session_scope(session_factory) as session:
-            row = (
-                session.execute(
-                    select(DemoSessionModel)
-                    .where(
-                        and_(
-                            DemoSessionModel.owner_id == user_ctx.user_id,
-                            DemoSessionModel.revoked_at.is_(None),
-                        )
-                    )
-                    .order_by(DemoSessionModel.created_at.desc())
-                )
-                .scalars()
-                .first()
+        if user_ctx.session_expires_at is None:
+            raise ApiError(
+                status_code=401,
+                code=ErrorCode.SESSION_REQUIRED,
+                message="需要有效的 Demo 会话，请先建立会话。",
             )
-            if row is not None:
-                expires_at = row.expires_at
 
         return DemoSessionResponse(
             request_id=request.state.request_id,
             demo_alias=DemoAlias(user_ctx.demo_alias),
-            expires_at=expires_at,
+            expires_at=user_ctx.session_expires_at,
         )
 
     @application.post(
@@ -350,6 +377,32 @@ def create_app(
         req_hash = compute_request_hash(method="POST", path="/api/v1/tasks", body=body_dict)
 
         session_factory = request.app.state.db_session_factory
+        # Durable replays and conflicts are resolved before scarce live capacity
+        # is reserved and before classification is performed.
+        with session_scope(session_factory) as session:
+            existing = IdempotencyRepository(user_ctx, session).get_record(route, idem_key)
+            if existing is not None:
+                if existing.request_hash != req_hash:
+                    raise ApiError(
+                        status_code=409,
+                        code=ErrorCode.IDEMPOTENCY_CONFLICT,
+                        message="Idempotency-Key 冲突：同一 Key 已用于不同的请求载荷。",
+                    )
+                return JSONResponse(
+                    status_code=existing.response_status,
+                    content=json.loads(existing.response_json),
+                )
+
+        try:
+            reservation = await resolved_store.reserve()
+        except TaskCapacityError as exc:
+            raise ApiError(
+                status_code=503,
+                code=ErrorCode.INTERNAL_ERROR,
+                message="当前运行中的任务已达到容量上限。",
+                retryable=True,
+            ) from exc
+
         task_id = new_prefixed_ulid("task")
         run_id = new_prefixed_ulid("run")
         accepted_payload = TaskCreateAccepted(
@@ -360,9 +413,9 @@ def create_app(
             provider_mode=current_orchestrator.provider.mode,
             effective_memory_mode=body.effective_memory_mode,
         )
-
-        should_start_orchestrator = False
+        record: TaskRecord | None = None
         try:
+            analysis = analyze_task(body)
             with session_scope(session_factory) as session:
                 idem_repo = IdempotencyRepository(user_ctx, session)
                 existing = idem_repo.get_record(route, idem_key)
@@ -373,14 +426,12 @@ def create_app(
                             code=ErrorCode.IDEMPOTENCY_CONFLICT,
                             message="Idempotency-Key 冲突：同一 Key 已用于不同的请求载荷。",
                         )
-                    # Same payload replay
-                    saved_json = json.loads(existing.response_json)
-                    return JSONResponse(status_code=existing.response_status, content=saved_json)
+                    return JSONResponse(
+                        status_code=existing.response_status,
+                        content=json.loads(existing.response_json),
+                    )
 
-                # Insert task in DB
-                analysis = analyze_task(body)
-                task_repo = TaskRepository(user_ctx, session)
-                task_repo.create_task(
+                TaskRepository(user_ctx, session).create_task(
                     task_id=task_id,
                     run_id=run_id,
                     request=body,
@@ -388,30 +439,14 @@ def create_app(
                     provider_mode=current_orchestrator.provider.mode,
                     model=current_orchestrator.provider.model,
                 )
-                # Save idempotency record
                 idem_repo.save_record(
                     route=route,
                     key=idem_key,
                     request_hash=req_hash,
                     response_status=202,
                     response_json=accepted_payload.model_dump_json(),
-                    expires_at=utc_now() + SESSION_DURATION * 2,  # 24 hours
+                    expires_at=utc_now() + SESSION_DURATION * 2,
                 )
-                should_start_orchestrator = True
-        except IntegrityError:
-            # A concurrent request with the same key won the unique-constraint
-            # race. Replay or 409 from the winner's now-committed record.
-            return _replay_idempotent_response(
-                session_factory,
-                user_ctx,
-                route=route,
-                idem_key=idem_key,
-                req_hash=req_hash,
-            )
-
-        # Now register in live TaskStore and start orchestrator
-        if should_start_orchestrator:
-            try:
                 record = await resolved_store.create(
                     request=body,
                     analysis=analysis,
@@ -420,15 +455,39 @@ def create_app(
                     task_id=task_id,
                     run_id=run_id,
                     user_ctx=user_ctx,
+                    reservation=reservation,
                 )
-            except TaskCapacityError as exc:
-                raise ApiError(
-                    status_code=503,
-                    code=ErrorCode.INTERNAL_ERROR,
-                    message="当前运行中的任务已达到容量上限。",
-                    retryable=True,
-                ) from exc
-            current_orchestrator.start(record)
+                reservation = None
+        except IntegrityError:
+            if record is not None:
+                await resolved_store.discard(task_id)
+            return _replay_idempotent_response(
+                session_factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+        except TaskCapacityError as exc:
+            if record is not None:
+                await resolved_store.discard(task_id)
+            raise ApiError(
+                status_code=503,
+                code=ErrorCode.INTERNAL_ERROR,
+                message="当前运行中的任务已达到容量上限。",
+                retryable=True,
+            ) from exc
+        except Exception:
+            if record is not None:
+                await resolved_store.discard(task_id)
+            raise
+        finally:
+            if reservation is not None:
+                await resolved_store.release(reservation)
+
+        if record is None:
+            raise RuntimeError("task record was not registered")
+        current_orchestrator.start(record)
 
         return JSONResponse(
             status_code=status.HTTP_202_ACCEPTED,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from datetime import timedelta
+from datetime import UTC, timedelta
 from typing import Annotated
 
 from fastapi import Cookie, Request, Response
@@ -117,5 +117,13 @@ async def get_current_user(
                 code=ErrorCode.SESSION_REQUIRED,
                 message="需要有效的 Demo 会话，请先建立会话。",
             )
-        _, user = res
-        return UserContext(user_id=user.id, demo_alias=user.demo_alias)
+        session_row, user = res
+        expires_at = session_row.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        return UserContext(
+            user_id=user.id,
+            demo_alias=user.demo_alias,
+            session_id=session_row.id,
+            session_expires_at=expires_at,
+        )

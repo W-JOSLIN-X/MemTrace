@@ -12,6 +12,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
@@ -20,9 +21,21 @@ from memtrace_api.database import session_scope
 from memtrace_api.db_models import (
     EventLogModel,
     FeedbackEventModel,
+    IdempotencyKeyModel,
     MemoryJobModel,
+    TaskFingerprintModel,
+    TaskModel,
 )
+from memtrace_api.ids import new_prefixed_ulid
+from memtrace_api.logic import analyze_task
 from memtrace_api.main import create_app
+from memtrace_api.repositories import (
+    IdempotencyRepository,
+    TaskRepository,
+    UserContext,
+    UserRepository,
+)
+from memtrace_api.schemas import ProviderMode, TaskCreateRequest
 
 TEST_SESSION_SECRET = "test_session_secret_01234567890123456789"
 
@@ -153,6 +166,35 @@ def test_demo_alias_whitelist_and_cookie_is_opaque(tmp_path: Path) -> None:
         assert response.status_code == 422
 
 
+def test_session_switch_revokes_exact_prior_cookie_and_reports_current_expiry(
+    tmp_path: Path,
+) -> None:
+    with _client(tmp_path, alias="blank_demo") as client:
+        old_cookie = client.cookies.get("memtrace_demo_session")
+        assert old_cookie is not None
+
+        switched = client.post(
+            "/api/v1/session/demo",
+            json={"demo_alias": "seeded_demo"},
+        )
+        assert switched.status_code == 200
+        new_cookie = client.cookies.get("memtrace_demo_session")
+        assert new_cookie is not None and new_cookie != old_cookie
+
+        current = client.get("/api/v1/session")
+        assert current.status_code == 200
+        assert current.json()["demo_alias"] == "seeded_demo"
+        assert current.json()["expires_at"] == switched.json()["expires_at"]
+
+        client.cookies.clear()
+        client.cookies.set("memtrace_demo_session", old_cookie)
+        assert client.get("/api/v1/session").status_code == 401
+
+        client.cookies.clear()
+        client.cookies.set("memtrace_demo_session", new_cookie)
+        assert client.get("/api/v1/session").status_code == 200
+
+
 def test_owner_isolation_across_task_feedback_and_sse(tmp_path: Path) -> None:
     db_url = f"sqlite:///{(tmp_path / 'db.sqlite3').as_posix()}"
     with _client(tmp_path, alias="blank_demo", db_url=db_url) as client_a:
@@ -190,6 +232,64 @@ def test_terminal_task_restarts_and_recovers_messages(tmp_path: Path) -> None:
         assert "user" in roles and "assistant" in roles
         assistant = next(m for m in body["messages"] if m["role"] == "assistant")
         assert assistant["content"] == body["partial_output"]
+
+
+def test_restart_marks_preexisting_nonterminal_run_interrupted(tmp_path: Path) -> None:
+    db_url = f"sqlite:///{(tmp_path / 'db.sqlite3').as_posix()}"
+    request = TaskCreateRequest.model_validate(NO_TOOL_REQUEST)
+    analysis = analyze_task(request)
+    task_id = new_prefixed_ulid("task")
+    run_id = new_prefixed_ulid("run")
+
+    with _client(tmp_path, db_url=db_url) as client_a:
+        with session_scope(client_a.app.state.db_session_factory) as session:
+            user = UserRepository(session).get_by_alias("blank_demo")
+            assert user is not None
+            user_ctx = UserContext(user_id=user.id, demo_alias=user.demo_alias)
+            TaskRepository(user_ctx, session).create_task(
+                task_id=task_id,
+                run_id=run_id,
+                request=request,
+                detected_domain=analysis.fingerprint.domain,
+                provider_mode=ProviderMode.MOCK,
+                model="mock-g0",
+            )
+
+    with _client(tmp_path, db_url=db_url) as client_b:
+        response = client_b.get(f"/api/v1/tasks/{task_id}")
+
+    assert response.status_code == 200
+    snapshot = response.json()
+    assert snapshot["run_status"] == "failed"
+    assert snapshot["terminal"] is True
+    assert snapshot["error"]["code"] == "RUN_INTERRUPTED"
+
+
+def test_server_classification_is_identical_in_db_fingerprint_and_snapshot(
+    tmp_path: Path,
+) -> None:
+    with _client(tmp_path) as client:
+        payload = _run_task_to_terminal(
+            client,
+            task_text="请审查并重构这段 React 组件代码",
+        )
+        snapshot = client.get(f"/api/v1/tasks/{payload['task_id']}").json()
+        with session_scope(client.app.state.db_session_factory) as session:
+            task = session.execute(
+                select(TaskModel).where(TaskModel.id == payload["task_id"])
+            ).scalar_one()
+            fingerprint_row = session.execute(
+                select(TaskFingerprintModel).where(
+                    TaskFingerprintModel.task_id == payload["task_id"]
+                )
+            ).scalar_one()
+
+    fingerprint_json = json.loads(fingerprint_row.fingerprint_json)
+    assert snapshot["scenario"] == "software_development"
+    assert snapshot["scenario"] == snapshot["fingerprint"]["domain"]
+    assert task.scenario == snapshot["scenario"]
+    assert fingerprint_json["domain"] == snapshot["scenario"]
+    assert fingerprint_json["classification_source"] == "auto_rule_v1"
 
 
 def test_agent_chunk_not_in_event_log(tmp_path: Path) -> None:
@@ -255,6 +355,41 @@ def test_feedback_same_transaction_creates_feedback_job_and_event(tmp_path: Path
         assert len(snap["feedback_events"]) == 1
         assert snap["feedback_events"][0]["feedback_id"] == fb_body["feedback_id"]
         assert snap["feedback_events"][0]["memory_job_id"] == fb_body["memory_job_id"]
+
+
+def test_feedback_mid_transaction_failure_rolls_back_every_durable_row(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with _client(tmp_path) as client:
+        payload = _run_task_to_terminal(client)
+        task_id = payload["task_id"]
+        before = {
+            "feedback": _row_count(client, FeedbackEventModel),
+            "jobs": _row_count(client, MemoryJobModel),
+            "events": _row_count(client, EventLogModel),
+            "idempotency": _row_count(client, IdempotencyKeyModel),
+        }
+
+        def fail_idempotency_save(*args: object, **kwargs: object) -> None:
+            raise RuntimeError("forced transactional rollback")
+
+        monkeypatch.setattr(IdempotencyRepository, "save_record", fail_idempotency_save)
+        response = client.post(
+            f"/api/v1/tasks/{task_id}/feedback",
+            json={"explicit_text": "这条反馈必须整体回滚"},
+            headers={"Idempotency-Key": "feedback-rollback-key-0001"},
+        )
+
+        after = {
+            "feedback": _row_count(client, FeedbackEventModel),
+            "jobs": _row_count(client, MemoryJobModel),
+            "events": _row_count(client, EventLogModel),
+            "idempotency": _row_count(client, IdempotencyKeyModel),
+        }
+
+    assert response.status_code == 500
+    assert after == before
 
 
 def test_edited_output_does_not_overwrite_original_message(tmp_path: Path) -> None:
