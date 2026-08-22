@@ -31,6 +31,14 @@ class ErrorCode(StrEnum):
     TOOL_INPUT_INVALID = "TOOL_INPUT_INVALID"
     STREAM_INTERRUPTED = "STREAM_INTERRUPTED"
     INTERNAL_ERROR = "INTERNAL_ERROR"
+    # Day 2 G1 additions. These are REST-level codes; async run failures still
+    # use AsyncErrorCode above. SESSION_REQUIRED is the single 401 for any
+    # missing, expired, revoked, or tampered demo-session cookie so that the
+    # response never leaks whether a session ever existed.
+    SESSION_REQUIRED = "SESSION_REQUIRED"
+    IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
+    FEEDBACK_NO_CHANGES = "FEEDBACK_NO_CHANGES"
+    TASK_NOT_READY_FOR_FEEDBACK = "TASK_NOT_READY_FOR_FEEDBACK"
 
 
 class ValidationFieldError(ContractModel):

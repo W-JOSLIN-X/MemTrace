@@ -168,4 +168,62 @@ describe('G0 runtime contract parser', () => {
       }),
     ).toBeNull()
   })
+
+  it('accepts G1 TaskSnapshot fields and rejects unknown extra fields', () => {
+    const validSnapshot = makeSnapshot({
+      task_text: 'sample task text',
+      scenario: 'programming_learning',
+      messages: [
+        {
+          message_id: 'msg_01J00000000000000000000001',
+          run_id: RUN_ID,
+          role: 'user',
+          content: 'sample task text',
+          created_at: AT,
+        },
+      ],
+      feedback_events: [
+        {
+          feedback_id: 'feedback_01J00000000000000000000001',
+          run_id: RUN_ID,
+          feedback_type: 'rating',
+          explicit_text: null,
+          edited_output: null,
+          rating: 4,
+          accepted: null,
+          memory_job_id: 'job_01J00000000000000000000001',
+          created_at: AT,
+        },
+      ],
+    })
+    const parsed = parseTaskSnapshot(validSnapshot)
+    expect(parsed.task_text).toBe('sample task text')
+    expect(parsed.messages?.length).toBe(1)
+    expect(parsed.feedback_events?.length).toBe(1)
+
+    const withExtra = {
+      ...validSnapshot,
+      unexpected_field: 'forbidden',
+    }
+    expect(() => parseTaskSnapshot(withExtra)).toThrow(ContractError)
+  })
+
+  it('parses feedback.recorded SSE event correctly', () => {
+    const raw = JSON.stringify({
+      event_version: '1.0',
+      event_type: 'feedback.recorded',
+      event_seq: 14,
+      task_id: TASK_ID,
+      run_id: RUN_ID,
+      at: AT,
+      data: {
+        feedback_id: 'feedback_01J00000000000000000000001',
+        memory_job_id: 'job_01J00000000000000000000001',
+        feedback_type: 'composite',
+      },
+    })
+    const event = parseSseEvent('feedback.recorded', raw, '14')
+    expect(event.event_type).toBe('feedback.recorded')
+    expect(event.event_seq).toBe(14)
+  })
 })

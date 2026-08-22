@@ -24,7 +24,8 @@
         "run.completed",
         "run.failed",
         "error",
-        "stream.done"
+        "stream.done",
+        "feedback.recorded"
       ]
     },
     "event_seq": {
@@ -90,6 +91,10 @@
     {
       "if": {"properties": {"event_type": {"const": "stream.done"}}, "required": ["event_type"]},
       "then": {"properties": {"event_seq": {"type": "integer", "minimum": 1}, "data": {"$ref": "#/$defs/StreamDonePayload"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "feedback.recorded"}}, "required": ["event_type"]},
+      "then": {"properties": {"event_seq": {"type": "integer", "minimum": 1}, "data": {"$ref": "#/$defs/FeedbackRecordedPayload"}}}
     }
   ],
   "$defs": {
@@ -148,7 +153,19 @@
     },
     "AsyncErrorCode": {
       "type": "string",
-      "enum": ["PROVIDER_TIMEOUT", "PROVIDER_ERROR", "TOOL_NOT_FOUND", "TOOL_INPUT_INVALID", "STREAM_INTERRUPTED"]
+      "enum": ["PROVIDER_TIMEOUT", "PROVIDER_ERROR", "TOOL_NOT_FOUND", "TOOL_INPUT_INVALID", "STREAM_INTERRUPTED", "RUN_INTERRUPTED"]
+    },
+    "FeedbackId": {
+      "type": "string",
+      "pattern": "^feedback_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "MemoryJobId": {
+      "type": "string",
+      "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "FeedbackType": {
+      "type": "string",
+      "enum": ["explicit_text", "edited_output", "rating", "accepted", "rejected", "composite"]
     },
     "SafeToolArgsSummary": {
       "type": "object",
@@ -340,6 +357,17 @@
         "final_snapshot_required": {"type": "boolean", "const": true}
       },
       "required": ["status", "final_snapshot_required"],
+      "additionalProperties": false
+    },
+    "FeedbackRecordedPayload": {
+      "type": "object",
+      "description": "Metadata only. Feedback bodies are forbidden.",
+      "properties": {
+        "feedback_id": {"$ref": "#/$defs/FeedbackId"},
+        "memory_job_id": {"$ref": "#/$defs/MemoryJobId"},
+        "feedback_type": {"$ref": "#/$defs/FeedbackType"}
+      },
+      "required": ["feedback_id", "memory_job_id", "feedback_type"],
       "additionalProperties": false
     }
   }

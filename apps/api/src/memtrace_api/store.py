@@ -131,10 +131,14 @@ class TaskStore:
                 request_id=request_id,
                 task_id=task_id,
                 run_id=run_id,
+                task_text=request.task_text,
+                scenario=request.scenario,
                 run_status=RunStatus.QUEUED,
                 provider_mode=provider_mode,
                 effective_memory_mode=request.effective_memory_mode,
                 tool_calls=[],
+                messages=[],
+                feedback_events=[],
                 updated_at=utc_now(),
             )
             record = TaskRecord(request=request, snapshot=snapshot)

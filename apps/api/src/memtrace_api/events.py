@@ -15,7 +15,10 @@ from memtrace_api.schemas import (
     ContractModel,
     Domain,
     ErrorId,
+    FeedbackId,
+    FeedbackType,
     FingerprintId,
+    MemoryJobId,
     MessageId,
     PlanId,
     ProgrammingLanguage,
@@ -43,6 +46,7 @@ class EventType(StrEnum):
     RUN_FAILED = "run.failed"
     ERROR = "error"
     STREAM_DONE = "stream.done"
+    FEEDBACK_RECORDED = "feedback.recorded"
 
 
 PERSISTENT_EVENT_TYPES = frozenset(
@@ -58,6 +62,7 @@ PERSISTENT_EVENT_TYPES = frozenset(
         EventType.RUN_FAILED,
         EventType.ERROR,
         EventType.STREAM_DONE,
+        EventType.FEEDBACK_RECORDED,
     }
 )
 
@@ -188,6 +193,12 @@ class StreamDonePayload(ContractModel):
     final_snapshot_required: Literal[True] = True
 
 
+class FeedbackRecordedPayload(ContractModel):
+    feedback_id: FeedbackId
+    memory_job_id: MemoryJobId
+    feedback_type: FeedbackType
+
+
 EventPayload: TypeAlias = (
     TaskCreatedPayload
     | TaskStagePayload
@@ -202,6 +213,7 @@ EventPayload: TypeAlias = (
     | RunFailedPayload
     | ErrorPayload
     | StreamDonePayload
+    | FeedbackRecordedPayload
 )
 
 PAYLOAD_TYPES: dict[EventType, type[ContractModel]] = {
@@ -218,6 +230,7 @@ PAYLOAD_TYPES: dict[EventType, type[ContractModel]] = {
     EventType.RUN_FAILED: RunFailedPayload,
     EventType.ERROR: ErrorPayload,
     EventType.STREAM_DONE: StreamDonePayload,
+    EventType.FEEDBACK_RECORDED: FeedbackRecordedPayload,
 }
 
 

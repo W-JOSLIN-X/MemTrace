@@ -339,7 +339,8 @@
           "PROVIDER_ERROR",
           "TOOL_NOT_FOUND",
           "TOOL_INPUT_INVALID",
-          "STREAM_INTERRUPTED"
+          "STREAM_INTERRUPTED",
+          "RUN_INTERRUPTED"
         ],
         "title": "AsyncErrorCode"
       },
@@ -418,7 +419,11 @@
           "TOOL_NOT_FOUND",
           "TOOL_INPUT_INVALID",
           "STREAM_INTERRUPTED",
-          "INTERNAL_ERROR"
+          "INTERNAL_ERROR",
+          "SESSION_REQUIRED",
+          "IDEMPOTENCY_CONFLICT",
+          "FEEDBACK_NO_CHANGES",
+          "TASK_NOT_READY_FOR_FEEDBACK"
         ],
         "title": "ErrorCode"
       },
@@ -551,6 +556,107 @@
         ],
         "title": "ErrorEnvelope"
       },
+      "FeedbackEventRecord": {
+        "properties": {
+          "feedback_id": {
+            "type": "string",
+            "pattern": "^feedback_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Feedback Id"
+          },
+          "run_id": {
+            "type": "string",
+            "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Run Id"
+          },
+          "feedback_type": {
+            "$ref": "#/components/schemas/FeedbackType"
+          },
+          "explicit_text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Explicit Text"
+          },
+          "edited_output": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edited Output"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 5.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          },
+          "accepted": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted"
+          },
+          "memory_job_id": {
+            "type": "string",
+            "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Job Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "feedback_id",
+          "run_id",
+          "feedback_type",
+          "memory_job_id",
+          "created_at"
+        ],
+        "title": "FeedbackEventRecord",
+        "description": "A persisted feedback event restored via the owner-checked TaskSnapshot.\n\nBody fields (``explicit_text``/``edited_output``) appear only here, never in\n``event_log`` metadata."
+      },
+      "FeedbackType": {
+        "type": "string",
+        "enum": [
+          "explicit_text",
+          "edited_output",
+          "rating",
+          "accepted",
+          "rejected",
+          "composite"
+        ],
+        "title": "FeedbackType",
+        "description": "Derived feedback category. ``rejected`` is the derived type when the\nclient sets ``accepted=false`` without any other signal; ``composite`` is\nused when more than one signal is present."
+      },
       "HealthResponse": {
         "properties": {
           "request_id": {
@@ -600,6 +706,14 @@
           "at"
         ],
         "title": "HealthResponse"
+      },
+      "MessageRole": {
+        "type": "string",
+        "enum": [
+          "user",
+          "assistant"
+        ],
+        "title": "MessageRole"
       },
       "MessageSnapshot": {
         "properties": {
@@ -1023,6 +1137,50 @@
         ],
         "title": "TaskFingerprint"
       },
+      "TaskMessageRecord": {
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Message Id"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "role": {
+            "$ref": "#/components/schemas/MessageRole"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 262144,
+            "title": "Content"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "message_id",
+          "role",
+          "content",
+          "created_at"
+        ],
+        "title": "TaskMessageRecord",
+        "description": "A persisted message restored via the owner-checked TaskSnapshot.\n\nUnlike ``MessageSnapshot`` (the terminal ``final_message`` projection), a\nrestored message carries its originating ``run_id`` and may be either role."
+      },
       "TaskSnapshot": {
         "properties": {
           "request_id": {
@@ -1039,6 +1197,15 @@
             "type": "string",
             "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$",
             "title": "Run Id"
+          },
+          "task_text": {
+            "type": "string",
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Task Text"
+          },
+          "scenario": {
+            "$ref": "#/components/schemas/Scenario"
           },
           "task_status": {
             "type": "string",
@@ -1112,6 +1279,13 @@
             "title": "Offset Unit",
             "default": "utf8_bytes"
           },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/TaskMessageRecord"
+            },
+            "type": "array",
+            "title": "Messages"
+          },
           "final_message": {
             "anyOf": [
               {
@@ -1121,6 +1295,13 @@
                 "type": "null"
               }
             ]
+          },
+          "feedback_events": {
+            "items": {
+              "$ref": "#/components/schemas/FeedbackEventRecord"
+            },
+            "type": "array",
+            "title": "Feedback Events"
           },
           "error": {
             "anyOf": [
@@ -1155,10 +1336,11 @@
           "request_id",
           "task_id",
           "run_id",
+          "task_text",
+          "scenario",
           "run_status",
           "provider_mode",
           "effective_memory_mode",
-          "tool_calls",
           "updated_at"
         ],
         "title": "TaskSnapshot"
