@@ -4,6 +4,8 @@ uvicorn==0.51.0
 pydantic-settings==2.14.2
 httpx==0.28.1
 openai==2.38.0
+SQLAlchemy==2.0.52
+alembic==1.19.1
 
 # Development and verification dependencies
 pytest==9.1.1
