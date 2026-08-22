@@ -17,6 +17,8 @@ const planIdPattern = /^plan_[0-9A-HJKMNP-TV-Z]{26}$/
 const toolCallIdPattern = /^tool_[0-9A-HJKMNP-TV-Z]{26}$/
 const toolResultIdPattern = /^toolres_[0-9A-HJKMNP-TV-Z]{26}$/
 const errorIdPattern = /^err_[0-9A-HJKMNP-TV-Z]{26}$/
+const feedbackIdPattern = /^feedback_[0-9A-HJKMNP-TV-Z]{26}$/
+const memoryJobIdPattern = /^job_[0-9A-HJKMNP-TV-Z]{26}$/
 const textEncoder = new TextEncoder()
 
 export class ContractError extends Error {
@@ -106,6 +108,8 @@ export function parseTaskSnapshot(value: unknown): TaskSnapshot {
     'request_id',
     'task_id',
     'run_id',
+    'task_text',
+    'scenario',
     'task_status',
     'run_status',
     'provider_mode',
@@ -117,7 +121,9 @@ export function parseTaskSnapshot(value: unknown): TaskSnapshot {
     'partial_output',
     'end_offset',
     'offset_unit',
+    'messages',
     'final_message',
+    'feedback_events',
     'error',
     'terminal',
     'last_persistent_event_seq',
@@ -126,6 +132,17 @@ export function parseTaskSnapshot(value: unknown): TaskSnapshot {
   patternString(body.request_id, requestIdPattern, 'request_id')
   patternString(body.task_id, taskIdPattern, 'task_id')
   patternString(body.run_id, runIdPattern, 'run_id')
+  nonEmptyBoundedString(body.task_text, 20000, 'task_text')
+  enumValue(
+    body.scenario,
+    [
+      'programming_learning',
+      'software_development',
+      'general_text',
+      'other',
+    ] as const,
+    'scenario',
+  )
   constant(body.task_status, 'active', 'task_status')
   const runStatus = enumValue(
     body.run_status,
@@ -161,7 +178,11 @@ export function parseTaskSnapshot(value: unknown): TaskSnapshot {
   if (utf8ByteLength(partialOutput) !== endOffset) {
     throw new ContractError('partial_output does not match UTF-8 end_offset')
   }
+  const messages = arrayValue(body.messages, 'messages')
+  messages.forEach(validateTaskMessageRecord)
   validateMessage(body.final_message)
+  const feedbackEvents = arrayValue(body.feedback_events, 'feedback_events')
+  feedbackEvents.forEach(validateFeedbackEventRecord)
   validateRunError(body.error)
   const terminal = booleanValue(body.terminal, 'terminal')
   nonNegativeInteger(
@@ -206,6 +227,10 @@ export function parseErrorResponse(value: unknown): ErrorResponse | null {
         'TOOL_INPUT_INVALID',
         'STREAM_INTERRUPTED',
         'INTERNAL_ERROR',
+        'SESSION_REQUIRED',
+        'IDEMPOTENCY_CONFLICT',
+        'FEEDBACK_NO_CHANGES',
+        'TASK_NOT_READY_FOR_FEEDBACK',
       ] satisfies readonly ErrorCode[],
       'error.code',
     )
@@ -441,6 +466,23 @@ function validateEventPayload(
       enumValue(data.status, ['succeeded', 'failed'] as const, 'status')
       constant(data.final_snapshot_required, true, 'final_snapshot_required')
       return
+    case 'feedback.recorded':
+      exactKeys(data, ['feedback_id', 'memory_job_id', 'feedback_type'])
+      patternString(data.feedback_id, feedbackIdPattern, 'feedback_id')
+      patternString(data.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+      enumValue(
+        data.feedback_type,
+        [
+          'explicit_text',
+          'edited_output',
+          'rating',
+          'accepted',
+          'rejected',
+          'composite',
+        ] as const,
+        'feedback_type',
+      )
+      return
   }
 }
 
@@ -604,6 +646,61 @@ function validateAstResult(value: unknown): void {
   nullablePositiveInteger(error.column, 'syntax_error.column')
   nullablePositiveInteger(error.end_line, 'syntax_error.end_line')
   nullablePositiveInteger(error.end_column, 'syntax_error.end_column')
+}
+
+function validateTaskMessageRecord(value: unknown): void {
+  const data = record(value, 'message record')
+  exactKeys(data, ['message_id', 'run_id', 'role', 'content', 'created_at'])
+  patternString(data.message_id, messageIdPattern, 'message_id')
+  if (data.run_id !== null) {
+    patternString(data.run_id, runIdPattern, 'run_id')
+  }
+  enumValue(data.role, ['user', 'assistant'] as const, 'role')
+  boundedString(data.content, 262144, 'content')
+  timestamp(data.created_at, 'created_at')
+}
+
+function validateFeedbackEventRecord(value: unknown): void {
+  const data = record(value, 'feedback event record')
+  exactKeys(data, [
+    'feedback_id',
+    'run_id',
+    'feedback_type',
+    'explicit_text',
+    'edited_output',
+    'rating',
+    'accepted',
+    'memory_job_id',
+    'created_at',
+  ])
+  patternString(data.feedback_id, feedbackIdPattern, 'feedback_id')
+  patternString(data.run_id, runIdPattern, 'run_id')
+  enumValue(
+    data.feedback_type,
+    [
+      'explicit_text',
+      'edited_output',
+      'rating',
+      'accepted',
+      'rejected',
+      'composite',
+    ] as const,
+    'feedback_type',
+  )
+  if (data.explicit_text !== null) {
+    nonEmptyBoundedString(data.explicit_text, 4000, 'explicit_text')
+  }
+  if (data.edited_output !== null) {
+    nonEmptyBoundedString(data.edited_output, 100000, 'edited_output')
+  }
+  if (data.rating !== null) {
+    boundedInteger(data.rating, 1, 5, 'rating')
+  }
+  if (data.accepted !== null) {
+    booleanValue(data.accepted, 'accepted')
+  }
+  patternString(data.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+  timestamp(data.created_at, 'created_at')
 }
 
 function validateMessage(value: unknown): void {

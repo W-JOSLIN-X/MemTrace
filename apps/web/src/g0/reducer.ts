@@ -293,6 +293,8 @@ function reduceSseEvent(state: G0State, event: G0SseEvent): G0State {
       }
     case 'stream.done':
       return { ...next, phase: 'finalizing' }
+    case 'feedback.recorded':
+      return next
   }
 }
 

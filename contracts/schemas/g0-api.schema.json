@@ -10,7 +10,12 @@
     {"$ref": "#/$defs/TaskCreateAccepted"},
     {"$ref": "#/$defs/TaskSnapshot"},
     {"$ref": "#/$defs/ErrorResponse"},
-    {"$ref": "#/$defs/SseCursorQuery"}
+    {"$ref": "#/$defs/SseCursorQuery"},
+    {"$ref": "#/$defs/DemoSessionCreateRequest"},
+    {"$ref": "#/$defs/DemoSessionResponse"},
+    {"$ref": "#/$defs/FeedbackCreateRequest"},
+    {"$ref": "#/$defs/FeedbackCreateAccepted"},
+    {"$ref": "#/$defs/MemoryJobResponse"}
   ],
   "$defs": {
     "TaskId": {
@@ -48,6 +53,22 @@
     "ErrorId": {
       "type": "string",
       "pattern": "^err_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "FeedbackId": {
+      "type": "string",
+      "pattern": "^feedback_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "MemoryJobId": {
+      "type": "string",
+      "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "SessionId": {
+      "type": "string",
+      "pattern": "^sess_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "UserId": {
+      "type": "string",
+      "pattern": "^usr_[0-9A-HJKMNP-TV-Z]{26}$"
     },
     "Timestamp": {
       "type": "string",
@@ -370,7 +391,7 @@
     },
     "AsyncErrorCode": {
       "type": "string",
-      "enum": ["PROVIDER_TIMEOUT", "PROVIDER_ERROR", "TOOL_NOT_FOUND", "TOOL_INPUT_INVALID", "STREAM_INTERRUPTED"]
+      "enum": ["PROVIDER_TIMEOUT", "PROVIDER_ERROR", "TOOL_NOT_FOUND", "TOOL_INPUT_INVALID", "STREAM_INTERRUPTED", "RUN_INTERRUPTED"]
     },
     "RunErrorSnapshot": {
       "type": "object",
@@ -392,13 +413,155 @@
       "type": "string",
       "enum": ["queued", "fingerprinting", "retrieving", "planning", "tool_running", "generating", "succeeded", "failed"]
     },
+    "TaskMessageRecord": {
+      "type": "object",
+      "properties": {
+        "message_id": {"$ref": "#/$defs/MessageId"},
+        "run_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/RunId"},
+            {"type": "null"}
+          ]
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "assistant"]
+        },
+        "content": {"type": "string", "maxLength": 262144},
+        "created_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["message_id", "role", "content", "created_at"],
+      "additionalProperties": false
+    },
+    "FeedbackType": {
+      "type": "string",
+      "enum": ["explicit_text", "edited_output", "rating", "accepted", "rejected", "composite"]
+    },
+    "FeedbackEventRecord": {
+      "type": "object",
+      "properties": {
+        "feedback_id": {"$ref": "#/$defs/FeedbackId"},
+        "run_id": {"$ref": "#/$defs/RunId"},
+        "feedback_type": {"$ref": "#/$defs/FeedbackType"},
+        "explicit_text": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "edited_output": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 100000
+        },
+        "rating": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 5
+        },
+        "accepted": {"type": ["boolean", "null"]},
+        "memory_job_id": {"$ref": "#/$defs/MemoryJobId"},
+        "created_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["feedback_id", "run_id", "feedback_type", "memory_job_id", "created_at"],
+      "additionalProperties": false
+    },
+    "DemoAlias": {
+      "type": "string",
+      "enum": ["blank_demo", "seeded_demo"]
+    },
+    "DemoSessionCreateRequest": {
+      "type": "object",
+      "properties": {
+        "demo_alias": {"$ref": "#/$defs/DemoAlias"}
+      },
+      "required": ["demo_alias"],
+      "additionalProperties": false
+    },
+    "DemoSessionResponse": {
+      "type": "object",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "demo_alias": {"$ref": "#/$defs/DemoAlias"},
+        "expires_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["request_id", "demo_alias", "expires_at"],
+      "additionalProperties": false
+    },
+    "FeedbackCreateRequest": {
+      "type": "object",
+      "properties": {
+        "explicit_text": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "edited_output": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 100000
+        },
+        "rating": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 5
+        },
+        "accepted": {"type": ["boolean", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "FeedbackCreateAccepted": {
+      "type": "object",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "feedback_id": {"$ref": "#/$defs/FeedbackId"},
+        "memory_job_id": {"$ref": "#/$defs/MemoryJobId"},
+        "feedback_type": {"$ref": "#/$defs/FeedbackType"},
+        "job_status": {
+          "type": "string",
+          "const": "pending"
+        }
+      },
+      "required": ["request_id", "feedback_id", "memory_job_id", "feedback_type", "job_status"],
+      "additionalProperties": false
+    },
+    "MemoryJobResponse": {
+      "type": "object",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "memory_job_id": {"$ref": "#/$defs/MemoryJobId"},
+        "job_type": {
+          "type": "string",
+          "const": "extract_feedback"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "running", "completed", "failed"]
+        },
+        "stage": {
+          "type": "string",
+          "enum": ["queued", "extracting", "done", "failed"]
+        },
+        "attempt": {"type": "integer", "minimum": 0},
+        "error": {"type": ["string", "null"]},
+        "created_at": {"$ref": "#/$defs/Timestamp"},
+        "updated_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["request_id", "memory_job_id", "job_type", "status", "stage", "attempt", "created_at", "updated_at"],
+      "additionalProperties": false
+    },
     "TaskSnapshot": {
       "type": "object",
-      "description": "Authoritative G0 recovery snapshot. Clients merge it monotonically by UTF-8 byte end_offset and always fetch it after a terminal SSE event.",
+      "description": "Authoritative G0/G1 recovery snapshot. Clients merge it monotonically by UTF-8 byte end_offset and always fetch it after a terminal SSE event.",
       "properties": {
         "request_id": {"$ref": "#/$defs/RequestId"},
         "task_id": {"$ref": "#/$defs/TaskId"},
         "run_id": {"$ref": "#/$defs/RunId"},
+        "task_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "scenario": {"$ref": "#/$defs/Scenario"},
         "task_status": {
           "type": "string",
           "const": "active"
@@ -435,11 +598,19 @@
           "type": "string",
           "const": "utf8_bytes"
         },
+        "messages": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/TaskMessageRecord"}
+        },
         "final_message": {
           "oneOf": [
             {"$ref": "#/$defs/MessageSnapshot"},
             {"type": "null"}
           ]
+        },
+        "feedback_events": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/FeedbackEventRecord"}
         },
         "error": {
           "oneOf": [
@@ -451,7 +622,31 @@
         "last_persistent_event_seq": {"type": "integer", "minimum": 0},
         "updated_at": {"$ref": "#/$defs/Timestamp"}
       },
-      "required": ["request_id", "task_id", "run_id", "task_status", "run_status", "provider_mode", "effective_memory_mode", "fingerprint", "public_plan", "tool_decision", "tool_calls", "partial_output", "end_offset", "offset_unit", "final_message", "error", "terminal", "last_persistent_event_seq", "updated_at"],
+      "required": [
+        "request_id",
+        "task_id",
+        "run_id",
+        "task_text",
+        "scenario",
+        "task_status",
+        "run_status",
+        "provider_mode",
+        "effective_memory_mode",
+        "fingerprint",
+        "public_plan",
+        "tool_decision",
+        "tool_calls",
+        "partial_output",
+        "end_offset",
+        "offset_unit",
+        "messages",
+        "final_message",
+        "feedback_events",
+        "error",
+        "terminal",
+        "last_persistent_event_seq",
+        "updated_at"
+      ],
       "additionalProperties": false,
       "allOf": [
         {
@@ -581,7 +776,21 @@
     },
     "ErrorCode": {
       "type": "string",
-      "enum": ["VALIDATION_ERROR", "TASK_NOT_FOUND", "PROVIDER_CONFIG_MISSING", "PROVIDER_TIMEOUT", "PROVIDER_ERROR", "TOOL_NOT_FOUND", "TOOL_INPUT_INVALID", "STREAM_INTERRUPTED", "INTERNAL_ERROR"]
+      "enum": [
+        "VALIDATION_ERROR",
+        "TASK_NOT_FOUND",
+        "PROVIDER_CONFIG_MISSING",
+        "PROVIDER_TIMEOUT",
+        "PROVIDER_ERROR",
+        "TOOL_NOT_FOUND",
+        "TOOL_INPUT_INVALID",
+        "STREAM_INTERRUPTED",
+        "INTERNAL_ERROR",
+        "SESSION_REQUIRED",
+        "IDEMPOTENCY_CONFLICT",
+        "FEEDBACK_NO_CHANGES",
+        "TASK_NOT_READY_FOR_FEEDBACK"
+      ]
     },
     "ErrorResponse": {
       "type": "object",

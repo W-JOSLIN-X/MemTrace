@@ -7,6 +7,10 @@ export type PlanId = `plan_${string}`
 export type ToolCallId = `tool_${string}`
 export type ToolResultId = `toolres_${string}`
 export type ErrorId = `err_${string}`
+export type FeedbackId = `feedback_${string}`
+export type MemoryJobId = `job_${string}`
+export type SessionId = `sess_${string}`
+export type UserId = `usr_${string}`
 
 export type ProviderMode = 'mock' | 'real'
 export type EffectiveMemoryMode = 'on' | 'off'
@@ -45,6 +49,7 @@ export type AsyncErrorCode =
   | 'TOOL_NOT_FOUND'
   | 'TOOL_INPUT_INVALID'
   | 'STREAM_INTERRUPTED'
+  | 'RUN_INTERRUPTED'
 export type ErrorCode =
   | 'VALIDATION_ERROR'
   | 'TASK_NOT_FOUND'
@@ -55,6 +60,10 @@ export type ErrorCode =
   | 'TOOL_INPUT_INVALID'
   | 'STREAM_INTERRUPTED'
   | 'INTERNAL_ERROR'
+  | 'SESSION_REQUIRED'
+  | 'IDEMPOTENCY_CONFLICT'
+  | 'FEEDBACK_NO_CHANGES'
+  | 'TASK_NOT_READY_FOR_FEEDBACK'
 
 export interface CurrentConstraints {
   response_policy: ResponsePolicy
@@ -167,6 +176,34 @@ export interface MessageSnapshot {
   created_at: string
 }
 
+export interface TaskMessageRecord {
+  message_id: MessageId
+  run_id: RunId | null
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+}
+
+export type FeedbackType =
+  | 'explicit_text'
+  | 'edited_output'
+  | 'rating'
+  | 'accepted'
+  | 'rejected'
+  | 'composite'
+
+export interface FeedbackEventRecord {
+  feedback_id: FeedbackId
+  run_id: RunId
+  feedback_type: FeedbackType
+  explicit_text: string | null
+  edited_output: string | null
+  rating: number | null
+  accepted: boolean | null
+  memory_job_id: MemoryJobId
+  created_at: string
+}
+
 export interface RunErrorSnapshot {
   error_id: ErrorId
   code: AsyncErrorCode
@@ -178,6 +215,8 @@ export interface TaskSnapshot {
   request_id: RequestId
   task_id: TaskId
   run_id: RunId
+  task_text: string
+  scenario: Scenario
   task_status: 'active'
   run_status: RunStatus
   provider_mode: ProviderMode
@@ -189,7 +228,9 @@ export interface TaskSnapshot {
   partial_output: string
   end_offset: number
   offset_unit: 'utf8_bytes'
+  messages: TaskMessageRecord[]
   final_message: MessageSnapshot | null
+  feedback_events: FeedbackEventRecord[]
   error: RunErrorSnapshot | null
   terminal: boolean
   last_persistent_event_seq: number
@@ -336,6 +377,15 @@ export type StreamDoneEvent = EventEnvelope<
   { status: 'succeeded' | 'failed'; final_snapshot_required: true },
   number
 >
+export type FeedbackRecordedEvent = EventEnvelope<
+  'feedback.recorded',
+  {
+    feedback_id: FeedbackId
+    memory_job_id: MemoryJobId
+    feedback_type: FeedbackType
+  },
+  number
+>
 
 export type G0SseEvent =
   | TaskCreatedEvent
@@ -351,6 +401,7 @@ export type G0SseEvent =
   | RunFailedEvent
   | ErrorEvent
   | StreamDoneEvent
+  | FeedbackRecordedEvent
 
 export type G0EventType = G0SseEvent['event_type']
 
@@ -368,4 +419,5 @@ export const G0_EVENT_TYPES: readonly G0EventType[] = [
   'run.failed',
   'error',
   'stream.done',
+  'feedback.recorded',
 ]

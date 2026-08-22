@@ -81,6 +81,34 @@ class Settings(BaseSettings):
         default=250, ge=0, le=5_000, validation_alias="MOCK_CHUNK_DELAY_MS"
     )
 
+    # Day 2 G1 SQLite and Demo Session Cookie settings
+    memtrace_database_url: str = Field(
+        default="sqlite:///data/memtrace.sqlite3",
+        validation_alias="MEMTRACE_DATABASE_URL",
+    )
+    session_secret: SecretStr | None = Field(default=None, validation_alias="SESSION_SECRET")
+    cookie_secure: bool = Field(default=False, validation_alias="COOKIE_SECURE")
+
+    @field_validator("session_secret", mode="before")
+    @classmethod
+    def blank_session_secret_is_none(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("memtrace_database_url", mode="before")
+    @classmethod
+    def resolve_sqlite_url(cls, value: object) -> str:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return f"sqlite:///{(PROJECT_ROOT / 'data' / 'memtrace.sqlite3').as_posix()}"
+        if isinstance(value, str) and value.startswith("sqlite:///"):
+            raw_path = value[len("sqlite:///") :]
+            p = Path(raw_path)
+            if not p.is_absolute():
+                resolved = (PROJECT_ROOT / p).resolve()
+                return f"sqlite:///{resolved.as_posix()}"
+        return str(value) if value is not None else ""
+
     @field_validator("llm_api_key", mode="before")
     @classmethod
     def blank_secret_is_missing(cls, value: object) -> object:
