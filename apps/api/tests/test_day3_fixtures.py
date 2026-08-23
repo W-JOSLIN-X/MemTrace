@@ -13,6 +13,8 @@ import jsonschema
 import pytest
 
 from memtrace_api.config import PROJECT_ROOT
+from memtrace_api.logic import analyze_task
+from memtrace_api.schemas import TaskCreateRequest
 
 FIXTURE_PATH = PROJECT_ROOT / "fixtures" / "day3" / "learning_events.json"
 API_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "schemas" / "g0-api.schema.json"
@@ -49,7 +51,7 @@ def fixture() -> dict:
 
 def test_fixture_declares_contract_and_review_status(fixture: dict) -> None:
     assert fixture["contract_version"] == "1.2.0"
-    assert fixture["review_status"] == "member_a_initial_labeling"
+    assert fixture["review_status"] == "member_b_approved_2026-08-24"
     assert len(fixture["entries"]) >= 24
 
 
@@ -114,3 +116,47 @@ def test_coverage_requires_every_durability_and_candidate_count(fixture: dict) -
     assert {0, 1, 2, 3} <= counts
     assert any(entry["provider_simulation"] == "evidence_not_found" for entry in fixture["entries"])
     assert any(entry["expected"]["job_status"] == "failed" for entry in fixture["entries"])
+
+
+@pytest.mark.parametrize("index", range(30))
+def test_member_b_fingerprint_review_matches_server_derived_result(
+    fixture: dict,
+    index: int,
+) -> None:
+    entry = fixture["entries"][index]
+    request = TaskCreateRequest.model_validate(
+        {
+            "task_text": entry["task_text"],
+            **fixture["default_request"],
+        }
+    )
+    actual = analyze_task(request).fingerprint
+    assert str(actual.domain) == entry["expected_fingerprint"]["domain"], entry["id"]
+    assert str(actual.task_type) == entry["expected_fingerprint"]["task_type"], entry["id"]
+
+
+@pytest.mark.parametrize("index", range(30))
+def test_member_b_worker_path_review_matches_current_early_dispositions(
+    fixture: dict,
+    index: int,
+) -> None:
+    entry = fixture["entries"][index]
+    expected = entry["expected"]
+    durability = expected["durability"]
+    reason = expected["durability_reason"]
+
+    if expected["job_status"] == "failed":
+        assert expected["stage_events"] == "provider_failure_path", entry["id"]
+    elif durability == "explicit_durable" or reason == "edit_diff_only":
+        assert expected["stage_events"] == "model_path", entry["id"]
+    else:
+        assert expected["stage_events"] == "skip_model_path", entry["id"]
+
+    if durability == "one_shot":
+        assert expected["disposition"] == "episode_only", entry["id"]
+    elif durability == "reinforce_usage_only":
+        assert expected["disposition"] == "reinforce_usage_only", entry["id"]
+    elif durability == "harmful_usage_only":
+        assert expected["disposition"] == "no_memory", entry["id"]
+    elif durability == "ambiguous" and reason != "edit_diff_only":
+        assert expected["disposition"] == "no_memory", entry["id"]
