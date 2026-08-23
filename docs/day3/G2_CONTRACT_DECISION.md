@@ -36,6 +36,10 @@ MemoryCard → 真实 Evidence → resolve(accept/edit_accept/reject/one_shot)`�
 `rule_confidence=null`、`scope_confidence=null`；explicit durable 只令
 `save_preselected=true`，**不得**令 status=active。确认后才建不可变 v1 并原子置 active。
 
+`MemoryCard.rejection_reason` 是必返的 nullable 受控字段：candidate/active 固定为 `null`；
+普通拒绝为 `user_rejected`；“仅本次”处置为 `episode_only`。这是刷新后区分两种 rejected
+结果所必需的持久投影，不允许客户端依赖一次性的 resolve 响应猜测。
+
 ### 2.4 resolve（§9.4）
 
 - `accept/edit_accept/reject/one_shot`；`accept/reject/one_shot` 的 patch 必须空。
@@ -80,6 +84,7 @@ HTTP：`MEMORY_NOT_FOUND`（统一 404）、`MEMORY_ALREADY_RESOLVED`（409）�
 | 总计划 §12.4 resolve 含 `patch.scope` | 无实现 | 冻结 `MemoryCardPatch` 允许字段，patch 只对 `edit_accept` 合法 | `test_resolve_request_rules` |
 | TEAMMATE_AGENT_PROMPT §9.1 `error_code` | D2 `last_error_code` 列存在 | job 响应字段名 `error_code`，值为受控枚举 | `test_memory_job_response_shape` |
 | 总计划 §12.8 事件 `memory.candidate.created` 只带 `memory_id,evidence_id` | 无实现 | 增补 `ordinal`（0..2），服务端生成 | `test_new_event_payloads_validate` |
+| TEAMMATE_AGENT_PROMPT §9.4 要求 rejected reason | 数据库已有 `rejection_reason`，旧公开投影遗漏 | `MemoryCard.rejection_reason` 必返；`null/user_rejected/episode_only` 与状态不变式同时校验 | `test_rejected_card_requires_controlled_reason`、`test_edit_reject_and_one_shot_resolve_semantics` |
 
 ## 4. 复核状态
 
