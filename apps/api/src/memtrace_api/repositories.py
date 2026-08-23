@@ -16,7 +16,11 @@ from memtrace_api.db_models import (
     EventLogModel,
     FeedbackEventModel,
     IdempotencyKeyModel,
+    MemoryCardModel,
+    MemoryEvidenceLinkModel,
+    MemoryEvidenceModel,
     MemoryJobModel,
+    MemoryVersionModel,
     MessageModel,
     TaskFingerprintModel,
     TaskModel,
@@ -570,6 +574,171 @@ class FeedbackRepository:
                 )
             )
         ).scalar_one_or_none()
+
+    def update_job_stage(self, job_id: str, stage: str) -> None:
+        self.session.execute(
+            update(MemoryJobModel)
+            .where(
+                and_(
+                    MemoryJobModel.id == job_id,
+                    MemoryJobModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+            .values(stage=stage, updated_at=utc_now())
+        )
+
+    def complete_job(
+        self,
+        *,
+        job_id: str,
+        disposition: str,
+        candidate_ids: list[str],
+    ) -> None:
+        self.session.execute(
+            update(MemoryJobModel)
+            .where(
+                and_(
+                    MemoryJobModel.id == job_id,
+                    MemoryJobModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+            .values(
+                status="completed",
+                stage="done",
+                disposition=disposition,
+                updated_at=utc_now(),
+            )
+        )
+
+    def fail_job(
+        self,
+        *,
+        job_id: str,
+        error_code: str,
+        retryable: bool,
+    ) -> None:
+        self.session.execute(
+            update(MemoryJobModel)
+            .where(
+                and_(
+                    MemoryJobModel.id == job_id,
+                    MemoryJobModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+            .values(
+                status="failed",
+                stage="failed",
+                last_error_code=error_code,
+                retryable=retryable,
+                updated_at=utc_now(),
+            )
+        )
+
+
+class MemoryCardRepository:
+    def __init__(self, user_ctx: UserContext, session: Session) -> None:
+        self.user_ctx = user_ctx
+        self.session = session
+
+    def get_candidate(self, memory_id: str) -> MemoryCardModel | None:
+        return self.session.execute(
+            select(MemoryCardModel).where(
+                and_(
+                    MemoryCardModel.id == memory_id,
+                    MemoryCardModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    def update_card(self, card_id: str, **updates: Any) -> None:
+        self.session.execute(
+            update(MemoryCardModel)
+            .where(
+                and_(
+                    MemoryCardModel.id == card_id,
+                    MemoryCardModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+            .values(**updates)
+        )
+
+    def create_version(
+        self, card_id: str, version: int, created_by_action: str
+    ) -> str:
+        from memtrace_api.ids import new_prefixed_ulid
+
+        card = self.get_candidate(card_id)
+        if card is None:
+            raise ValueError(f"Card {card_id} not found")
+
+        version_id = new_prefixed_ulid("memver")
+        ver = MemoryVersionModel(
+            id=version_id,
+            owner_id=self.user_ctx.user_id,
+            memory_id=card_id,
+            version=version,
+            title=card.title,
+            rule=card.rule,
+            avoid=card.avoid,
+            trigger_text=card.trigger_text,
+            scope_json=card.scope_json,
+            exceptions_json=card.exceptions_json,
+            created_by_action=created_by_action,
+            created_at=utc_now(),
+        )
+        self.session.add(ver)
+        self.session.flush()
+        return version_id
+
+    def list_evidence(self, memory_id: str) -> list[MemoryEvidenceModel]:
+        result = self.session.execute(
+            select(MemoryEvidenceModel)
+            .join(
+                MemoryEvidenceLinkModel,
+                MemoryEvidenceModel.id == MemoryEvidenceLinkModel.evidence_id,
+            )
+            .where(
+                and_(
+                    MemoryEvidenceLinkModel.memory_id == memory_id,
+                    MemoryEvidenceModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+            .order_by(MemoryEvidenceLinkModel.ordinal)
+        )
+        return list(result.scalars().all())
+
+    def list_versions(
+        self, memory_id: str
+    ) -> list[MemoryVersionModel]:
+        result = self.session.execute(
+            select(MemoryVersionModel)
+            .where(
+                and_(
+                    MemoryVersionModel.memory_id == memory_id,
+                    MemoryVersionModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+            .order_by(MemoryVersionModel.version)
+        )
+        return list(result.scalars().all())
+
+    def list_cards(
+        self,
+        *,
+        status: str | None = None,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> list[MemoryCardModel]:
+        q = select(MemoryCardModel).where(
+            MemoryCardModel.owner_id == self.user_ctx.user_id
+        )
+        if status:
+            q = q.where(MemoryCardModel.status == status)
+        if cursor:
+            q = q.where(MemoryCardModel.id > cursor)
+        q = q.order_by(MemoryCardModel.created_at).limit(limit)
+        result = self.session.execute(q)
+        return list(result.scalars().all())
 
 
 class IdempotencyRepository:

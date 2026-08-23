@@ -45,6 +45,7 @@ from memtrace_api.readiness import (
 from memtrace_api.repositories import (
     FeedbackRepository,
     IdempotencyRepository,
+    MemoryJobRepository,
     SessionRepository,
     TaskRepository,
     UserContext,
@@ -795,6 +796,249 @@ def create_app(
                 retryable=job.status == "failed",
                 created_at=job.created_at,
                 updated_at=job.updated_at,
+            )
+
+    # ------------------------------------------------------------------
+    # Resolve candidate memory card
+    # ------------------------------------------------------------------
+
+    @application.post(
+        f"{API_PREFIX}/memory-candidates/{{memory_id}}/resolve",
+        responses={
+            400: {"model": ErrorEnvelope},
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            409: {"model": ErrorEnvelope},
+        },
+    )
+    async def resolve_memory_candidate(
+        request: Request,
+        memory_id: str = Path(pattern=r"^mem_[0-9A-HJKMNP-TV-Z]{26}$"),
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> JSONResponse:
+        from memtrace_api.schemas import MemoryCard, MemoryCardStatus, ResolveRequest, ResolveAction, utc_now
+        from memtrace_api.events import EventType, make_event
+
+        body = await request.json()
+        try:
+            resolve_req = ResolveRequest.model_validate(body)
+        except Exception as exc:
+            raise ApiError(
+                status_code=400,
+                code=ErrorCode.INVALID_REQUEST,
+                message=f"请求体无效: {exc}",
+            ) from exc
+
+        session_factory = request.app.state.db_session_factory
+        with session_scope(session_factory) as session:
+            card_repo = MemoryCardRepository(user_ctx, session)
+            card = card_repo.get_candidate(memory_id)
+            if card is None:
+                raise ApiError(
+                    status_code=404,
+                    code=ErrorCode.MEMORY_NOT_FOUND,
+                    message="指定的 MemoryCard 不存在或无权访问。",
+                )
+
+            if card.status != MemoryCardStatus.CANDIDATE:
+                raise ApiError(
+                    status_code=409,
+                    code=ErrorCode.MEMORY_ALREADY_RESOLVED,
+                    message="该 MemoryCard 已处理，无法重复 resolve。",
+                )
+
+            # Apply resolve action
+            now = utc_now()
+            if resolve_req.action == ResolveAction.ACCEPT:
+                new_status = MemoryCardStatus.ACTIVE
+                rejection_reason = None
+            elif resolve_req.action == ResolveAction.EDIT_ACCEPT:
+                new_status = MemoryCardStatus.ACTIVE
+                rejection_reason = None
+                # Apply patch
+                patch = resolve_req.patch
+                if patch:
+                    updates: dict = {}
+                    if patch.title:
+                        updates["title"] = patch.title
+                    if patch.rule:
+                        updates["rule"] = patch.rule
+                    if patch.avoid is not None:
+                        updates["avoid"] = patch.avoid
+                    if patch.scope:
+                        updates["scope_json"] = json.dumps(patch.scope.model_dump())
+                        updates["scope_level"] = patch.scope.level.value
+                        updates["domain"] = patch.scope.domain.value
+                        updates["task_type"] = patch.scope.task_type
+                        updates["artifact_type"] = patch.scope.artifact_type
+                        updates["audience"] = patch.scope.audience
+                        updates["project_key"] = patch.scope.project_key
+                    if patch.exceptions is not None:
+                        updates["exceptions_json"] = json.dumps([e.value for e in patch.exceptions])
+                    if updates:
+                        card_repo.update_card(card_id=memory_id, **updates)
+            elif resolve_req.action == ResolveAction.REJECT:
+                new_status = MemoryCardStatus.REJECTED
+                rejection_reason = "user_rejected"
+            elif resolve_req.action == ResolveAction.ONE_SHOT:
+                new_status = MemoryCardStatus.REJECTED
+                rejection_reason = "episode_only"
+            else:
+                raise ApiError(
+                    status_code=400,
+                    code=ErrorCode.INVALID_REQUEST,
+                    message=f"不支持的 action: {resolve_req.action}",
+                )
+
+            old_status = card.status
+
+            # For accept/edit_accept, create v1 version
+            memory_version_id = None
+            if resolve_req.action in (ResolveAction.ACCEPT, ResolveAction.EDIT_ACCEPT):
+                memory_version_id = card_repo.create_version(
+                    card_id=memory_id,
+                    version=1,
+                    created_by_action=resolve_req.action.value,
+                )
+                card_repo.update_card(
+                    card_id=memory_id,
+                    status=new_status.value,
+                    current_version_id=memory_version_id,
+                    version=1,
+                    rule_confidence=1.0,
+                    scope_confidence=1.0,
+                    rejection_reason=None,
+                    updated_at=now,
+                )
+            else:
+                card_repo.update_card(
+                    card_id=memory_id,
+                    status=new_status.value,
+                    rejection_reason=rejection_reason,
+                    updated_at=now,
+                )
+
+            # Emit admission resolved event
+            resolved_card = card_repo.get_candidate(memory_id)
+            task_repo = TaskRepository(user_ctx, session)
+            task_id = card.task_id  # Need to add task_id column or derive from feedback
+            seq = task_repo.allocate_next_event_seq(task_id)
+            admission_payload = {
+                "memory_id": memory_id,
+                "old_status": old_status,
+                "new_status": new_status.value,
+                "memory_version_id": memory_version_id,
+                "disposition": "candidate_created",
+            }
+            task_repo.append_event(
+                stream_type="task",
+                stream_id=task_id,
+                seq=seq,
+                event_type=EventType.MEMORY_ADMISSION_RESOLVED.value,
+                metadata=admission_payload,
+            )
+
+            session.commit()
+
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "request_id": request.state.request_id,
+                    "memory_id": memory_id,
+                    "action": resolve_req.action.value,
+                    "old_status": old_status,
+                    "new_status": new_status.value,
+                    "disposition": "candidate_created",
+                    "memory_version_id": memory_version_id,
+                },
+            )
+
+    # ------------------------------------------------------------------
+    # Memory list & detail (read-only)
+    # ------------------------------------------------------------------
+
+    @application.get(
+        f"{API_PREFIX}/memories",
+        responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}},
+    )
+    async def list_memories(
+        request: Request,
+        status: str | None = Query(None),
+        cursor: str | None = Query(None),
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> JSONResponse:
+        session_factory = request.app.state.db_session_factory
+        with session_scope(session_factory) as session:
+            card_repo = MemoryCardRepository(user_ctx, session)
+            cards = card_repo.list_cards(status=status, cursor=cursor, limit=50)
+            items = [_card_to_response(c) for c in cards]
+            next_cursor = None
+            return JSONResponse(
+                content={
+                    "request_id": request.state.request_id,
+                    "items": [i.model_dump(mode="json") for i in items],
+                    "next_cursor": next_cursor,
+                }
+            )
+
+    @application.get(
+        f"{API_PREFIX}/memories/{{memory_id}}",
+        responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}},
+    )
+    async def get_memory_detail(
+        request: Request,
+        memory_id: str = Path(pattern=r"^mem_[0-9A-HJKMNP-TV-Z]{26}$"),
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> JSONResponse:
+        session_factory = request.app.state.db_session_factory
+        with session_scope(session_factory) as session:
+            card_repo = MemoryCardRepository(user_ctx, session)
+            card = card_repo.get_candidate(memory_id)
+            if card is None:
+                raise ApiError(
+                    status_code=404,
+                    code=ErrorCode.MEMORY_NOT_FOUND,
+                    message="指定的 MemoryCard 不存在或无权访问。",
+                )
+            evidence = card_repo.list_evidence(memory_id=memory_id)
+            versions = card_repo.list_versions(memory_id=memory_id)
+            card_proj = _card_to_response(card)
+            evidence_proj = [
+                {
+                    "evidence_id": e.id,
+                    "source_type": e.source_type,
+                    "feedback_id": e.feedback_id,
+                    "task_id": e.task_id,
+                    "run_id": e.run_id,
+                    "evidence_quote": e.evidence_quote[:2_000],
+                    "diff_summary": e.diff_summary_json or "",
+                    "normalized_edit_cost": e.normalized_edit_cost,
+                    "created_at": e.created_at,
+                }
+                for e in evidence
+            ]
+            version_proj = [
+                {
+                    "memory_version_id": v.id,
+                    "version": v.version,
+                    "title": v.title,
+                    "rule": v.rule,
+                    "avoid": v.avoid,
+                    "trigger_text": v.trigger_text,
+                    "scope": json.loads(v.scope_json),
+                    "exceptions": json.loads(v.exceptions_json),
+                    "created_by_action": v.created_by_action,
+                    "created_at": v.created_at,
+                }
+                for v in versions
+            ]
+            return JSONResponse(
+                content={
+                    "request_id": request.state.request_id,
+                    "card": card_proj.model_dump(mode="json"),
+                    "evidence": evidence_proj,
+                    "versions": version_proj,
+                }
             )
 
     web_dist = resolved_settings.memtrace_web_dist
