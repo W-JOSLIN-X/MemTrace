@@ -92,7 +92,8 @@
 
 - 最终镜像：`memtrace:day3-g2`，manifest list
   `sha256:80a254a351dd4044dd21e6f890dec816a3f7fb02ee48674e38ec6e18b544e53a`。
-- 主验收 project：`memtrace-day3-codex`，本机端口 18080，使用任务专属卷。
+- 主验收 project：`memtrace-day3-codex`，本机端口 18080，使用任务专属卷；最终证据记录
+  完成后已 `down -v` 删除容器、网络和三个纯 Mock 测试卷。
 - 最终镜像在独立 `memtrace-day3-cold-final` 全新卷 cold start；入口自动迁移，`/ready`
   的 config/session/database/migration 均 pass。核验后已 `down -v` 删除这三个纯测试卷。
 - 主验收容器重启前后计数完全一致：32 tasks、33 completed jobs、5 active cards、
