@@ -45,7 +45,6 @@ from memtrace_api.readiness import (
 from memtrace_api.repositories import (
     FeedbackRepository,
     IdempotencyRepository,
-    MemoryJobRepository,
     SessionRepository,
     TaskRepository,
     UserContext,
