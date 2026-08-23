@@ -1,4 +1,4 @@
-"""SQLAlchemy declarative base and G1 SQLite schema models."""
+"""SQLAlchemy declarative base and G1/G2 SQLite schema models."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from datetime import datetime
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -277,13 +278,13 @@ class FeedbackEventModel(Base):
 class MemoryJobModel(Base):
     __tablename__ = "memory_jobs"
 
-    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
     owner_id: Mapped[str] = mapped_column(
-        String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     job_type: Mapped[str] = mapped_column(String(64), nullable=False)
     feedback_id: Mapped[str] = mapped_column(
-        String(32),
+        String(64),
         ForeignKey("feedback_events.id", ondelete="CASCADE"),
         unique=True,
         nullable=False,
@@ -292,6 +293,7 @@ class MemoryJobModel(Base):
     stage: Mapped[str] = mapped_column(String(32), default="queued", nullable=False)
     attempt: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    disposition: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -305,12 +307,314 @@ class MemoryJobModel(Base):
             "status IN ('pending', 'running', 'completed', 'failed')", name="chk_job_status"
         ),
         CheckConstraint(
-            "stage IN ('queued', 'extracting', 'done', 'failed')", name="chk_job_stage"
+            "stage IN ('queued', 'diffing', 'classifying_durability', 'extracting', "
+            "'validating', 'admitting', 'done', 'failed')",
+            name="chk_job_stage",
+        ),
+        CheckConstraint(
+            "disposition IS NULL OR disposition IN "
+            "('candidate_created', 'episode_only', 'reinforce_usage_only', "
+            "'no_memory', 'failed')",
+            name="chk_job_disposition",
         ),
     )
 
     feedback: Mapped[FeedbackEventModel] = relationship(
         "FeedbackEventModel", back_populates="memory_job"
+    )
+    cards: Mapped[list[MemoryCardModel]] = relationship("MemoryCardModel", back_populates="job")
+    evidence_rows: Mapped[list[MemoryEvidenceModel]] = relationship(
+        "MemoryEvidenceModel", back_populates="job"
+    )
+
+
+# ======================================================================================
+# Day 3 G2 memory admission tables. All queries filter by owner_id; ID columns use
+# String(64) to hold "prefix + 26-char ULID" comfortably.
+# ======================================================================================
+
+
+class MemoryCardModel(Base):
+    __tablename__ = "memory_cards"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    memory_job_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("memory_jobs.id", ondelete="SET NULL"), nullable=True
+    )
+    # No FK by design: cards <-> versions are mutually referential and SQLite
+    # cannot ADD CONSTRAINT after creation. The resolve transaction updates the
+    # pair atomically.
+    current_version_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    save_preselected: Mapped[bool] = mapped_column(nullable=False, default=False)
+    rejection_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    rule: Mapped[str] = mapped_column(Text, nullable=False)
+    avoid: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    trigger_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    scope_level: Mapped[str] = mapped_column(String(32), nullable=False)
+    domain: Mapped[str] = mapped_column(String(32), nullable=False)
+    task_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    artifact_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    audience: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    project_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    scope_json: Mapped[str] = mapped_column(Text, nullable=False)
+    exceptions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    source_trust: Mapped[float] = mapped_column(Float, nullable=False)
+    rule_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    scope_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    evidence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('candidate', 'active', 'rejected', 'conflicted', 'paused', "
+            "'superseded', 'merged', 'archived', 'deleted')",
+            name="chk_memory_card_status",
+        ),
+        CheckConstraint(
+            "kind IN ('preference', 'constraint', 'procedure', 'experience', "
+            "'environment', 'learning_checkpoint')",
+            name="chk_memory_card_kind",
+        ),
+        CheckConstraint(
+            "source_type IN ('explicit_feedback', 'explicit_correction', 'edit_diff', "
+            "'accept', 'reject', 'rating', 'outcome', 'import')",
+            name="chk_memory_card_source_type",
+        ),
+        CheckConstraint(
+            "rejection_reason IS NULL OR rejection_reason IN ('user_rejected', 'episode_only')",
+            name="chk_memory_card_rejection_reason",
+        ),
+        CheckConstraint(
+            "scope_level IN ('session', 'task_family', 'project', 'global')",
+            name="chk_memory_card_scope_level",
+        ),
+        CheckConstraint(
+            "domain IN ('programming_learning', 'software_development', "
+            "'general_text', 'other', 'any')",
+            name="chk_memory_card_domain",
+        ),
+        CheckConstraint(
+            "task_type IS NULL OR task_type IN ('debugging_guidance', 'code_review', "
+            "'code_explanation', 'code_generation', 'environment_configuration', "
+            "'general_question', 'other')",
+            name="chk_memory_card_task_type",
+        ),
+        CheckConstraint(
+            "artifact_type IS NULL OR artifact_type IN ('source_code', "
+            "'configuration', 'text', 'none', 'other')",
+            name="chk_memory_card_artifact_type",
+        ),
+        CheckConstraint(
+            "audience IS NULL OR audience IN ('beginner', 'intermediate', 'advanced', 'unknown')",
+            name="chk_memory_card_audience",
+        ),
+        CheckConstraint(
+            "status != 'candidate' OR (version = 0 AND current_version_id IS NULL "
+            "AND rule_confidence IS NULL AND scope_confidence IS NULL)",
+            name="chk_memory_card_candidate_invariants",
+        ),
+        CheckConstraint(
+            "status != 'active' OR (version >= 1 AND current_version_id IS NOT NULL "
+            "AND rule_confidence IS NOT NULL AND scope_confidence IS NOT NULL)",
+            name="chk_memory_card_active_invariants",
+        ),
+        CheckConstraint("source_trust >= 0 AND source_trust <= 1", name="chk_memory_card_trust"),
+        Index("ix_memory_cards_owner_status", "owner_id", "status"),
+        Index(
+            "ix_memory_cards_owner_status_scope",
+            "owner_id",
+            "status",
+            "domain",
+            "task_type",
+            "project_key",
+        ),
+        Index("ix_memory_cards_job", "memory_job_id"),
+        Index("ix_memory_cards_current_version", "current_version_id"),
+    )
+
+    job: Mapped[MemoryJobModel | None] = relationship("MemoryJobModel", back_populates="cards")
+    versions: Mapped[list[MemoryVersionModel]] = relationship(
+        "MemoryVersionModel", back_populates="memory"
+    )
+    evidence_links: Mapped[list[MemoryEvidenceLinkModel]] = relationship(
+        "MemoryEvidenceLinkModel", back_populates="memory"
+    )
+
+
+class MemoryVersionModel(Base):
+    __tablename__ = "memory_versions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    memory_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("memory_cards.id", ondelete="CASCADE"), nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    rule: Mapped[str] = mapped_column(Text, nullable=False)
+    avoid: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    trigger_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    scope_json: Mapped[str] = mapped_column(Text, nullable=False)
+    exceptions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    created_by_action: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("version >= 1", name="chk_memory_version_number"),
+        CheckConstraint(
+            "created_by_action IN ('accept', 'edit_accept')",
+            name="chk_memory_version_created_by",
+        ),
+        UniqueConstraint("memory_id", "version", name="uq_memory_version_number"),
+        Index("ix_memory_versions_memory", "memory_id"),
+        Index("ix_memory_versions_owner", "owner_id"),
+    )
+
+    memory: Mapped[MemoryCardModel] = relationship("MemoryCardModel", back_populates="versions")
+
+
+class MemoryEvidenceModel(Base):
+    __tablename__ = "memory_evidence"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    feedback_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("feedback_events.id", ondelete="CASCADE"), nullable=False
+    )
+    task_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False
+    )
+    run_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    memory_job_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("memory_jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_field: Mapped[str] = mapped_column(String(32), nullable=False)
+    evidence_quote: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    diff_summary_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    normalized_edit_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    episode_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    disposition: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "source_type IN ('explicit_feedback', 'explicit_correction', 'edit_diff', "
+            "'accept', 'reject', 'rating', 'outcome', 'import')",
+            name="chk_memory_evidence_source_type",
+        ),
+        CheckConstraint(
+            "source_field IN ('explicit_text', 'edited_output', 'rating', 'accepted')",
+            name="chk_memory_evidence_source_field",
+        ),
+        CheckConstraint(
+            "normalized_edit_cost IS NULL OR "
+            "(normalized_edit_cost >= 0 AND normalized_edit_cost <= 1)",
+            name="chk_memory_evidence_edit_cost",
+        ),
+        CheckConstraint(
+            "disposition IS NULL OR disposition IN "
+            "('candidate_created', 'episode_only', 'reinforce_usage_only', "
+            "'no_memory', 'failed')",
+            name="chk_memory_evidence_disposition",
+        ),
+        Index("ix_memory_evidence_owner", "owner_id"),
+        Index("ix_memory_evidence_job", "memory_job_id"),
+        Index("ix_memory_evidence_feedback", "feedback_id"),
+    )
+
+    job: Mapped[MemoryJobModel] = relationship("MemoryJobModel", back_populates="evidence_rows")
+    links: Mapped[list[MemoryEvidenceLinkModel]] = relationship(
+        "MemoryEvidenceLinkModel", back_populates="evidence"
+    )
+
+
+class MemoryEvidenceLinkModel(Base):
+    __tablename__ = "memory_evidence_links"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    memory_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("memory_cards.id", ondelete="CASCADE"), nullable=False
+    )
+    evidence_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("memory_evidence.id", ondelete="CASCADE"), nullable=False
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("ordinal >= 0 AND ordinal <= 2", name="chk_evidence_link_ordinal"),
+        UniqueConstraint("memory_id", "evidence_id", name="uq_evidence_link_pair"),
+        Index("ix_memory_evidence_links_memory", "memory_id"),
+    )
+
+    memory: Mapped[MemoryCardModel] = relationship(
+        "MemoryCardModel", back_populates="evidence_links"
+    )
+    evidence: Mapped[MemoryEvidenceModel] = relationship(
+        "MemoryEvidenceModel", back_populates="links"
+    )
+
+
+class MemoryRelationModel(Base):
+    __tablename__ = "memory_relations"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    from_memory_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("memory_cards.id", ondelete="CASCADE"), nullable=False
+    )
+    to_memory_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("memory_cards.id", ondelete="CASCADE"), nullable=False
+    )
+    relation_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "relation_type IN ('duplicate_of', 'conflicts_with', 'supersedes', 'related_to')",
+            name="chk_memory_relation_type",
+        ),
+        CheckConstraint("from_memory_id != to_memory_id", name="chk_memory_relation_self"),
+        UniqueConstraint(
+            "from_memory_id", "to_memory_id", "relation_type", name="uq_memory_relation_triple"
+        ),
+        Index("ix_memory_relations_from", "from_memory_id"),
+        Index("ix_memory_relations_to", "to_memory_id"),
     )
 
 
