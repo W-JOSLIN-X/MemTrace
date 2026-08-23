@@ -28,6 +28,14 @@ def _char_len(text: str) -> int:
     return len(text)
 
 
+def _parse_range(s: str) -> tuple[int, int]:
+    """Parse a unified-diff range spec like ``"5,3"`` → ``(5, 3)`` or ``"5"`` → ``(5, 1)``."""
+    if "," in s:
+        raw = s.split(",", 1)
+        return int(raw[0]), int(raw[1])
+    return int(s), 1
+
+
 # ---------------------------------------------------------------------------
 # Levenshtein (optimal string alignment / restricted Damerau-Levenshtein)
 # via difflib matching blocks – O(n·m) worst case but extremely fast for
@@ -37,21 +45,41 @@ def _char_len(text: str) -> int:
 
 
 def normalized_levenshtein(a: str, b: str) -> float:
-    """Return ``distance / max(len(a), len(b), 1)``, range 0..1.
+    """Return ``distance / (len(a) + len(b))``, range 0..1.
 
     Uses :func:`difflib.SequenceMatcher` to find matching blocks, then
     counts unmatched characters as the edit distance.  This is
     deterministic, fast for short-to-medium strings, and handles
     multi-byte Unicode and emoji correctly (operates on Python str, not
     bytes).
+
+    The denominator is ``len(a) + len(b)`` (total characters) so the
+    result is always in 0..1 even for completely different strings.
     """
     if not a and not b:
         return 0.0
-    matcher = difflib.SequenceMatcher(None, a, b, autojunk=False)
-    matching = sum(size for _, _, size in matcher.get_matching_blocks())
-    distance = len(a) + len(b) - 2 * matching
-    norm = distance / max(len(a), len(b), 1)
-    return round(norm, 6)
+    len_a = len(a)
+    len_b = len(b)
+    total = len_a + len_b
+    if total == 0:
+        return 0.0
+
+    if total <= 20_000:
+        matcher = difflib.SequenceMatcher(None, a, b, autojunk=False)
+        matching = sum(size for _, _, size in matcher.get_matching_blocks())
+        distance = len_a + len_b - 2 * matching
+    else:
+        # For large texts, sample-based approximation
+        step = max(1, total // 10_000)
+        sample_a = a[::step]
+        sample_b = b[::step]
+        sample_matcher = difflib.SequenceMatcher(None, sample_a, sample_b, autojunk=False)
+        sample_matching = sum(size for _, _, size in sample_matcher.get_matching_blocks())
+        sample_dist = len(sample_a) + len(sample_b) - 2 * sample_matching
+        scale = total / max(len(sample_a) + len(sample_b), 1)
+        distance = int(sample_dist * scale)
+
+    return round(min(distance / total, 1.0), 6)
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +87,7 @@ def normalized_levenshtein(a: str, b: str) -> float:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class DiffHunk:
     """One contiguous changed region with ±3 context lines."""
 
@@ -78,7 +106,7 @@ class DiffHunk:
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class DiffResult:
     """Typed result of :func:`compute_diff`."""
 
@@ -169,12 +197,12 @@ def compute_diff(
         if line.startswith("@@ "):
             if current_hunk is not None:
                 hunks.append(current_hunk)
-            # parse "-A,B +C,D"
+            # parse "-A,B +C,D" or "-A +C" (single-line hunks omit the count)
             parts = line.split("@@")[1].strip().split()
             before_part = parts[0][1:]  # strip leading '-'
             after_part = parts[1][1:]   # strip leading '+'
-            b_start, b_count = (int(x) for x in before_part.split(","))
-            a_start, a_count = (int(x) for x in after_part.split(","))
+            b_start, b_count = _parse_range(before_part)
+            a_start, a_count = _parse_range(after_part)
             before_idx = b_start - 1
             after_idx = a_start - 1
             current_hunk = DiffHunk(
@@ -228,7 +256,12 @@ def compute_diff(
 
     added = sum(h.after_count - h.before_count for h in merged)
     removed = sum(h.before_count - h.after_count for h in merged)
-    cost = normalized_levenshtein(original, edited)
+    total_len = orig_len + edit_len
+    if total_len <= 20_000:
+        cost = normalized_levenshtein(original, edited)
+    else:
+        # For large texts, use the diff approximation
+        cost = round(min((added + removed) / max(total_len, 1), 1.0), 6)
 
     total_chars = orig_len + edit_len
     truncated_flag = total_chars > max_chars
