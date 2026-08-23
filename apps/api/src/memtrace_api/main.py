@@ -787,10 +787,12 @@ def create_app(
                 request_id=request.state.request_id,
                 memory_job_id=job.id,
                 job_type="extract_feedback",
+                feedback_id=job.feedback_id,
                 status=job.status,
                 stage=job.stage,
                 attempt=job.attempt,
-                error=job.last_error_code,
+                error_code=job.last_error_code,
+                retryable=job.status == "failed",
                 created_at=job.created_at,
                 updated_at=job.updated_at,
             )

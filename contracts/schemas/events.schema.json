@@ -25,7 +25,11 @@
         "run.failed",
         "error",
         "stream.done",
-        "feedback.recorded"
+        "feedback.recorded",
+        "memory.extraction.stage",
+        "memory.candidate.created",
+        "memory.admission.resolved",
+        "memory.job.failed"
       ]
     },
     "event_seq": {
@@ -95,6 +99,22 @@
     {
       "if": {"properties": {"event_type": {"const": "feedback.recorded"}}, "required": ["event_type"]},
       "then": {"properties": {"event_seq": {"type": "integer", "minimum": 1}, "data": {"$ref": "#/$defs/FeedbackRecordedPayload"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "memory.extraction.stage"}}, "required": ["event_type"]},
+      "then": {"properties": {"event_seq": {"type": "integer", "minimum": 1}, "data": {"$ref": "#/$defs/MemoryExtractionStagePayload"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "memory.candidate.created"}}, "required": ["event_type"]},
+      "then": {"properties": {"event_seq": {"type": "integer", "minimum": 1}, "data": {"$ref": "#/$defs/MemoryCandidateCreatedPayload"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "memory.admission.resolved"}}, "required": ["event_type"]},
+      "then": {"properties": {"event_seq": {"type": "integer", "minimum": 1}, "data": {"$ref": "#/$defs/MemoryAdmissionResolvedPayload"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "memory.job.failed"}}, "required": ["event_type"]},
+      "then": {"properties": {"event_seq": {"type": "integer", "minimum": 1}, "data": {"$ref": "#/$defs/MemoryJobFailedPayload"}}}
     }
   ],
   "$defs": {
@@ -380,6 +400,82 @@
         "feedback_type": {"$ref": "#/$defs/FeedbackType"}
       },
       "required": ["feedback_id", "memory_job_id", "feedback_type"],
+      "additionalProperties": false
+    },
+    "MemoryId": {
+      "type": "string",
+      "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "MemoryVersionId": {
+      "type": "string",
+      "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "EvidenceId": {
+      "type": "string",
+      "pattern": "^evidence_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "MemoryJobStage": {
+      "type": "string",
+      "enum": ["queued", "diffing", "classifying_durability", "extracting", "validating", "admitting", "done", "failed"]
+    },
+    "Disposition": {
+      "type": "string",
+      "enum": ["candidate_created", "episode_only", "reinforce_usage_only", "no_memory", "failed"]
+    },
+    "MemoryJobErrorCode": {
+      "type": "string",
+      "enum": ["MEMORY_JOB_INTERRUPTED", "MEMORY_JSON_INVALID", "MEMORY_SCHEMA_INVALID", "MEMORY_REPAIR_FAILED", "MEMORY_PROVIDER_ERROR", "MEMORY_PROVIDER_TIMEOUT", "MEMORY_EVIDENCE_NOT_FOUND", "MEMORY_NO_REUSABLE_CONTENT", "MEMORY_SCOPE_TOO_BROAD"]
+    },
+    "MemoryExtractionStagePayload": {
+      "type": "object",
+      "description": "Observable extraction stage. Metadata only; no feedback, rule, or diff text.",
+      "properties": {
+        "memory_job_id": {"$ref": "#/$defs/MemoryJobId"},
+        "stage": {"$ref": "#/$defs/MemoryJobStage"}
+      },
+      "required": ["memory_job_id", "stage"],
+      "additionalProperties": false
+    },
+    "MemoryCandidateCreatedPayload": {
+      "type": "object",
+      "description": "A candidate card and its evidence were created. ordinal is 0..2 in creation order.",
+      "properties": {
+        "memory_job_id": {"$ref": "#/$defs/MemoryJobId"},
+        "memory_id": {"$ref": "#/$defs/MemoryId"},
+        "evidence_id": {"$ref": "#/$defs/EvidenceId"},
+        "ordinal": {"type": "integer", "minimum": 0, "maximum": 2}
+      },
+      "required": ["memory_job_id", "memory_id", "evidence_id", "ordinal"],
+      "additionalProperties": false
+    },
+    "MemoryAdmissionResolvedPayload": {
+      "type": "object",
+      "description": "A resolve action completed. memory_version_id is present only when a v1 was created (accept/edit_accept).",
+      "properties": {
+        "memory_id": {"$ref": "#/$defs/MemoryId"},
+        "old_status": {"type": "string", "enum": ["candidate", "active", "rejected", "conflicted", "paused", "superseded", "merged", "archived", "deleted"]},
+        "new_status": {"type": "string", "enum": ["candidate", "active", "rejected", "conflicted", "paused", "superseded", "merged", "archived", "deleted"]},
+        "memory_version_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/MemoryVersionId"},
+            {"type": "null"}
+          ]
+        },
+        "disposition": {"$ref": "#/$defs/Disposition"}
+      },
+      "required": ["memory_id", "old_status", "new_status", "memory_version_id", "disposition"],
+      "additionalProperties": false
+    },
+    "MemoryJobFailedPayload": {
+      "type": "object",
+      "description": "The job failed at the given stage with a controlled error code.",
+      "properties": {
+        "memory_job_id": {"$ref": "#/$defs/MemoryJobId"},
+        "stage": {"$ref": "#/$defs/MemoryJobStage"},
+        "error_code": {"$ref": "#/$defs/MemoryJobErrorCode"},
+        "retryable": {"type": "boolean"}
+      },
+      "required": ["memory_job_id", "stage", "error_code", "retryable"],
       "additionalProperties": false
     }
   }

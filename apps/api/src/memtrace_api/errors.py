@@ -39,6 +39,12 @@ class ErrorCode(StrEnum):
     IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
     FEEDBACK_NO_CHANGES = "FEEDBACK_NO_CHANGES"
     TASK_NOT_READY_FOR_FEEDBACK = "TASK_NOT_READY_FOR_FEEDBACK"
+    # Day 3 G2 memory admission errors. MEMORY_NOT_FOUND is the single 404 for a
+    # missing or cross-owner memory candidate, job retry, or detail; it never
+    # leaks object existence.
+    MEMORY_NOT_FOUND = "MEMORY_NOT_FOUND"
+    MEMORY_ALREADY_RESOLVED = "MEMORY_ALREADY_RESOLVED"
+    MEMORY_JOB_NOT_RETRYABLE = "MEMORY_JOB_NOT_RETRYABLE"
 
 
 class ValidationFieldError(ContractModel):

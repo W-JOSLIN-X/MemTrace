@@ -20,11 +20,15 @@ describe('browser G1 API', () => {
     const job: MemoryJobResponse = {
       request_id: 'req_01J00000000000000000000003',
       memory_job_id: feedback.memory_job_id,
+      feedback_id: feedback.feedback_id,
       job_type: 'extract_feedback',
       status: 'pending',
       stage: 'queued',
       attempt: 0,
-      error: null,
+      candidate_ids: [],
+      disposition: null,
+      error_code: null,
+      retryable: false,
       created_at: AT,
       updated_at: AT,
     }

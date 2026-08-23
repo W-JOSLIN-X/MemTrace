@@ -9,6 +9,9 @@ export type ToolResultId = `toolres_${string}`
 export type ErrorId = `err_${string}`
 export type FeedbackId = `feedback_${string}`
 export type MemoryJobId = `job_${string}`
+export type MemoryId = `mem_${string}`
+export type MemoryVersionId = `memver_${string}`
+export type EvidenceId = `evidence_${string}`
 export type SessionId = `sess_${string}`
 export type UserId = `usr_${string}`
 
@@ -75,6 +78,9 @@ export type ErrorCode =
   | 'IDEMPOTENCY_CONFLICT'
   | 'FEEDBACK_NO_CHANGES'
   | 'TASK_NOT_READY_FOR_FEEDBACK'
+  | 'MEMORY_NOT_FOUND'
+  | 'MEMORY_ALREADY_RESOLVED'
+  | 'MEMORY_JOB_NOT_RETRYABLE'
 
 export interface CurrentConstraints {
   response_policy: ResponsePolicy
@@ -226,14 +232,46 @@ export interface FeedbackCreateAccepted {
   job_status: 'pending'
 }
 
+export type MemoryJobStage =
+  | 'queued'
+  | 'diffing'
+  | 'classifying_durability'
+  | 'extracting'
+  | 'validating'
+  | 'admitting'
+  | 'done'
+  | 'failed'
+
+export type Disposition =
+  | 'candidate_created'
+  | 'episode_only'
+  | 'reinforce_usage_only'
+  | 'no_memory'
+  | 'failed'
+
+export type MemoryJobErrorCode =
+  | 'MEMORY_JOB_INTERRUPTED'
+  | 'MEMORY_JSON_INVALID'
+  | 'MEMORY_SCHEMA_INVALID'
+  | 'MEMORY_REPAIR_FAILED'
+  | 'MEMORY_PROVIDER_ERROR'
+  | 'MEMORY_PROVIDER_TIMEOUT'
+  | 'MEMORY_EVIDENCE_NOT_FOUND'
+  | 'MEMORY_NO_REUSABLE_CONTENT'
+  | 'MEMORY_SCOPE_TOO_BROAD'
+
 export interface MemoryJobResponse {
   request_id: RequestId
   memory_job_id: MemoryJobId
+  feedback_id: FeedbackId
   job_type: 'extract_feedback'
   status: 'pending' | 'running' | 'completed' | 'failed'
-  stage: 'queued' | 'extracting' | 'done' | 'failed'
+  stage: MemoryJobStage
   attempt: number
-  error: string | null
+  candidate_ids: MemoryId[]
+  disposition: Disposition | null
+  error_code: MemoryJobErrorCode | null
+  retryable: boolean
   created_at: string
   updated_at: string
 }
@@ -436,6 +474,54 @@ export type FeedbackRecordedEvent = EventEnvelope<
   number
 >
 
+export type MemoryExtractionStageEvent = EventEnvelope<
+  'memory.extraction.stage',
+  { memory_job_id: MemoryJobId; stage: MemoryJobStage },
+  number
+>
+export type MemoryCandidateCreatedEvent = EventEnvelope<
+  'memory.candidate.created',
+  {
+    memory_job_id: MemoryJobId
+    memory_id: MemoryId
+    evidence_id: EvidenceId
+    ordinal: number
+  },
+  number
+>
+export type MemoryAdmissionResolvedEvent = EventEnvelope<
+  'memory.admission.resolved',
+  {
+    memory_id: MemoryId
+    old_status: MemoryCardStatus
+    new_status: MemoryCardStatus
+    memory_version_id: MemoryVersionId | null
+    disposition: Disposition
+  },
+  number
+>
+export type MemoryJobFailedEvent = EventEnvelope<
+  'memory.job.failed',
+  {
+    memory_job_id: MemoryJobId
+    stage: MemoryJobStage
+    error_code: MemoryJobErrorCode
+    retryable: boolean
+  },
+  number
+>
+
+export type MemoryCardStatus =
+  | 'candidate'
+  | 'active'
+  | 'rejected'
+  | 'conflicted'
+  | 'paused'
+  | 'superseded'
+  | 'merged'
+  | 'archived'
+  | 'deleted'
+
 export type G0SseEvent =
   | TaskCreatedEvent
   | TaskStageEvent
@@ -451,6 +537,10 @@ export type G0SseEvent =
   | ErrorEvent
   | StreamDoneEvent
   | FeedbackRecordedEvent
+  | MemoryExtractionStageEvent
+  | MemoryCandidateCreatedEvent
+  | MemoryAdmissionResolvedEvent
+  | MemoryJobFailedEvent
 
 export type G0EventType = G0SseEvent['event_type']
 
@@ -469,4 +559,8 @@ export const G0_EVENT_TYPES: readonly G0EventType[] = [
   'error',
   'stream.done',
   'feedback.recorded',
+  'memory.extraction.stage',
+  'memory.candidate.created',
+  'memory.admission.resolved',
+  'memory.job.failed',
 ]

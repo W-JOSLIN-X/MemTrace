@@ -14,12 +14,19 @@ from memtrace_api.schemas import (
     ClassificationReasonCode,
     CodeSource,
     ContractModel,
+    Disposition,
     Domain,
     ErrorId,
+    EvidenceId,
     FeedbackId,
     FeedbackType,
     FingerprintId,
+    MemoryCardStatus,
+    MemoryId,
+    MemoryJobErrorCode,
     MemoryJobId,
+    MemoryJobStage,
+    MemoryVersionId,
     MessageId,
     PlanId,
     ProgrammingLanguage,
@@ -48,6 +55,10 @@ class EventType(StrEnum):
     ERROR = "error"
     STREAM_DONE = "stream.done"
     FEEDBACK_RECORDED = "feedback.recorded"
+    MEMORY_EXTRACTION_STAGE = "memory.extraction.stage"
+    MEMORY_CANDIDATE_CREATED = "memory.candidate.created"
+    MEMORY_ADMISSION_RESOLVED = "memory.admission.resolved"
+    MEMORY_JOB_FAILED = "memory.job.failed"
 
 
 PERSISTENT_EVENT_TYPES = frozenset(
@@ -64,6 +75,10 @@ PERSISTENT_EVENT_TYPES = frozenset(
         EventType.ERROR,
         EventType.STREAM_DONE,
         EventType.FEEDBACK_RECORDED,
+        EventType.MEMORY_EXTRACTION_STAGE,
+        EventType.MEMORY_CANDIDATE_CREATED,
+        EventType.MEMORY_ADMISSION_RESOLVED,
+        EventType.MEMORY_JOB_FAILED,
     }
 )
 
@@ -203,6 +218,33 @@ class FeedbackRecordedPayload(ContractModel):
     feedback_type: FeedbackType
 
 
+class MemoryExtractionStagePayload(ContractModel):
+    memory_job_id: MemoryJobId
+    stage: MemoryJobStage
+
+
+class MemoryCandidateCreatedPayload(ContractModel):
+    memory_job_id: MemoryJobId
+    memory_id: MemoryId
+    evidence_id: EvidenceId
+    ordinal: int = Field(ge=0, le=2)
+
+
+class MemoryAdmissionResolvedPayload(ContractModel):
+    memory_id: MemoryId
+    old_status: MemoryCardStatus
+    new_status: MemoryCardStatus
+    memory_version_id: MemoryVersionId | None = None
+    disposition: Disposition
+
+
+class MemoryJobFailedPayload(ContractModel):
+    memory_job_id: MemoryJobId
+    stage: MemoryJobStage
+    error_code: MemoryJobErrorCode
+    retryable: bool
+
+
 EventPayload: TypeAlias = (
     TaskCreatedPayload
     | TaskStagePayload
@@ -218,6 +260,10 @@ EventPayload: TypeAlias = (
     | ErrorPayload
     | StreamDonePayload
     | FeedbackRecordedPayload
+    | MemoryExtractionStagePayload
+    | MemoryCandidateCreatedPayload
+    | MemoryAdmissionResolvedPayload
+    | MemoryJobFailedPayload
 )
 
 PAYLOAD_TYPES: dict[EventType, type[ContractModel]] = {
@@ -235,6 +281,10 @@ PAYLOAD_TYPES: dict[EventType, type[ContractModel]] = {
     EventType.ERROR: ErrorPayload,
     EventType.STREAM_DONE: StreamDonePayload,
     EventType.FEEDBACK_RECORDED: FeedbackRecordedPayload,
+    EventType.MEMORY_EXTRACTION_STAGE: MemoryExtractionStagePayload,
+    EventType.MEMORY_CANDIDATE_CREATED: MemoryCandidateCreatedPayload,
+    EventType.MEMORY_ADMISSION_RESOLVED: MemoryAdmissionResolvedPayload,
+    EventType.MEMORY_JOB_FAILED: MemoryJobFailedPayload,
 }
 
 

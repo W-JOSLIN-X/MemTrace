@@ -338,6 +338,13 @@ function reduceSseEvent(state: G0State, event: G0SseEvent): G0State {
       return { ...next, phase: 'finalizing' }
     case 'feedback.recorded':
       return { ...next, lastFeedbackRecorded: event.data }
+    // Day 3 G2 events are contract-frozen here but carry no G0 state yet; the
+    // candidate timeline and resolve UI are wired in member B's Day 3 PR.
+    case 'memory.extraction.stage':
+    case 'memory.candidate.created':
+    case 'memory.admission.resolved':
+    case 'memory.job.failed':
+      return next
   }
 }
 

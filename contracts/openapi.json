@@ -896,6 +896,17 @@
         ],
         "title": "DemoSessionResponse"
       },
+      "Disposition": {
+        "type": "string",
+        "enum": [
+          "candidate_created",
+          "episode_only",
+          "reinforce_usage_only",
+          "no_memory",
+          "failed"
+        ],
+        "title": "Disposition"
+      },
       "Domain": {
         "type": "string",
         "enum": [
@@ -929,7 +940,10 @@
           "SESSION_REQUIRED",
           "IDEMPOTENCY_CONFLICT",
           "FEEDBACK_NO_CHANGES",
-          "TASK_NOT_READY_FOR_FEEDBACK"
+          "TASK_NOT_READY_FOR_FEEDBACK",
+          "MEMORY_NOT_FOUND",
+          "MEMORY_ALREADY_RESOLVED",
+          "MEMORY_JOB_NOT_RETRYABLE"
         ],
         "title": "ErrorCode"
       },
@@ -1323,6 +1337,22 @@
         ],
         "title": "HealthResponse"
       },
+      "MemoryJobErrorCode": {
+        "type": "string",
+        "enum": [
+          "MEMORY_JOB_INTERRUPTED",
+          "MEMORY_JSON_INVALID",
+          "MEMORY_SCHEMA_INVALID",
+          "MEMORY_REPAIR_FAILED",
+          "MEMORY_PROVIDER_ERROR",
+          "MEMORY_PROVIDER_TIMEOUT",
+          "MEMORY_EVIDENCE_NOT_FOUND",
+          "MEMORY_NO_REUSABLE_CONTENT",
+          "MEMORY_SCOPE_TOO_BROAD"
+        ],
+        "title": "MemoryJobErrorCode",
+        "description": "Controlled job error codes. Provider raw exceptions or bodies are never\nsurfaced; only these codes (or ``None``) reach the job response and events."
+      },
       "MemoryJobResponse": {
         "properties": {
           "request_id": {
@@ -1334,6 +1364,11 @@
             "type": "string",
             "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$",
             "title": "Memory Job Id"
+          },
+          "feedback_id": {
+            "type": "string",
+            "pattern": "^feedback_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Feedback Id"
           },
           "job_type": {
             "type": "string",
@@ -1353,14 +1388,7 @@
             "default": "pending"
           },
           "stage": {
-            "type": "string",
-            "enum": [
-              "queued",
-              "extracting",
-              "done",
-              "failed"
-            ],
-            "title": "Stage",
+            "$ref": "#/components/schemas/MemoryJobStage",
             "default": "queued"
           },
           "attempt": {
@@ -1369,16 +1397,39 @@
             "title": "Attempt",
             "default": 0
           },
-          "error": {
+          "candidate_ids": {
+            "items": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "type": "array",
+            "maxItems": 3,
+            "title": "Candidate Ids"
+          },
+          "disposition": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/Disposition"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Error"
+            ]
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryJobErrorCode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retryable": {
+            "type": "boolean",
+            "title": "Retryable",
+            "default": false
           },
           "created_at": {
             "type": "string",
@@ -1396,10 +1447,27 @@
         "required": [
           "request_id",
           "memory_job_id",
+          "feedback_id",
           "created_at",
           "updated_at"
         ],
-        "title": "MemoryJobResponse"
+        "title": "MemoryJobResponse",
+        "description": "Frozen G2 job projection. ``disposition`` is ``failed`` only when the whole\njob failed; ``candidate_created`` also appears when no card was produced but\nthe run completed cleanly. ``candidate_ids`` is server-derived and ordered."
+      },
+      "MemoryJobStage": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "diffing",
+          "classifying_durability",
+          "extracting",
+          "validating",
+          "admitting",
+          "done",
+          "failed"
+        ],
+        "title": "MemoryJobStage",
+        "description": "Five observable processing stages plus the three boundary states. The five\ncounted stages are diffing, classifying_durability, extracting, validating,\nand admitting; queued/done/failed are boundary states and are not counted."
       },
       "MessageRole": {
         "type": "string",

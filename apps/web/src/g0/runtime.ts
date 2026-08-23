@@ -22,6 +22,9 @@ const toolResultIdPattern = /^toolres_[0-9A-HJKMNP-TV-Z]{26}$/
 const errorIdPattern = /^err_[0-9A-HJKMNP-TV-Z]{26}$/
 const feedbackIdPattern = /^feedback_[0-9A-HJKMNP-TV-Z]{26}$/
 const memoryJobIdPattern = /^job_[0-9A-HJKMNP-TV-Z]{26}$/
+const memoryIdPattern = /^mem_[0-9A-HJKMNP-TV-Z]{26}$/
+const memoryVersionIdPattern = /^memver_[0-9A-HJKMNP-TV-Z]{26}$/
+const evidenceIdPattern = /^evidence_[0-9A-HJKMNP-TV-Z]{26}$/
 const textEncoder = new TextEncoder()
 
 export class ContractError extends Error {
@@ -149,16 +152,21 @@ export function parseMemoryJobResponse(value: unknown): MemoryJobResponse {
   exactKeys(body, [
     'request_id',
     'memory_job_id',
+    'feedback_id',
     'job_type',
     'status',
     'stage',
     'attempt',
-    'error',
+    'candidate_ids',
+    'disposition',
+    'error_code',
+    'retryable',
     'created_at',
     'updated_at',
   ])
   patternString(body.request_id, requestIdPattern, 'request_id')
   patternString(body.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+  patternString(body.feedback_id, feedbackIdPattern, 'feedback_id')
   constant(body.job_type, 'extract_feedback', 'job_type')
   enumValue(
     body.status,
@@ -167,11 +175,53 @@ export function parseMemoryJobResponse(value: unknown): MemoryJobResponse {
   )
   enumValue(
     body.stage,
-    ['queued', 'extracting', 'done', 'failed'] as const,
+    [
+      'queued',
+      'diffing',
+      'classifying_durability',
+      'extracting',
+      'validating',
+      'admitting',
+      'done',
+      'failed',
+    ] as const,
     'stage',
   )
   nonNegativeInteger(body.attempt, 'attempt')
-  if (body.error !== null) boundedString(body.error, 240, 'error')
+  const candidateIds = arrayValue(body.candidate_ids, 'candidate_ids')
+  if (candidateIds.length > 3) throw new ContractError('candidate_ids exceeds 3')
+  candidateIds.forEach((id) => patternString(id, memoryIdPattern, 'candidate_id'))
+  if (body.disposition !== null) {
+    enumValue(
+      body.disposition,
+      [
+        'candidate_created',
+        'episode_only',
+        'reinforce_usage_only',
+        'no_memory',
+        'failed',
+      ] as const,
+      'disposition',
+    )
+  }
+  if (body.error_code !== null) {
+    enumValue(
+      body.error_code,
+      [
+        'MEMORY_JOB_INTERRUPTED',
+        'MEMORY_JSON_INVALID',
+        'MEMORY_SCHEMA_INVALID',
+        'MEMORY_REPAIR_FAILED',
+        'MEMORY_PROVIDER_ERROR',
+        'MEMORY_PROVIDER_TIMEOUT',
+        'MEMORY_EVIDENCE_NOT_FOUND',
+        'MEMORY_NO_REUSABLE_CONTENT',
+        'MEMORY_SCOPE_TOO_BROAD',
+      ] as const,
+      'error_code',
+    )
+  }
+  booleanValue(body.retryable, 'retryable')
   timestamp(body.created_at, 'created_at')
   timestamp(body.updated_at, 'updated_at')
   return body as unknown as MemoryJobResponse
@@ -306,6 +356,9 @@ export function parseErrorResponse(value: unknown): ErrorResponse | null {
         'IDEMPOTENCY_CONFLICT',
         'FEEDBACK_NO_CHANGES',
         'TASK_NOT_READY_FOR_FEEDBACK',
+        'MEMORY_NOT_FOUND',
+        'MEMORY_ALREADY_RESOLVED',
+        'MEMORY_JOB_NOT_RETRYABLE',
       ] satisfies readonly ErrorCode[],
       'error.code',
     )
@@ -569,6 +622,117 @@ function validateEventPayload(
         ] as const,
         'feedback_type',
       )
+      return
+    case 'memory.extraction.stage':
+      exactKeys(data, ['memory_job_id', 'stage'])
+      patternString(data.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+      enumValue(
+        data.stage,
+        [
+          'queued',
+          'diffing',
+          'classifying_durability',
+          'extracting',
+          'validating',
+          'admitting',
+          'done',
+          'failed',
+        ] as const,
+        'stage',
+      )
+      return
+    case 'memory.candidate.created':
+      exactKeys(data, ['memory_job_id', 'memory_id', 'evidence_id', 'ordinal'])
+      patternString(data.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+      patternString(data.memory_id, memoryIdPattern, 'memory_id')
+      patternString(data.evidence_id, evidenceIdPattern, 'evidence_id')
+      boundedInteger(data.ordinal, 0, 2, 'ordinal')
+      return
+    case 'memory.admission.resolved':
+      exactKeys(data, [
+        'memory_id',
+        'old_status',
+        'new_status',
+        'memory_version_id',
+        'disposition',
+      ])
+      patternString(data.memory_id, memoryIdPattern, 'memory_id')
+      enumValue(
+        data.old_status,
+        [
+          'candidate',
+          'active',
+          'rejected',
+          'conflicted',
+          'paused',
+          'superseded',
+          'merged',
+          'archived',
+          'deleted',
+        ] as const,
+        'old_status',
+      )
+      enumValue(
+        data.new_status,
+        [
+          'candidate',
+          'active',
+          'rejected',
+          'conflicted',
+          'paused',
+          'superseded',
+          'merged',
+          'archived',
+          'deleted',
+        ] as const,
+        'new_status',
+      )
+      nullablePattern(data.memory_version_id, memoryVersionIdPattern, 'memory_version_id')
+      enumValue(
+        data.disposition,
+        [
+          'candidate_created',
+          'episode_only',
+          'reinforce_usage_only',
+          'no_memory',
+          'failed',
+        ] as const,
+        'disposition',
+      )
+      return
+    case 'memory.job.failed':
+      exactKeys(data, ['memory_job_id', 'stage', 'error_code', 'retryable'])
+      patternString(data.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+      enumValue(
+        data.stage,
+        [
+          'queued',
+          'diffing',
+          'classifying_durability',
+          'extracting',
+          'validating',
+          'admitting',
+          'done',
+          'failed',
+        ] as const,
+        'stage',
+      )
+      enumValue(
+        data.error_code,
+        [
+          'MEMORY_JOB_INTERRUPTED',
+          'MEMORY_JSON_INVALID',
+          'MEMORY_SCHEMA_INVALID',
+          'MEMORY_REPAIR_FAILED',
+          'MEMORY_PROVIDER_ERROR',
+          'MEMORY_PROVIDER_TIMEOUT',
+          'MEMORY_EVIDENCE_NOT_FOUND',
+          'MEMORY_NO_REUSABLE_CONTENT',
+          'MEMORY_SCOPE_TOO_BROAD',
+        ] as const,
+        'error_code',
+      )
+      booleanValue(data.retryable, 'retryable')
       return
   }
 }

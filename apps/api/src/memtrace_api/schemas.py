@@ -506,18 +506,6 @@ class FeedbackCreateAccepted(ContractModel):
     job_status: Literal["pending"] = "pending"
 
 
-class MemoryJobResponse(ContractModel):
-    request_id: RequestId
-    memory_job_id: MemoryJobId
-    job_type: Literal["extract_feedback"] = "extract_feedback"
-    status: Literal["pending", "running", "completed", "failed"] = "pending"
-    stage: Literal["queued", "extracting", "done", "failed"] = "queued"
-    attempt: int = Field(default=0, ge=0)
-    error: str | None = None
-    created_at: datetime
-    updated_at: datetime
-
-
 class TaskSnapshot(ContractModel):
     request_id: RequestId
     task_id: TaskId
@@ -590,3 +578,274 @@ class ReadyResponse(ContractModel):
 class SseCursorQuery(ContractModel):
     after_event_seq: int = Field(default=0, ge=0)
     after_offset: int = Field(default=0, ge=0, le=262_144)
+
+
+# ======================================================================================
+# Day 3 G2: memory admission public contract.
+#
+# These models are the single source of truth for the G2 REST bodies and the four
+# new persistent events. They are frozen here before any implementation so member B
+# can build the UI against a stable shape. Nothing here accepts owner_id, domain,
+# scenario, memory kind, trust, or status from a request body.
+# ======================================================================================
+
+MemoryId = Annotated[str, StringConstraints(pattern=r"^mem_[0-9A-HJKMNP-TV-Z]{26}$")]
+MemoryVersionId = Annotated[str, StringConstraints(pattern=r"^memver_[0-9A-HJKMNP-TV-Z]{26}$")]
+EvidenceId = Annotated[str, StringConstraints(pattern=r"^evidence_[0-9A-HJKMNP-TV-Z]{26}$")]
+
+TrimmedTitle = Annotated[str, StringConstraints(min_length=4, max_length=40)]
+TrimmedRule = Annotated[str, StringConstraints(min_length=20, max_length=300)]
+
+
+class MemoryKind(StrEnum):
+    PREFERENCE = "preference"
+    CONSTRAINT = "constraint"
+    PROCEDURE = "procedure"
+    EXPERIENCE = "experience"
+    ENVIRONMENT = "environment"
+    LEARNING_CHECKPOINT = "learning_checkpoint"
+
+
+class MemoryCardStatus(StrEnum):
+    CANDIDATE = "candidate"
+    ACTIVE = "active"
+    REJECTED = "rejected"
+    CONFLICTED = "conflicted"
+    PAUSED = "paused"
+    SUPERSEDED = "superseded"
+    MERGED = "merged"
+    ARCHIVED = "archived"
+    DELETED = "deleted"
+
+
+class SourceType(StrEnum):
+    EXPLICIT_FEEDBACK = "explicit_feedback"
+    EXPLICIT_CORRECTION = "explicit_correction"
+    EDIT_DIFF = "edit_diff"
+    ACCEPT = "accept"
+    REJECT = "reject"
+    RATING = "rating"
+    OUTCOME = "outcome"
+    IMPORT = "import"
+
+
+class ScopeLevel(StrEnum):
+    SESSION = "session"
+    TASK_FAMILY = "task_family"
+    PROJECT = "project"
+    GLOBAL = "global"
+
+
+class ScopeDomain(StrEnum):
+    """Wildcard-aware scope domain. Unlike the auto-detected ``Domain`` (which is
+    never ``any``), an explicit ``any`` is the only value that widens a memory's
+    applicability across every domain."""
+
+    PROGRAMMING_LEARNING = "programming_learning"
+    SOFTWARE_DEVELOPMENT = "software_development"
+    GENERAL_TEXT = "general_text"
+    OTHER = "other"
+    ANY = "any"
+
+
+class Disposition(StrEnum):
+    CANDIDATE_CREATED = "candidate_created"
+    EPISODE_ONLY = "episode_only"
+    REINFORCE_USAGE_ONLY = "reinforce_usage_only"
+    NO_MEMORY = "no_memory"
+    FAILED = "failed"
+
+
+class ResolveAction(StrEnum):
+    ACCEPT = "accept"
+    EDIT_ACCEPT = "edit_accept"
+    REJECT = "reject"
+    ONE_SHOT = "one_shot"
+
+
+class RejectionReason(StrEnum):
+    USER_REJECTED = "user_rejected"
+    EPISODE_ONLY = "episode_only"
+
+
+class MemoryJobStage(StrEnum):
+    """Five observable processing stages plus the three boundary states. The five
+    counted stages are diffing, classifying_durability, extracting, validating,
+    and admitting; queued/done/failed are boundary states and are not counted."""
+
+    QUEUED = "queued"
+    DIFFING = "diffing"
+    CLASSIFYING_DURABILITY = "classifying_durability"
+    EXTRACTING = "extracting"
+    VALIDATING = "validating"
+    ADMITTING = "admitting"
+    DONE = "done"
+    FAILED = "failed"
+
+
+class MemoryJobErrorCode(StrEnum):
+    """Controlled job error codes. Provider raw exceptions or bodies are never
+    surfaced; only these codes (or ``None``) reach the job response and events."""
+
+    MEMORY_JOB_INTERRUPTED = "MEMORY_JOB_INTERRUPTED"
+    MEMORY_JSON_INVALID = "MEMORY_JSON_INVALID"
+    MEMORY_SCHEMA_INVALID = "MEMORY_SCHEMA_INVALID"
+    MEMORY_REPAIR_FAILED = "MEMORY_REPAIR_FAILED"
+    MEMORY_PROVIDER_ERROR = "MEMORY_PROVIDER_ERROR"
+    MEMORY_PROVIDER_TIMEOUT = "MEMORY_PROVIDER_TIMEOUT"
+    MEMORY_EVIDENCE_NOT_FOUND = "MEMORY_EVIDENCE_NOT_FOUND"
+    MEMORY_NO_REUSABLE_CONTENT = "MEMORY_NO_REUSABLE_CONTENT"
+    MEMORY_SCOPE_TOO_BROAD = "MEMORY_SCOPE_TOO_BROAD"
+
+
+class MemoryJobResponse(ContractModel):
+    """Frozen G2 job projection. ``disposition`` is ``failed`` only when the whole
+    job failed; ``candidate_created`` also appears when no card was produced but
+    the run completed cleanly. ``candidate_ids`` is server-derived and ordered."""
+
+    request_id: RequestId
+    memory_job_id: MemoryJobId
+    feedback_id: FeedbackId
+    job_type: Literal["extract_feedback"] = "extract_feedback"
+    status: Literal["pending", "running", "completed", "failed"] = "pending"
+    stage: MemoryJobStage = MemoryJobStage.QUEUED
+    attempt: int = Field(default=0, ge=0)
+    candidate_ids: Annotated[list[MemoryId], Field(max_length=3)] = Field(default_factory=list)
+    disposition: Disposition | None = None
+    error_code: MemoryJobErrorCode | None = None
+    retryable: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+
+class AllowedException(StrEnum):
+    """Controlled, non-executable scope exceptions a card may reference."""
+
+    RESPONSE_POLICY_DIRECT_FIX = "response_policy:direct_fix"
+    URGENCY_URGENT = "urgency:urgent"
+
+
+class MemoryScope(ContractModel):
+    level: ScopeLevel
+    domain: ScopeDomain
+    task_type: TaskType | None = None
+    artifact_type: ArtifactType | None = None
+    audience: Audience | None = None
+    project_key: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None = None
+
+
+class MemoryCard(ContractModel):
+    memory_id: MemoryId
+    schema_version: Literal["1.0"] = "1.0"
+    kind: MemoryKind
+    title: TrimmedTitle
+    rule: TrimmedRule
+    avoid: Annotated[str, StringConstraints(max_length=400)] = ""
+    trigger_text: Annotated[str, StringConstraints(max_length=240)] = ""
+    scope: MemoryScope
+    exceptions: Annotated[list[AllowedException], Field(max_length=8)] = Field(default_factory=list)
+    status: MemoryCardStatus
+    source_type: SourceType
+    save_preselected: bool = False
+    source_trust: float = Field(ge=0, le=1)
+    rule_confidence: float | None = Field(default=None, ge=0, le=1)
+    scope_confidence: float | None = Field(default=None, ge=0, le=1)
+    evidence_count: int = Field(default=0, ge=0)
+    version: int = Field(default=0, ge=0)
+    current_version_id: MemoryVersionId | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="after")
+    def admission_invariants(self) -> MemoryCard:
+        if self.status is MemoryCardStatus.CANDIDATE:
+            if self.current_version_id is not None or self.version != 0:
+                raise ValueError("candidate cards have version 0 and no current version")
+            if self.rule_confidence is not None or self.scope_confidence is not None:
+                raise ValueError("candidate cards have null rule/scope confidence")
+        if self.status is MemoryCardStatus.ACTIVE:
+            if self.current_version_id is None or self.version < 1:
+                raise ValueError("active cards require a current version")
+            if self.rule_confidence is None or self.scope_confidence is None:
+                raise ValueError("active cards require confirmed rule/scope confidence")
+        return self
+
+
+class MemoryCardPatch(ContractModel):
+    title: TrimmedTitle | None = None
+    rule: TrimmedRule | None = None
+    avoid: Annotated[str, StringConstraints(min_length=1, max_length=400)] | None = None
+    scope: MemoryScope | None = None
+    exceptions: Annotated[list[AllowedException], Field(max_length=8)] | None = None
+
+    @model_validator(mode="after")
+    def at_least_one_field(self) -> MemoryCardPatch:
+        if all(
+            value is None
+            for value in (self.title, self.rule, self.avoid, self.scope, self.exceptions)
+        ):
+            raise ValueError("edit_accept patch must modify at least one allowed field")
+        return self
+
+
+class ResolveRequest(ContractModel):
+    action: ResolveAction
+    patch: MemoryCardPatch | None = None
+
+    @model_validator(mode="after")
+    def patch_only_for_edit_accept(self) -> ResolveRequest:
+        if self.action is ResolveAction.EDIT_ACCEPT:
+            if self.patch is None:
+                raise ValueError("edit_accept requires a patch")
+        elif self.patch is not None:
+            raise ValueError("only edit_accept may carry a patch")
+        return self
+
+
+class ResolveResponse(ContractModel):
+    request_id: RequestId
+    memory_id: MemoryId
+    action: ResolveAction
+    old_status: MemoryCardStatus
+    new_status: MemoryCardStatus
+    disposition: Disposition
+    memory_version_id: MemoryVersionId | None = None
+    card: MemoryCard
+
+
+class MemoryListResponse(ContractModel):
+    request_id: RequestId
+    items: Annotated[list[MemoryCard], Field(max_length=100)] = Field(default_factory=list)
+    next_cursor: str | None = None
+
+
+class MemoryEvidenceProjection(ContractModel):
+    evidence_id: EvidenceId
+    source_type: SourceType
+    feedback_id: FeedbackId | None = None
+    task_id: TaskId | None = None
+    run_id: RunId | None = None
+    evidence_quote: Annotated[str, StringConstraints(min_length=1, max_length=2_000)]
+    diff_summary: Annotated[str, StringConstraints(min_length=1, max_length=2_000)] | None = None
+    normalized_edit_cost: float | None = Field(default=None, ge=0, le=1)
+    created_at: datetime
+
+
+class MemoryVersionProjection(ContractModel):
+    memory_version_id: MemoryVersionId
+    version: int = Field(ge=1)
+    title: TrimmedTitle
+    rule: TrimmedRule
+    avoid: Annotated[str, StringConstraints(max_length=400)] = ""
+    trigger_text: Annotated[str, StringConstraints(max_length=240)] = ""
+    scope: MemoryScope
+    exceptions: Annotated[list[AllowedException], Field(max_length=8)] = Field(default_factory=list)
+    created_by_action: ResolveAction
+    created_at: datetime
+
+
+class MemoryDetailResponse(ContractModel):
+    request_id: RequestId
+    card: MemoryCard
+    evidence: list[MemoryEvidenceProjection] = Field(default_factory=list)
+    versions: list[MemoryVersionProjection] = Field(default_factory=list)
