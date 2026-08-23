@@ -85,7 +85,13 @@ def _valid_candidate(
     kind: Literal["preference", "constraint", "procedure", "experience"] = "preference",
 ) -> dict[str, Any]:
     return {
-        "category": "preference" if kind == "preference" else "rule",
+        "category": (
+            "preference"
+            if kind == "preference"
+            else "experience"
+            if kind == "experience"
+            else "rule"
+        ),
         "kind": kind,
         "title": title,
         "rule": "在后续相似任务中，应持续遵循这条由用户反馈明确表达的要求。",
@@ -112,6 +118,11 @@ class MockStructuredProvider(StructuredProvider):
         simulation: str | None = None,
     ) -> dict[str, Any]:
         del output_schema
+        context = _context_from_prompt(prompt)
+        explicit_simulation = simulation is not None
+        if simulation is None:
+            simulation = _mock_simulation(context)
+        repairing = "previous_output" in context
         if simulation in {"provider_failure", "provider_timeout"}:
             code = (
                 "MEMORY_PROVIDER_TIMEOUT"
@@ -122,24 +133,31 @@ class MockStructuredProvider(StructuredProvider):
         if simulation == "invalid_json_repair_fails":
             raise ProviderFailure("MEMORY_REPAIR_FAILED", retryable=False)
         if simulation == "empty_json":
-            return self._empty("ambiguous")
-        if simulation == "unknown_fields":
-            invalid = self._empty("ambiguous")
-            invalid["unknown"] = True
-            return invalid
+            if repairing or explicit_simulation:
+                return self._empty("ambiguous")
+            return {}
+        if repairing and simulation in {
+            "truncated_json",
+            "unknown_fields",
+            "four_candidates",
+        }:
+            return self._repaired(context, simulation)
+        if simulation == "truncated_json":
+            return {"schema_version": "1.0"}
+        if simulation == "two_candidates":
+            return self._scripted_candidates(context, count=2)
         if simulation == "four_candidates":
-            candidate = _valid_candidate(evidence_quote="用户明确反馈")
-            body = self._empty("explicit_durable")
-            body["disposition"] = "candidate_created"
-            body["candidates"] = [dict(candidate) for _ in range(4)]
-            return body
+            return self._scripted_candidates(context, count=4)
         if simulation == "evidence_not_found":
             body = self._empty("explicit_durable")
             body["disposition"] = "candidate_created"
             body["candidates"] = [_valid_candidate(evidence_quote="不存在的模拟证据")]
             return body
+        if simulation == "unknown_fields":
+            invalid = self._scripted_candidates(context, count=1)
+            invalid["unknown"] = True
+            return invalid
 
-        context = _context_from_prompt(prompt)
         explicit_text = _optional_text(context.get("explicit_text"))
         edited_output = _optional_text(context.get("edited_output"))
         durability = str(context.get("durability") or "ambiguous")
@@ -150,6 +168,8 @@ class MockStructuredProvider(StructuredProvider):
             source = "edit_diff"
             quote = edited_output[:2_000]
         else:
+            return self._empty("ambiguous")
+        if source == "edit_diff" and _looks_like_factual_correction(quote):
             return self._empty(durability)
 
         kind = _infer_kind(quote)
@@ -173,6 +193,25 @@ class MockStructuredProvider(StructuredProvider):
             "disposition": "candidate_created",
             "candidates": [candidate],
         }
+
+    def _scripted_candidates(
+        self,
+        context: dict[str, Any],
+        *,
+        count: int,
+    ) -> dict[str, Any]:
+        quote = _simulation_evidence(context)
+        candidate = _valid_candidate(evidence_quote=quote)
+        candidate["rule"] = _rule_from_feedback(quote)
+        body = self._empty("explicit_durable")
+        body["disposition"] = "candidate_created"
+        body["candidates"] = [dict(candidate) for _ in range(count)]
+        return body
+
+    def _repaired(self, context: dict[str, Any], simulation: str) -> dict[str, Any]:
+        if simulation == "four_candidates":
+            return self._scripted_candidates(context, count=3)
+        return self._scripted_candidates(context, count=1)
 
     @staticmethod
     def _empty(durability: str) -> dict[str, Any]:
@@ -271,11 +310,43 @@ def _infer_kind(text: str) -> Literal["preference", "constraint", "procedure", "
     folded = text.casefold()
     if any(cue in folded for cue in ("不要", "禁止", "必须", "must", "never", "always")):
         return "constraint"
+    if any(cue in folded for cue in ("我发现", "我的经验", "worked", "works", "有效", "可行")):
+        return "experience"
     if any(cue in folded for cue in ("先", "然后", "步骤", "first", "then")):
         return "procedure"
-    if any(cue in folded for cue in ("有效", "可行", "works", "worked", "经验")):
+    if "经验" in folded:
         return "experience"
     return "preference"
+
+
+def _mock_simulation(context: dict[str, Any]) -> str | None:
+    text = " ".join(
+        value
+        for value in (context.get("explicit_text"), context.get("edited_output"))
+        if isinstance(value, str)
+    )
+    markers = {
+        "【mock:证据不实】": "evidence_not_found",
+        "【mock:四张候选】": "four_candidates",
+        "【mock:修复失败】": "invalid_json_repair_fails",
+        "【mock:空JSON】": "empty_json",
+        "【mock:截断JSON】": "truncated_json",
+        "【mock:未知字段】": "unknown_fields",
+        "【mock:两张候选】": "two_candidates",
+    }
+    return next((simulation for marker, simulation in markers.items() if marker in text), None)
+
+
+def _simulation_evidence(context: dict[str, Any]) -> str:
+    quote = _optional_text(context.get("explicit_text")) or _optional_text(
+        context.get("edited_output")
+    )
+    return (quote or "受控 Mock 候选证据")[:2_000]
+
+
+def _looks_like_factual_correction(text: str) -> bool:
+    folded = text.casefold()
+    return any(cue in folded for cue in ("实际问题是", "事实是", "actually", "the issue is"))
 
 
 def _rule_from_feedback(text: str) -> str:

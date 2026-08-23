@@ -53,6 +53,84 @@ async def test_mock_provider_covers_empty_invalid_and_provider_failure() -> None
     assert caught.value.retryable is True
 
 
+@pytest.mark.asyncio
+async def test_mock_provider_drives_rest_fixture_markers_and_repair_deterministically() -> None:
+    provider = MockStructuredProvider()
+
+    def prompt(explicit_text: str, previous_output=None) -> str:
+        context = {
+            "explicit_text": explicit_text,
+            "edited_output": None,
+            "durability": "explicit_durable",
+        }
+        if previous_output is not None:
+            context["previous_output"] = previous_output
+        return "MEMTRACE_CONTEXT_JSON:" + json.dumps(context, ensure_ascii=False)
+
+    first = await provider.complete_json(
+        prompt("以后部署前先检查。【mock:未知字段】"),
+        ExtractionSchema.model_json_schema(),
+    )
+    with pytest.raises(ValueError):
+        ExtractionSchema.model_validate(first)
+    repaired = await provider.complete_json(
+        prompt("以后部署前先检查。【mock:未知字段】", first),
+        ExtractionSchema.model_json_schema(),
+    )
+    assert len(ExtractionSchema.model_validate(repaired).candidates) == 1
+
+    two = await provider.complete_json(
+        prompt("以后回答保持简洁。【mock:两张候选】"),
+        ExtractionSchema.model_json_schema(),
+    )
+    assert len(ExtractionSchema.model_validate(two).candidates) == 2
+
+    with pytest.raises(ProviderFailure) as caught:
+        await provider.complete_json(
+            prompt("以后解释前先检查。【mock:修复失败】"),
+            ExtractionSchema.model_json_schema(),
+        )
+    assert caught.value.code == "MEMORY_REPAIR_FAILED"
+
+
+@pytest.mark.asyncio
+async def test_mock_provider_distinguishes_experience_procedure_and_factual_edit() -> None:
+    provider = MockStructuredProvider()
+
+    async def extract(context: dict) -> ExtractionSchema:
+        prompt = "MEMTRACE_CONTEXT_JSON:" + json.dumps(context, ensure_ascii=False)
+        raw = await provider.complete_json(prompt, ExtractionSchema.model_json_schema())
+        return ExtractionSchema.model_validate(raw)
+
+    experience = await extract(
+        {
+            "explicit_text": "我发现先打印变量定位问题更快，以后可以这样做。",
+            "edited_output": None,
+            "durability": "explicit_durable",
+        }
+    )
+    assert experience.candidates[0].kind == "experience"
+    assert experience.candidates[0].category == "experience"
+
+    procedure = await extract(
+        {
+            "explicit_text": None,
+            "edited_output": "建议先观察边界，再考虑修复方案。",
+            "durability": "ambiguous",
+        }
+    )
+    assert procedure.candidates[0].kind == "procedure"
+
+    factual = await extract(
+        {
+            "explicit_text": None,
+            "edited_output": "这里的实际问题是列表下标越界。",
+            "durability": "ambiguous",
+        }
+    )
+    assert factual.candidates == []
+
+
 class _FakeCompletions:
     def __init__(self, content: str) -> None:
         self.content = content
