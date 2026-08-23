@@ -27,6 +27,7 @@ from memtrace_api.schemas import (
     MemoryCardStatus,
     MemoryJobResponse,
     MemoryJobStage,
+    RejectionReason,
     ResolveAction,
     ResolveRequest,
     ScopeLevel,
@@ -54,6 +55,7 @@ def _candidate_values(**overrides: object) -> dict[str, object]:
         "scope": {"level": "task_family", "domain": "programming_learning"},
         "exceptions": [],
         "status": "candidate",
+        "rejection_reason": None,
         "source_type": "explicit_feedback",
         "save_preselected": True,
         "source_trust": 1.0,
@@ -108,6 +110,15 @@ def test_active_card_requires_confirmed_version() -> None:
     )
     assert active.status is MemoryCardStatus.ACTIVE
     assert active.current_version_id == MEMVER_ID
+
+
+def test_rejected_card_requires_controlled_reason() -> None:
+    with pytest.raises(ValidationError):
+        MemoryCard.model_validate(_candidate_values(status="rejected"))
+    rejected = MemoryCard.model_validate(
+        _candidate_values(status="rejected", rejection_reason="episode_only")
+    )
+    assert rejected.rejection_reason is RejectionReason.EPISODE_ONLY
 
 
 def test_explicit_durable_preselected_does_not_activate() -> None:

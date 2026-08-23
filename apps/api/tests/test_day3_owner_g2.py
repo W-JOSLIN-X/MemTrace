@@ -529,11 +529,33 @@ def test_edit_reject_and_one_shot_resolve_semantics(tmp_path: Path) -> None:
                 "active",
                 "candidate_created",
                 True,
+                None,
             ),
-            ("reject", {"action": "reject"}, "rejected", "no_memory", False),
-            ("one_shot", {"action": "one_shot"}, "rejected", "episode_only", False),
+            (
+                "reject",
+                {"action": "reject"},
+                "rejected",
+                "no_memory",
+                False,
+                "user_rejected",
+            ),
+            (
+                "one_shot",
+                {"action": "one_shot"},
+                "rejected",
+                "episode_only",
+                False,
+                "episode_only",
+            ),
         ]
-        for index, (action, resolve_body, expected_status, disposition, has_version) in enumerate(
+        for index, (
+            action,
+            resolve_body,
+            expected_status,
+            disposition,
+            has_version,
+            rejection_reason,
+        ) in enumerate(
             cases,
             start=1,
         ):
@@ -556,10 +578,12 @@ def test_edit_reject_and_one_shot_resolve_semantics(tmp_path: Path) -> None:
             assert body["disposition"] == disposition
             assert (body["memory_version_id"] is not None) is has_version
             assert body["card"]["status"] == expected_status
+            assert body["card"]["rejection_reason"] == rejection_reason
             if action == "edit_accept":
                 assert body["card"]["title"] == "编辑确认后的偏好"
                 assert body["card"]["avoid"] == ""
             detail = client.get(f"/api/v1/memories/{memory_id}").json()
+            assert detail["card"]["rejection_reason"] == rejection_reason
             assert len(detail["versions"]) == (1 if has_version else 0)
     finally:
         client.__exit__(None, None, None)

@@ -745,6 +745,7 @@ class MemoryCard(ContractModel):
     scope: MemoryScope
     exceptions: Annotated[list[AllowedException], Field(max_length=8)] = Field(default_factory=list)
     status: MemoryCardStatus
+    rejection_reason: RejectionReason | None
     source_type: SourceType
     save_preselected: bool = False
     source_trust: float = Field(ge=0, le=1)
@@ -759,15 +760,21 @@ class MemoryCard(ContractModel):
     @model_validator(mode="after")
     def admission_invariants(self) -> MemoryCard:
         if self.status is MemoryCardStatus.CANDIDATE:
+            if self.rejection_reason is not None:
+                raise ValueError("candidate cards cannot have a rejection reason")
             if self.current_version_id is not None or self.version != 0:
                 raise ValueError("candidate cards have version 0 and no current version")
             if self.rule_confidence is not None or self.scope_confidence is not None:
                 raise ValueError("candidate cards have null rule/scope confidence")
         if self.status is MemoryCardStatus.ACTIVE:
+            if self.rejection_reason is not None:
+                raise ValueError("active cards cannot have a rejection reason")
             if self.current_version_id is None or self.version < 1:
                 raise ValueError("active cards require a current version")
             if self.rule_confidence is None or self.scope_confidence is None:
                 raise ValueError("active cards require confirmed rule/scope confidence")
+        if self.status is MemoryCardStatus.REJECTED and self.rejection_reason is None:
+            raise ValueError("rejected cards require a rejection reason")
         return self
 
 

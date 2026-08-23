@@ -882,6 +882,10 @@
       "type": "string",
       "enum": ["candidate", "active", "rejected", "conflicted", "paused", "superseded", "merged", "archived", "deleted"]
     },
+    "RejectionReason": {
+      "type": "string",
+      "enum": ["user_rejected", "episode_only"]
+    },
     "SourceType": {
       "type": "string",
       "enum": ["explicit_feedback", "explicit_correction", "edit_diff", "accept", "reject", "rating", "outcome", "import"]
@@ -948,6 +952,12 @@
           "uniqueItems": true
         },
         "status": {"$ref": "#/$defs/MemoryCardStatus"},
+        "rejection_reason": {
+          "oneOf": [
+            {"$ref": "#/$defs/RejectionReason"},
+            {"type": "null"}
+          ]
+        },
         "source_type": {"$ref": "#/$defs/SourceType"},
         "save_preselected": {"type": "boolean"},
         "source_trust": {"type": "number", "minimum": 0, "maximum": 1},
@@ -964,7 +974,7 @@
         "created_at": {"$ref": "#/$defs/Timestamp"},
         "updated_at": {"$ref": "#/$defs/Timestamp"}
       },
-      "required": ["memory_id", "schema_version", "kind", "title", "rule", "avoid", "trigger_text", "scope", "exceptions", "status", "source_type", "save_preselected", "source_trust", "rule_confidence", "scope_confidence", "evidence_count", "version", "current_version_id", "created_at", "updated_at"],
+      "required": ["memory_id", "schema_version", "kind", "title", "rule", "avoid", "trigger_text", "scope", "exceptions", "status", "rejection_reason", "source_type", "save_preselected", "source_trust", "rule_confidence", "scope_confidence", "evidence_count", "version", "current_version_id", "created_at", "updated_at"],
       "additionalProperties": false
     },
     "MemoryCardPatch": {

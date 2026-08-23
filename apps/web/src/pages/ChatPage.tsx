@@ -1080,7 +1080,7 @@ function CandidateCard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-black text-violet-800">
-            {memoryStatusLabel(card.status)}
+            {memoryStatusLabel(card.status, card.rejection_reason)}
           </span>
           <span className="ml-2 rounded-full bg-stone-100 px-3 py-1 text-xs font-bold text-slate-600">
             {memoryKindLabel(card.kind)}
@@ -1096,7 +1096,12 @@ function CandidateCard({
       )}
 
       <p className="mt-4 rounded-xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-900">
-        {memoryStatusMessage(card.status, resolveAction, disposition)}
+        {memoryStatusMessage(
+          card.status,
+          card.rejection_reason,
+          resolveAction,
+          disposition,
+        )}
       </p>
 
       {resolveError ? (
@@ -1429,21 +1434,30 @@ function memoryKindLabel(kind: MemoryDetailResponse['card']['kind']): string {
   return labels[kind]
 }
 
-function memoryStatusLabel(status: MemoryDetailResponse['card']['status']): string {
+function memoryStatusLabel(
+  status: MemoryDetailResponse['card']['status'],
+  rejectionReason: MemoryDetailResponse['card']['rejection_reason'],
+): string {
   if (status === 'candidate') return '候选'
   if (status === 'active') return '已确认'
+  if (rejectionReason === 'episode_only') return '仅本次'
   if (status === 'rejected') return '已拒绝'
   return status
 }
 
 function memoryStatusMessage(
   status: MemoryDetailResponse['card']['status'],
+  rejectionReason: MemoryDetailResponse['card']['rejection_reason'],
   action: ResolveAction | null,
   disposition: G0State['memoryDispositions'][MemoryId] | null,
 ): string {
   if (status === 'candidate') return '候选记忆，尚未生效。'
   if (status === 'active') return '已确认保存，但 Day 4 才接入检索。'
-  if (action === 'one_shot' || disposition === 'episode_only') {
+  if (
+    rejectionReason === 'episode_only' ||
+    action === 'one_shot' ||
+    disposition === 'episode_only'
+  ) {
     return '仅本次，不进入长期记忆。'
   }
   if (status === 'rejected') return '候选已拒绝，不会进入长期记忆。'

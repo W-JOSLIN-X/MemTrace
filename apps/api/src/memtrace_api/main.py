@@ -1249,6 +1249,7 @@ def _card_projection(card: MemoryCardModel) -> MemoryCard:
         scope=MemoryScope.model_validate_json(card.scope_json),
         exceptions=json.loads(card.exceptions_json),
         status=card.status,
+        rejection_reason=card.rejection_reason,
         source_type=card.source_type,
         save_preselected=card.save_preselected,
         source_trust=card.source_trust,

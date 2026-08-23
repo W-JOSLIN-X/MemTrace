@@ -205,6 +205,18 @@ describe('Day 3 G2 owner flow', () => {
     }
   })
 
+  it('restores the persisted one-shot disposition without transient reducer state', async () => {
+    const { api, getMemory } = createG2Api()
+    const oneShotCard = makeResolveResponse('one_shot').card
+    getMemory.mockResolvedValue(makeMemoryDetail(oneShotCard))
+
+    render(<ChatPage api={api} />)
+
+    expect(await screen.findByText('仅本次，不进入长期记忆。')).toBeInTheDocument()
+    expect(screen.getByText('仅本次')).toBeInTheDocument()
+    expect(screen.queryByText('候选已拒绝，不会进入长期记忆。')).not.toBeInTheDocument()
+  })
+
   it('reuses a retry key after a network failure and then reaches no-memory', async () => {
     const user = userEvent.setup()
     const failedJob = makeMemoryJob({

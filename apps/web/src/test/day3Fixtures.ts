@@ -54,6 +54,7 @@ export function makeMemoryCard(
     },
     exceptions: [],
     status: 'candidate',
+    rejection_reason: null,
     source_type: 'explicit_feedback',
     save_preselected: false,
     source_trust: 1,
@@ -104,7 +105,11 @@ export function makeResolveResponse(
           rule_confidence: 1,
           scope_confidence: 1,
         }
-      : { status: 'rejected' },
+      : {
+          status: 'rejected',
+          rejection_reason:
+            action === 'one_shot' ? 'episode_only' : 'user_rejected',
+        },
   )
   return {
     request_id: REQUEST_ID,

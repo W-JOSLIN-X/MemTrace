@@ -333,6 +333,7 @@ function validateMemoryCard(value: unknown): void {
     'scope',
     'exceptions',
     'status',
+    'rejection_reason',
     'source_type',
     'save_preselected',
     'source_trust',
@@ -365,6 +366,14 @@ function validateMemoryCard(value: unknown): void {
   validateMemoryScope(body.scope)
   validateExceptions(body.exceptions)
   const status = validateMemoryCardStatus(body.status, 'status')
+  const rejectionReason =
+    body.rejection_reason === null
+      ? null
+      : enumValue(
+          body.rejection_reason,
+          ['user_rejected', 'episode_only'] as const,
+          'rejection_reason',
+        )
   enumValue(
     body.source_type,
     [
@@ -394,17 +403,20 @@ function validateMemoryCard(value: unknown): void {
   timestamp(body.updated_at, 'updated_at')
   if (
     status === 'candidate' &&
-    (version !== 0 || body.current_version_id !== null ||
+    (rejectionReason !== null || version !== 0 || body.current_version_id !== null ||
       body.rule_confidence !== null || body.scope_confidence !== null)
   ) {
     throw new ContractError('candidate card violates admission invariants')
   }
   if (
     status === 'active' &&
-    (version < 1 || body.current_version_id === null ||
+    (rejectionReason !== null || version < 1 || body.current_version_id === null ||
       body.rule_confidence === null || body.scope_confidence === null)
   ) {
     throw new ContractError('active card violates admission invariants')
+  }
+  if (status === 'rejected' && rejectionReason === null) {
+    throw new ContractError('rejected card requires rejection_reason')
   }
 }
 

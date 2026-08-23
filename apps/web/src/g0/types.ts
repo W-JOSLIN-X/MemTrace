@@ -522,6 +522,8 @@ export type MemoryCardStatus =
   | 'archived'
   | 'deleted'
 
+export type MemoryRejectionReason = 'user_rejected' | 'episode_only'
+
 export type MemoryKind =
   | 'preference'
   | 'constraint'
@@ -572,6 +574,7 @@ export interface MemoryCard {
   scope: MemoryScope
   exceptions: AllowedMemoryException[]
   status: MemoryCardStatus
+  rejection_reason: MemoryRejectionReason | null
   source_type: MemorySourceType
   save_preselected: boolean
   source_trust: number
