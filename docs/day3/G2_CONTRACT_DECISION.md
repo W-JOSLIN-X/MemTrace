@@ -1,6 +1,6 @@
-# Day 3 G2 契约决策（共享契约 PR）
+# Day 3 G2 契约决策
 
-> 状态：草案，待成员 B 在最终 head 上复核。
+> 状态：成员 B 已复核并冻结，作为 `1.2.0` G2 实现基线。
 > 版本：兼容性增量 `1.2.0`（minor）。这不是破坏性 major 升级：唯一破坏项是
 > `MemoryJobResponse` 字段演进，而该字段在 D2 只是 pending 占位，尚无消费方。
 
@@ -9,9 +9,9 @@
 G2 = `feedback/edit-diff → MemoryJob → 自动长期性与类别 → 0–3 张候选
 MemoryCard → 真实 Evidence → resolve(accept/edit_accept/reject/one_shot)`。
 
-本 PR 只冻结公开契约：Pydantic 请求/响应、四个新事件 payload、JSON Schema 增量、
-`contracts/openapi.json` 确定性导出、Mock 示例和一致性测试。**不实现** worker、
-migration、Diff、Compiler、resolve 业务逻辑——那些是后续实现 PR。
+本文件冻结公开契约：Pydantic 请求/响应、四个新事件 payload、JSON Schema 增量、
+`contracts/openapi.json` 确定性导出、Mock 示例和一致性测试。实现是否完成必须由实际
+路由、worker、migration、Diff、Compiler、resolve 和端到端测试证明，不能只检查本审计文档。
 
 ## 2. 决策
 
@@ -59,6 +59,19 @@ migration、Diff、Compiler、resolve 业务逻辑——那些是后续实现 PR
 HTTP：`MEMORY_NOT_FOUND`（统一 404）、`MEMORY_ALREADY_RESOLVED`（409）、
 `MEMORY_JOB_NOT_RETRYABLE`（409）。Job 受控错误码见 manifest `new_job_error_codes`。
 
+### 2.8 成员 B 冻结的边界语义
+
+- `MemoryCard.avoid` 和 `trigger_text` 允许空字符串；`edit_accept` 可用空字符串清除
+  `avoid`。
+- list 默认每页 50 条，按 `memory_id DESC`；`next_cursor` 是服务端返回的
+  `memory_id`，客户端视为不透明字符串并原样回传。非法 cursor 返回 422。
+- resolve disposition 固定为：`accept/edit_accept → candidate_created`、
+  `reject → no_memory`、`one_shot → episode_only`。
+- 响应模型中声明为 nullable 的字段始终出现并显式返回 `null`；不得同时允许“字段缺失”
+  和 `null` 两种序列化表示。
+- resolve 请求中缺失 `patch` 与 `patch=null` 在幂等 hash 前统一规范化为同一语义。
+- G2 只形成候选、证据和用户确认结果；active 卡在 Day 4 前不接入检索或生成 Prompt。
+
 ## 3. 文档描述 / 代码事实 / 本次决策 / 对应测试
 
 | 文档描述 | 代码事实 | 本次决策 | 对应测试 |
@@ -68,8 +81,7 @@ HTTP：`MEMORY_NOT_FOUND`（统一 404）、`MEMORY_ALREADY_RESOLVED`（409）�
 | TEAMMATE_AGENT_PROMPT §9.1 `error_code` | D2 `last_error_code` 列存在 | job 响应字段名 `error_code`，值为受控枚举 | `test_memory_job_response_shape` |
 | 总计划 §12.8 事件 `memory.candidate.created` 只带 `memory_id,evidence_id` | 无实现 | 增补 `ordinal`（0..2），服务端生成 | `test_new_event_payloads_validate` |
 
-## 4. 未决（需成员 B 确认）
+## 4. 复核状态
 
-1. `MemoryCard.avoid`/`trigger_text` 是否允许空串（当前默认 `""`）。
-2. `MemoryListResponse.next_cursor` 的光标编码格式（当前保留 `string|null`）。
-3. `ResolveResponse.disposition` 对 `reject/one_shot` 的取值约定（建议沿用提取 disposition）。
+上述原三个未决项已由成员 B 按 2.8 节冻结。任何字段或枚举变更必须同时修改 Pydantic、
+JSON Schema、实际 FastAPI OpenAPI、TypeScript 类型/runtime parser、Mock 和契约测试。

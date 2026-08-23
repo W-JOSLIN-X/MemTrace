@@ -1,5 +1,11 @@
 # Day 3 成员 A 执行报告
 
+> **历史交接报告，不能作为当前验收结论。** 成员 B 对
+> `feat/day3-dev@de1dd2e` 的独立运行核验确认：本报告列出的 260 项 pytest 并未覆盖真实
+> FastAPI lifespan worker、retry 路由和可运行 resolve/event 主链；Ruff、格式检查和
+> Day 3 前端同样未达到 G2 门禁。原文保留用于追溯，当前结论见
+> `OWNER_INTEGRATION_REPORT.md`，最终状态只以接管分支实际测试和受保护 PR 为准。
+
 > 执行日期：2026-08-23
 > D2 baseline main SHA：`a668f8dc238835e773a882f9d40422bb24b72894`（docs(day2): record final verification evidence）
 > 当前 HEAD：`adc913e`（fix(deps): remove unused imports in compiler module）
