@@ -33,6 +33,7 @@ from memtrace_api.events import (
     MemoryExtractionStagePayload,
     MemoryJobFailedPayload,
 )
+from memtrace_api.gates import run_all_gates
 from memtrace_api.providers import ProviderMode
 from memtrace_api.repositories import (
     FeedbackRepository,
