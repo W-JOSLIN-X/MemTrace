@@ -88,7 +88,7 @@ def test_fresh_empty_database_upgrades_to_head() -> None:
         "memory_relations",
     } <= tables
     with Session(engine) as session:
-        assert ensure_database_current(session) == "002_g2_memory_admission"
+        assert ensure_database_current(session) == "003_g2_job_retryable"
     engine.dispose()
 
 
@@ -160,13 +160,17 @@ def test_g1_database_upgrades_with_data_preserved(tmp_path: Path) -> None:
     engine = create_engine(db_url)
     with engine.connect() as conn:
         job = conn.execute(
-            text("SELECT status, stage, attempt, disposition FROM memory_jobs WHERE id=:id"),
+            text(
+                "SELECT status, stage, attempt, disposition, retryable "
+                "FROM memory_jobs WHERE id=:id"
+            ),
             {"id": job_id},
         ).one()
         assert job.status == "pending"
         assert job.stage == "queued"
         assert job.attempt == 0
         assert job.disposition is None
+        assert job.retryable == 0
         fb_count = conn.execute(text("SELECT COUNT(*) FROM feedback_events")).scalar_one()
         assert fb_count == 1
         # The G2 stage values must now be accepted by the rebuilt check constraint.
@@ -241,6 +245,7 @@ def test_downgrade_upon_dedicated_temp_database() -> None:
     engine.dispose()
     assert not {"memory_cards", "memory_versions", "memory_evidence"} & tables
     assert "disposition" not in cols
+    assert "retryable" not in cols
 
     _run_alembic(db_url, "upgrade", "head")
 
@@ -252,6 +257,22 @@ def test_readiness_rejects_stale_revision() -> None:
     with Session(engine) as session:
         with pytest.raises(DatabaseRevisionError):
             ensure_database_current(session)
+    engine.dispose()
+
+
+def test_day2_revision_upgrades_to_retryable_head() -> None:
+    _, db_url = _new_db("day2-head.sqlite3")
+    _run_alembic(db_url, "upgrade", "002_g2_memory_admission")
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        with pytest.raises(DatabaseRevisionError):
+            ensure_database_current(session)
+    engine.dispose()
+
+    _run_alembic(db_url, "upgrade", "head")
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        assert ensure_database_current(session) == "003_g2_job_retryable"
     engine.dispose()
 
 

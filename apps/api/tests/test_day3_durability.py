@@ -62,12 +62,10 @@ def test_durability_matches_fixture(fixture: dict, index: int) -> None:
     )
 
     assert str(durability) == expected["durability"], (
-        f"{entry['id']}: expected durability {expected['durability']!r}, "
-        f"got {durability!r}"
+        f"{entry['id']}: expected durability {expected['durability']!r}, got {durability!r}"
     )
     assert str(reason) == expected["durability_reason"], (
-        f"{entry['id']}: expected reason {expected['durability_reason']!r}, "
-        f"got {reason!r}"
+        f"{entry['id']}: expected reason {expected['durability_reason']!r}, got {reason!r}"
     )
 
 
@@ -191,19 +189,19 @@ class TestDurabilityEdgeCases:
         assert r == REASON_DURABLE_MARKER_FOUND
 
     def test_nfkc_normalization(self) -> None:
-        # Full-width digits U+FF10–U+FF19 should normalize to ASCII.
+        # Full-width digits U+FF10-U+FF19 should normalize to ASCII.
         d1, r1 = detect_durability("give me answer１", None, None, None)
         d2, r2 = detect_durability("give me answer1", None, None, None)
         assert d1 == d2
         assert r1 == r2
 
     def test_whitespace_only_explicit_text(self) -> None:
-        d, r = detect_durability("   ", None, None, None)
+        d, _r = detect_durability("   ", None, None, None)
         assert d == DURABILITY_AMBIGUOUS
 
     def test_case_insensitive(self) -> None:
-        d1, r1 = detect_durability("ALWAYS explain first", None, None, None)
-        d2, r2 = detect_durability("always explain first", None, None, None)
+        d1, _r1 = detect_durability("ALWAYS explain first", None, None, None)
+        d2, _r2 = detect_durability("always explain first", None, None, None)
         assert d1 == d2
 
     def test_explicit_text_no_keyword_returns_ambiguous(self) -> None:

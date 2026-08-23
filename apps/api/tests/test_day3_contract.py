@@ -154,6 +154,15 @@ def test_resolve_edit_accept_patch_forbids_kind_owner_status() -> None:
     assert patch.rule is not None
 
 
+def test_resolve_edit_accept_can_clear_avoid() -> None:
+    request = ResolveRequest(
+        action=ResolveAction.EDIT_ACCEPT,
+        patch=MemoryCardPatch(avoid=""),
+    )
+    assert request.patch is not None
+    assert request.patch.avoid == ""
+
+
 def test_resolve_reject_and_one_shot_allow_null_patch() -> None:
     for action in (ResolveAction.REJECT, ResolveAction.ONE_SHOT):
         req = ResolveRequest(action=action)

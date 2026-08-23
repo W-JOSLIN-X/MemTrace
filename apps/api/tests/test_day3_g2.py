@@ -18,27 +18,10 @@ Covers (from §17.4):
 from __future__ import annotations
 
 import json
-import threading
-import time
-from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
-
-import pytest
 
 from memtrace_api.config import PROJECT_ROOT
-from memtrace_api.db_models import (
-    MemoryCardModel,
-    MemoryEvidenceLinkModel,
-    MemoryEvidenceModel,
-    MemoryJobModel,
-    MemoryVersionModel,
-)
 from memtrace_api.durability import detect_durability
-from memtrace_api.events import EventType, make_event
-from memtrace_api.ids import new_prefixed_ulid
 from memtrace_api.repositories import UserContext
-from memtrace_api.schemas import Disposition, MemoryCardStatus, utc_now
-
 
 FIXTURE_PATH = PROJECT_ROOT / "fixtures" / "day3" / "learning_events.json"
 
@@ -112,10 +95,7 @@ class TestDeterminism:
         ]
         first: list[tuple[str, str]] | None = None
         for _ in range(100):
-            round_results = [
-                tuple(str(v) for v in detect_durability(*args))
-                for args in inputs
-            ]
+            round_results = [tuple(str(v) for v in detect_durability(*args)) for args in inputs]
             if first is None:
                 first = round_results
             else:

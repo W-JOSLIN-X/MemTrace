@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from memtrace_api.diff import DiffHunk, DiffResult, compute_diff, normalized_levenshtein
+from memtrace_api.diff import compute_diff, normalized_levenshtein
 
 
 class TestDiffService:
@@ -90,6 +90,9 @@ class TestNormalizedLevenshtein:
         result = normalized_levenshtein("", "abc")
         assert result == 1.0
 
+    def test_known_exact_distance_is_not_sequence_matcher_similarity(self) -> None:
+        assert normalized_levenshtein("kitten", "sitting") == pytest.approx(3 / 7, abs=1e-6)
+
     def test_range(self) -> None:
         for a, b in [("kitten", "sitting"), ("abc", "ac"), ("", "a"), ("a", "")]:
             assert 0.0 <= normalized_levenshtein(a, b) <= 1.0
@@ -100,7 +103,9 @@ class TestNormalizedLevenshtein:
 
     def test_deterministic(self) -> None:
         for _ in range(50):
-            assert normalized_levenshtein("hello", "world") == normalized_levenshtein("hello", "world")
+            assert normalized_levenshtein("hello", "world") == normalized_levenshtein(
+                "hello", "world"
+            )
 
 
 class TestDiffDeterminism:
