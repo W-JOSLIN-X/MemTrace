@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest'
 import {
   ContractError,
   parseErrorResponse,
+  parseMemoryDetailResponse,
+  parseMemoryListResponse,
+  parseResolveRequest,
+  parseResolveResponse,
   parseSseEvent,
   parseTaskSnapshot,
 } from './runtime'
@@ -18,6 +22,10 @@ import {
   TASK_ID,
   makeSnapshot,
 } from '../test/g0Fixtures'
+import {
+  makeMemoryDetail,
+  makeResolveResponse,
+} from '../test/day3Fixtures'
 
 describe('G0 runtime contract parser', () => {
   it('requires a persistent wire id equal to data.event_seq', () => {
@@ -228,5 +236,53 @@ describe('G0 runtime contract parser', () => {
     const event = parseSseEvent('feedback.recorded', raw, '14')
     expect(event.event_type).toBe('feedback.recorded')
     expect(event.event_seq).toBe(14)
+  })
+
+  it('strictly parses Day 3 cards, evidence, lists, and resolve responses', () => {
+    const detail = makeMemoryDetail()
+    expect(parseMemoryDetailResponse(detail)).toEqual(detail)
+    expect(
+      parseMemoryListResponse({
+        request_id: REQUEST_ID,
+        items: [detail.card],
+        next_cursor: detail.card.memory_id,
+      }).items,
+    ).toEqual([detail.card])
+    expect(parseResolveResponse(makeResolveResponse()).card.status).toBe('active')
+
+    const missingNullable = {
+      ...detail.card,
+    } as Record<string, unknown>
+    delete missingNullable.current_version_id
+    expect(() =>
+      parseMemoryListResponse({
+        request_id: REQUEST_ID,
+        items: [missingNullable],
+        next_cursor: null,
+      }),
+    ).toThrow(ContractError)
+  })
+
+  it('normalizes missing and null resolve patches and allows clearing avoid', () => {
+    expect(parseResolveRequest({ action: 'accept' })).toEqual({
+      action: 'accept',
+      patch: null,
+    })
+    expect(parseResolveRequest({ action: 'accept', patch: null })).toEqual({
+      action: 'accept',
+      patch: null,
+    })
+    expect(
+      parseResolveRequest({
+        action: 'edit_accept',
+        patch: { avoid: '' },
+      }),
+    ).toEqual({ action: 'edit_accept', patch: { avoid: '' } })
+    expect(() =>
+      parseResolveRequest({ action: 'edit_accept', patch: null }),
+    ).toThrow(ContractError)
+    expect(() =>
+      parseResolveRequest({ action: 'reject', patch: { avoid: '' } }),
+    ).toThrow(ContractError)
   })
 })

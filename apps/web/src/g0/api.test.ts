@@ -3,6 +3,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { browserG0Api } from './api'
 import type { FeedbackCreateAccepted, MemoryJobResponse } from './types'
 import { AT, TASK_ID, makeAccepted, makeSnapshot } from '../test/g0Fixtures'
+import {
+  MEMORY_ID,
+  makeMemoryDetail,
+  makeResolveResponse,
+} from '../test/day3Fixtures'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -47,6 +52,14 @@ describe('browser G1 API', () => {
       makeSnapshot(),
       feedback,
       job,
+      job,
+      makeResolveResponse(),
+      {
+        request_id: 'req_01J00000000000000000000000',
+        items: [makeMemoryDetail().card],
+        next_cursor: null,
+      },
+      makeMemoryDetail(),
     ]
     const fetchMock = vi.fn<
       (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
@@ -76,8 +89,19 @@ describe('browser G1 API', () => {
       'feedback-idempotency-key-0001',
     )
     await browserG0Api.getMemoryJob?.(feedback.memory_job_id)
+    await browserG0Api.retryMemoryJob?.(
+      feedback.memory_job_id,
+      'retry-idempotency-key-0001',
+    )
+    await browserG0Api.resolveMemoryCandidate?.(
+      MEMORY_ID,
+      { action: 'accept' },
+      'resolve-idempotency-key-0001',
+    )
+    await browserG0Api.listMemories?.({ status: 'candidate' })
+    await browserG0Api.getMemory?.(MEMORY_ID)
 
-    expect(fetchMock).toHaveBeenCalledTimes(6)
+    expect(fetchMock).toHaveBeenCalledTimes(10)
     for (const call of fetchMock.mock.calls) {
       expect(call[1]?.credentials).toBe('same-origin')
     }
@@ -87,6 +111,18 @@ describe('browser G1 API', () => {
     expect(fetchMock.mock.calls[4]?.[1]?.headers).toMatchObject({
       'Idempotency-Key': 'feedback-idempotency-key-0001',
     })
+    expect(fetchMock.mock.calls[6]?.[1]?.headers).toMatchObject({
+      'Idempotency-Key': 'retry-idempotency-key-0001',
+    })
+    expect(fetchMock.mock.calls[7]?.[1]?.headers).toMatchObject({
+      'Idempotency-Key': 'resolve-idempotency-key-0001',
+    })
+    expect(fetchMock.mock.calls[7]?.[1]?.body).toBe(
+      JSON.stringify({ action: 'accept', patch: null }),
+    )
+    expect(String(fetchMock.mock.calls[8]?.[0])).toContain(
+      '/api/v1/memories?status=candidate',
+    )
   })
 })
 

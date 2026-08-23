@@ -24,7 +24,7 @@ describe('MemTrace application shell', () => {
     ).toBeInTheDocument()
     expect(screen.getByLabelText('Provider 模式：未连接')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '运行 Agent' })).toBeDisabled()
-    expect(screen.getByText('尚无长期记忆')).toBeInTheDocument()
+    expect(screen.getByText('G2 候选与确认流程')).toBeInTheDocument()
   })
 
   it('shows an honest placeholder on future routes', async () => {
