@@ -2,9 +2,9 @@
 
 Public surface
 --------------
-- :class:`DiffResult`      – typed, side-effect-free result
-- :func:`compute_diff`     – main entry point
-- :func:`normalized_levenshtein` – normalized distance 0..1
+- :class:`DiffResult` - typed, side-effect-free result
+- :func:`compute_diff` - main entry point
+- :func:`normalized_levenshtein` - normalized distance 0..1
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import difflib
 import unicodedata
 from dataclasses import dataclass, field
 
+from rapidfuzz.distance import Levenshtein
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -37,49 +38,15 @@ def _parse_range(s: str) -> tuple[int, int]:
 
 
 # ---------------------------------------------------------------------------
-# Levenshtein (optimal string alignment / restricted Damerau-Levenshtein)
-# via difflib matching blocks – O(n·m) worst case but extremely fast for
-# real-world texts because difflib finds matching blocks without building
-# a full matrix.
+# Exact Levenshtein distance. RapidFuzz implements the real insert/delete/
+# substitute metric in native code; this must not be replaced with a
+# SequenceMatcher similarity approximation.
 # ---------------------------------------------------------------------------
 
 
 def normalized_levenshtein(a: str, b: str) -> float:
-    """Return ``distance / (len(a) + len(b))``, range 0..1.
-
-    Uses :func:`difflib.SequenceMatcher` to find matching blocks, then
-    counts unmatched characters as the edit distance.  This is
-    deterministic, fast for short-to-medium strings, and handles
-    multi-byte Unicode and emoji correctly (operates on Python str, not
-    bytes).
-
-    The denominator is ``len(a) + len(b)`` (total characters) so the
-    result is always in 0..1 even for completely different strings.
-    """
-    if not a and not b:
-        return 0.0
-    len_a = len(a)
-    len_b = len(b)
-    total = len_a + len_b
-    if total == 0:
-        return 0.0
-
-    if total <= 20_000:
-        matcher = difflib.SequenceMatcher(None, a, b, autojunk=False)
-        matching = sum(size for _, _, size in matcher.get_matching_blocks())
-        distance = len_a + len_b - 2 * matching
-    else:
-        # For large texts, sample-based approximation
-        step = max(1, total // 10_000)
-        sample_a = a[::step]
-        sample_b = b[::step]
-        sample_matcher = difflib.SequenceMatcher(None, sample_a, sample_b, autojunk=False)
-        sample_matching = sum(size for _, _, size in sample_matcher.get_matching_blocks())
-        sample_dist = len(sample_a) + len(sample_b) - 2 * sample_matching
-        scale = total / max(len(sample_a) + len(sample_b), 1)
-        distance = int(sample_dist * scale)
-
-    return round(min(distance / total, 1.0), 6)
+    """Return exact Levenshtein distance normalized by the longer input."""
+    return round(float(Levenshtein.normalized_distance(a, b)), 6)
 
 
 # ---------------------------------------------------------------------------
@@ -91,10 +58,10 @@ def normalized_levenshtein(a: str, b: str) -> float:
 class DiffHunk:
     """One contiguous changed region with ±3 context lines."""
 
-    before_start: int   # 0-based line number in original
-    before_count: int   # lines removed (including context)
-    after_start: int    # 0-based line number in edited
-    after_count: int    # lines added (including context)
+    before_start: int  # 0-based line number in original
+    before_count: int  # lines removed (including context)
+    after_start: int  # 0-based line number in edited
+    after_count: int  # lines added (including context)
     before_lines: list[str] = field(repr=False)
     after_lines: list[str] = field(repr=False)
 
@@ -110,14 +77,14 @@ class DiffHunk:
 class DiffResult:
     """Typed result of :func:`compute_diff`."""
 
-    original_len: int           # characters in original
-    edited_len: int             # characters in edited
-    added_chars: int            # net characters added
-    removed_chars: int          # net characters removed
-    hunk_count: int             # number of non-empty hunks
-    normalized_edit_cost: float # distance / max(original, edited, 1)
+    original_len: int  # characters in original
+    edited_len: int  # characters in edited
+    added_chars: int  # characters inserted or supplied by replacements
+    removed_chars: int  # characters deleted or consumed by replacements
+    hunk_count: int  # number of non-empty hunks
+    normalized_edit_cost: float  # Levenshtein distance / max(original, edited, 1)
     hunks: list[DiffHunk] = field(default_factory=list)
-    truncated: bool = False     # True when > 8 000 chars and only fragment returned
+    truncated: bool = False  # True when > 8 000 chars and only fragment returned
 
     @property
     def changed_fragment(self) -> str:
@@ -200,9 +167,9 @@ def compute_diff(
             # parse "-A,B +C,D" or "-A +C" (single-line hunks omit the count)
             parts = line.split("@@")[1].strip().split()
             before_part = parts[0][1:]  # strip leading '-'
-            after_part = parts[1][1:]   # strip leading '+'
-            b_start, b_count = _parse_range(before_part)
-            a_start, a_count = _parse_range(after_part)
+            after_part = parts[1][1:]  # strip leading '+'
+            b_start, _b_count = _parse_range(before_part)
+            a_start, _a_count = _parse_range(after_part)
             before_idx = b_start - 1
             after_idx = a_start - 1
             current_hunk = DiffHunk(
@@ -238,7 +205,7 @@ def compute_diff(
     merged: list[DiffHunk] = []
     for h in hunks:
         if merged and h.before_start <= merged[-1].before_start + len(merged[-1].before_lines):
-            # Overlap or immediate adjacency – extend the previous hunk
+            # Overlap or immediate adjacency - extend the previous hunk
             prev = merged[-1]
             merged_hunk = DiffHunk(
                 before_start=prev.before_start,
@@ -254,14 +221,14 @@ def compute_diff(
         else:
             merged.append(h)
 
-    added = sum(h.after_count - h.before_count for h in merged)
-    removed = sum(h.before_count - h.after_count for h in merged)
-    total_len = orig_len + edit_len
-    if total_len <= 20_000:
-        cost = normalized_levenshtein(original, edited)
-    else:
-        # For large texts, use the diff approximation
-        cost = round(min((added + removed) / max(total_len, 1), 1.0), 6)
+    added = 0
+    removed = 0
+    for tag, i1, i2, j1, j2 in Levenshtein.opcodes(original, edited):
+        if tag in {"replace", "delete"}:
+            removed += i2 - i1
+        if tag in {"replace", "insert"}:
+            added += j2 - j1
+    cost = normalized_levenshtein(original, edited)
 
     total_chars = orig_len + edit_len
     truncated_flag = total_chars > max_chars
@@ -269,8 +236,8 @@ def compute_diff(
     return DiffResult(
         original_len=orig_len,
         edited_len=edit_len,
-        added_chars=max(added, 0),
-        removed_chars=max(removed, 0),
+        added_chars=added,
+        removed_chars=removed,
         hunk_count=len(merged),
         normalized_edit_cost=cost,
         hunks=merged,

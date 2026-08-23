@@ -699,19 +699,35 @@
         }
       }
     },
-    "/api/v1/memory-candidates/{memory_id}/resolve": {
+    "/api/v1/memory-jobs/{job_id}/retry": {
       "post": {
-        "summary": "Resolve Memory Candidate",
-        "operationId": "resolve_memory_candidate_api_v1_memory_candidates__memory_id__resolve_post",
+        "summary": "Retry Memory Job",
+        "operationId": "retry_memory_job_api_v1_memory_jobs__job_id__retry_post",
         "parameters": [
           {
-            "name": "memory_id",
+            "name": "job_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
-              "title": "Memory Id"
+              "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           },
           {
@@ -732,23 +748,15 @@
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "400": {
-            "content": {
-              "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
+                  "$ref": "#/components/schemas/MemoryJobResponse"
                 }
               }
-            },
-            "description": "Bad Request"
+            }
           },
           "401": {
             "content": {
@@ -781,14 +789,126 @@
             "description": "Conflict"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/memory-candidates/{memory_id}/resolve": {
+      "post": {
+        "summary": "Resolve Memory Candidate",
+        "operationId": "resolve_memory_candidate_api_v1_memory_candidates__memory_id__resolve_post",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveResponse"
                 }
               }
             }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
           }
         }
       }
@@ -805,6 +925,11 @@
             "schema": {
               "anyOf": [
                 {
+                  "enum": [
+                    "candidate",
+                    "active",
+                    "rejected"
+                  ],
                   "type": "string"
                 },
                 {
@@ -821,7 +946,8 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
                 },
                 {
                   "type": "null"
@@ -852,7 +978,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryListResponse"
+                }
               }
             }
           },
@@ -926,7 +1054,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryDetailResponse"
+                }
               }
             }
           },
@@ -966,6 +1096,15 @@
   },
   "components": {
     "schemas": {
+      "AllowedException": {
+        "type": "string",
+        "enum": [
+          "response_policy:direct_fix",
+          "urgency:urgent"
+        ],
+        "title": "AllowedException",
+        "description": "Controlled, non-executable scope exceptions a card may reference."
+      },
       "ArtifactType": {
         "type": "string",
         "enum": [
@@ -1601,6 +1740,363 @@
         ],
         "title": "HealthResponse"
       },
+      "MemoryCard": {
+        "properties": {
+          "memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Id"
+          },
+          "schema_version": {
+            "type": "string",
+            "const": "1.0",
+            "title": "Schema Version",
+            "default": "1.0"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/MemoryKind"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 4,
+            "title": "Title"
+          },
+          "rule": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 20,
+            "title": "Rule"
+          },
+          "avoid": {
+            "type": "string",
+            "maxLength": 400,
+            "title": "Avoid",
+            "default": ""
+          },
+          "trigger_text": {
+            "type": "string",
+            "maxLength": 240,
+            "title": "Trigger Text",
+            "default": ""
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          },
+          "exceptions": {
+            "items": {
+              "$ref": "#/components/schemas/AllowedException"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "title": "Exceptions"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MemoryCardStatus"
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/SourceType"
+          },
+          "save_preselected": {
+            "type": "boolean",
+            "title": "Save Preselected",
+            "default": false
+          },
+          "source_trust": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Source Trust"
+          },
+          "rule_confidence": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Confidence"
+          },
+          "scope_confidence": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Confidence"
+          },
+          "evidence_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Evidence Count",
+            "default": 0
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Version",
+            "default": 0
+          },
+          "current_version_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Version Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "memory_id",
+          "kind",
+          "title",
+          "rule",
+          "scope",
+          "status",
+          "source_type",
+          "source_trust",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MemoryCard"
+      },
+      "MemoryCardPatch": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40,
+                "minLength": 4
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300,
+                "minLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule"
+          },
+          "avoid": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 400
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avoid"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryScope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "exceptions": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AllowedException"
+                },
+                "type": "array",
+                "maxItems": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exceptions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "MemoryCardPatch"
+      },
+      "MemoryCardStatus": {
+        "type": "string",
+        "enum": [
+          "candidate",
+          "active",
+          "rejected",
+          "conflicted",
+          "paused",
+          "superseded",
+          "merged",
+          "archived",
+          "deleted"
+        ],
+        "title": "MemoryCardStatus"
+      },
+      "MemoryDetailResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "card": {
+            "$ref": "#/components/schemas/MemoryCard"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryEvidenceProjection"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryVersionProjection"
+            },
+            "type": "array",
+            "title": "Versions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "card"
+        ],
+        "title": "MemoryDetailResponse"
+      },
+      "MemoryEvidenceProjection": {
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "pattern": "^evidence_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Evidence Id"
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/SourceType"
+          },
+          "feedback_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^feedback_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feedback Id"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "evidence_quote": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Evidence Quote"
+          },
+          "diff_summary": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diff Summary"
+          },
+          "normalized_edit_cost": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Edit Cost"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "evidence_id",
+          "source_type",
+          "evidence_quote",
+          "created_at"
+        ],
+        "title": "MemoryEvidenceProjection"
+      },
       "MemoryJobErrorCode": {
         "type": "string",
         "enum": [
@@ -1732,6 +2228,181 @@
         ],
         "title": "MemoryJobStage",
         "description": "Five observable processing stages plus the three boundary states. The five\ncounted stages are diffing, classifying_durability, extracting, validating,\nand admitting; queued/done/failed are boundary states and are not counted."
+      },
+      "MemoryKind": {
+        "type": "string",
+        "enum": [
+          "preference",
+          "constraint",
+          "procedure",
+          "experience",
+          "environment",
+          "learning_checkpoint"
+        ],
+        "title": "MemoryKind"
+      },
+      "MemoryListResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryCard"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id"
+        ],
+        "title": "MemoryListResponse"
+      },
+      "MemoryScope": {
+        "properties": {
+          "level": {
+            "$ref": "#/components/schemas/ScopeLevel"
+          },
+          "domain": {
+            "$ref": "#/components/schemas/ScopeDomain"
+          },
+          "task_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "artifact_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "audience": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Audience"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "project_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Key"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "level",
+          "domain"
+        ],
+        "title": "MemoryScope"
+      },
+      "MemoryVersionProjection": {
+        "properties": {
+          "memory_version_id": {
+            "type": "string",
+            "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Version Id"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 4,
+            "title": "Title"
+          },
+          "rule": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 20,
+            "title": "Rule"
+          },
+          "avoid": {
+            "type": "string",
+            "maxLength": 400,
+            "title": "Avoid",
+            "default": ""
+          },
+          "trigger_text": {
+            "type": "string",
+            "maxLength": 240,
+            "title": "Trigger Text",
+            "default": ""
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          },
+          "exceptions": {
+            "items": {
+              "$ref": "#/components/schemas/AllowedException"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "title": "Exceptions"
+          },
+          "created_by_action": {
+            "$ref": "#/components/schemas/ResolveAction"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "memory_version_id",
+          "version",
+          "title",
+          "rule",
+          "scope",
+          "created_by_action",
+          "created_at"
+        ],
+        "title": "MemoryVersionProjection"
       },
       "MessageRole": {
         "type": "string",
@@ -1948,6 +2619,92 @@
         ],
         "title": "ReadyResponse"
       },
+      "ResolveAction": {
+        "type": "string",
+        "enum": [
+          "accept",
+          "edit_accept",
+          "reject",
+          "one_shot"
+        ],
+        "title": "ResolveAction"
+      },
+      "ResolveRequest": {
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ResolveAction"
+          },
+          "patch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryCardPatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "ResolveRequest"
+      },
+      "ResolveResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Id"
+          },
+          "action": {
+            "$ref": "#/components/schemas/ResolveAction"
+          },
+          "old_status": {
+            "$ref": "#/components/schemas/MemoryCardStatus"
+          },
+          "new_status": {
+            "$ref": "#/components/schemas/MemoryCardStatus"
+          },
+          "disposition": {
+            "$ref": "#/components/schemas/Disposition"
+          },
+          "memory_version_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Version Id"
+          },
+          "card": {
+            "$ref": "#/components/schemas/MemoryCard"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "memory_id",
+          "action",
+          "old_status",
+          "new_status",
+          "disposition",
+          "card"
+        ],
+        "title": "ResolveResponse"
+      },
       "ResponsePolicy": {
         "type": "string",
         "enum": [
@@ -2011,6 +2768,42 @@
           "other"
         ],
         "title": "Scenario"
+      },
+      "ScopeDomain": {
+        "type": "string",
+        "enum": [
+          "programming_learning",
+          "software_development",
+          "general_text",
+          "other",
+          "any"
+        ],
+        "title": "ScopeDomain",
+        "description": "Wildcard-aware scope domain. Unlike the auto-detected ``Domain`` (which is\nnever ``any``), an explicit ``any`` is the only value that widens a memory's\napplicability across every domain."
+      },
+      "ScopeLevel": {
+        "type": "string",
+        "enum": [
+          "session",
+          "task_family",
+          "project",
+          "global"
+        ],
+        "title": "ScopeLevel"
+      },
+      "SourceType": {
+        "type": "string",
+        "enum": [
+          "explicit_feedback",
+          "explicit_correction",
+          "edit_diff",
+          "accept",
+          "reject",
+          "rating",
+          "outcome",
+          "import"
+        ],
+        "title": "SourceType"
       },
       "TaskCreateAccepted": {
         "properties": {

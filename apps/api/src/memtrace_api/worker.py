@@ -1,32 +1,36 @@
-"""Day 3 G2: Single asyncio memory-job worker with startup recovery.
-
-The worker claims pending jobs atomically via ``UPDATE ... WHERE status='pending'
-... RETURNING`` so no two workers ever process the same job.
-
-Startup recovery:
-- Stale ``running`` jobs from a previous process → ``failed`` with
-  ``MEMORY_JOB_INTERRUPTED``.
-- ``pending`` jobs → left for the worker to claim normally.
-
-All DB calls are wrapped via ``asyncio.to_thread`` to keep the async loop
-responsive.
-"""
+"""Durable single-consumer worker for Day 3 feedback compilation."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import text
-from sqlalchemy.orm import Session
+from pydantic import ValidationError
+from sqlalchemy import and_, select, text, update
+from sqlalchemy.orm import Session, sessionmaker
 
+from memtrace_api.compiler import (
+    ExtractionSchema,
+    ProviderFailure,
+    StructuredProvider,
+    build_structured_provider,
+)
 from memtrace_api.config import Settings
-from memtrace_api.db_models import MemoryJobModel
-from memtrace_api.diff import compute_diff
-from memtrace_api.durability import detect_durability
+from memtrace_api.database import session_scope
+from memtrace_api.db_models import (
+    FeedbackEventModel,
+    MemoryCardModel,
+    MemoryEvidenceLinkModel,
+    MemoryEvidenceModel,
+    MemoryJobModel,
+    MessageModel,
+    TaskFingerprintModel,
+)
+from memtrace_api.diff import DiffResult, compute_diff
+from memtrace_api.durability import Durability, Reason, detect_durability
 from memtrace_api.events import (
     EventType,
     MemoryCandidateCreatedPayload,
@@ -34,643 +38,787 @@ from memtrace_api.events import (
     MemoryJobFailedPayload,
 )
 from memtrace_api.gates import run_all_gates
-from memtrace_api.providers import ProviderMode
-from memtrace_api.repositories import (
-    FeedbackRepository,
-    MemoryJobRepository,
-    TaskRepository,
-    UserContext,
-)
+from memtrace_api.ids import new_prefixed_ulid
+from memtrace_api.repositories import TaskRepository, UserContext
 from memtrace_api.schemas import (
-    AsyncErrorCode,
     Disposition,
     MemoryJobErrorCode,
     MemoryJobStage,
-    ProviderMode,
+    MemoryScope,
+    ScopeDomain,
+    ScopeLevel,
+    TaskFingerprint,
     utc_now,
 )
+from memtrace_api.store import ReplayCapacityError, TaskMissingError, TaskStore
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Worker
-# ---------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class ClaimedJob:
+    job_id: str
+    owner_id: str
+    feedback_id: str
+    attempt: int
+
+
+@dataclass(frozen=True, slots=True)
+class JobContext:
+    job: ClaimedJob
+    task_id: str
+    run_id: str
+    explicit_text: str | None
+    edited_output: str | None
+    rating: int | None
+    accepted: bool | None
+    original_output: str | None
+    fingerprint: TaskFingerprint
+
+
+@dataclass(frozen=True, slots=True)
+class PersistedEvent:
+    owner_id: str
+    task_id: str
+    event_type: EventType
+    event_seq: int
+    data: dict[str, Any]
 
 
 class MemoryJobWorker:
-    """Single asyncio worker that processes pending memory jobs.
-
-    One instance per API process.  The worker:
-    1. Atomically claims one pending job at a time (no race).
-    2. Runs the full extraction pipeline (diff → durability → provider → validate → insert).
-    3. Commits the result and marks the job ``completed``, or marks it ``failed``.
-    4. Sleeps 1 s when no work is available.
-    """
+    """Globally claims pending jobs and runs exactly one pipeline at a time."""
 
     def __init__(
         self,
-        session_factory: Any,
-        user_ctx: UserContext,
+        session_factory: sessionmaker[Session],
         settings: Settings,
-        store: Any,
+        store: TaskStore,
+        *,
+        provider: StructuredProvider | None = None,
+        poll_interval_seconds: float = 0.1,
     ) -> None:
         self._session_factory = session_factory
-        self._user_ctx = user_ctx
         self._settings = settings
         self._store = store
+        self._provider = provider or build_structured_provider(settings)
+        self._poll_interval_seconds = poll_interval_seconds
         self._task: asyncio.Task[None] | None = None
         self._running = False
+        self._active_job: ClaimedJob | None = None
+
+    @property
+    def task(self) -> asyncio.Task[None] | None:
+        return self._task
 
     def start(self) -> None:
-        """Start the worker loop in the current event loop."""
         if self._task is None or self._task.done():
             self._running = True
-            self._task = asyncio.create_task(self._run_loop())
+            self._task = asyncio.create_task(self._run_loop(), name="memory-job-worker")
 
-    def stop(self) -> None:
-        """Signal the worker to stop and cancel its task."""
+    async def stop(self, *, timeout_seconds: float = 5.0) -> None:
+        """Stop after a bounded drain; interrupted work remains explicitly retryable."""
         self._running = False
-        if self._task is not None and not self._task.done():
-            self._task.cancel()
+        task = self._task
+        if task is not None and not task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=timeout_seconds)
+            except TimeoutError:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                if self._active_job is not None:
+                    await asyncio.to_thread(
+                        self._fail_job,
+                        self._active_job,
+                        MemoryJobErrorCode.MEMORY_JOB_INTERRUPTED,
+                        True,
+                    )
+        await self._provider.aclose()
 
-    # ------------------------------------------------------------------
-    # Main loop
-    # ------------------------------------------------------------------
+    async def run_once(self) -> bool:
+        job = await asyncio.to_thread(self._claim_next_job)
+        if job is None:
+            return False
+        self._active_job = job
+        try:
+            await self._process_job(job)
+        finally:
+            self._active_job = None
+        return True
 
     async def _run_loop(self) -> None:
-        """Claim → process → repeat until stopped."""
         while self._running:
             try:
-                job = await asyncio.to_thread(self._claim_next_job)
-                if job is None:
-                    await asyncio.sleep(1.0)
-                    continue
-                await self._process_job(job)
+                processed = await self.run_once()
+                if not processed:
+                    await asyncio.sleep(self._poll_interval_seconds)
             except asyncio.CancelledError:
-                break
-            except Exception:
-                logger.exception("worker loop error")
-                await asyncio.sleep(5.0)
+                raise
+            except Exception as exc:
+                logger.error("memory.worker.loop_failed type=%s", type(exc).__name__)
+                await asyncio.sleep(self._poll_interval_seconds)
 
-    # ------------------------------------------------------------------
-    # Job claim
-    # ------------------------------------------------------------------
-
-    def _claim_next_job(self) -> MemoryJobModel | None:
-        """Atomically claim one pending job via ``UPDATE ... RETURNING``.
-
-        Returns the job model, or ``None`` if no pending jobs exist.
-        The caller must not hold any other DB write lock when calling this.
-        """
+    def _claim_next_job(self) -> ClaimedJob | None:
+        """Use one conditional SQLite update so competing workers cannot double-claim."""
         with session_scope(self._session_factory) as session:
-            result = session.execute(
+            row = session.execute(
                 text(
                     "UPDATE memory_jobs "
-                    "SET status = 'running', "
-                    "    stage = 'diffing', "
-                    "    attempt = attempt + 1, "
-                    "    updated_at = :now "
-                    "WHERE id = ("
-                    "  SELECT id FROM memory_jobs "
-                    "  WHERE owner_id = :owner "
-                    "    AND status = 'pending' "
-                    "  ORDER BY created_at ASC "
-                    "  LIMIT 1"
-                    ") "
-                    "RETURNING *"
+                    "SET status='running', stage='queued', attempt=attempt+1, "
+                    "retryable=0, last_error_code=NULL, disposition=NULL, updated_at=:now "
+                    "WHERE id=(SELECT id FROM memory_jobs WHERE status='pending' "
+                    "ORDER BY created_at ASC, id ASC LIMIT 1) "
+                    "AND status='pending' "
+                    "RETURNING id, owner_id, feedback_id, attempt"
                 ),
-                {"owner": self._user_ctx.user_id, "now": utc_now()},
-            ).fetchone()
-
-            if result is None:
-                session.commit()
+                {"now": utc_now()},
+            ).one_or_none()
+            if row is None:
                 return None
+            return ClaimedJob(
+                job_id=row.id,
+                owner_id=row.owner_id,
+                feedback_id=row.feedback_id,
+                attempt=row.attempt,
+            )
 
-            job = MemoryJobModel(**dict(result._mapping))
-            session.commit()
-            return job
-
-    # ------------------------------------------------------------------
-    # Job processing
-    # ------------------------------------------------------------------
-
-    async def _process_job(self, job: MemoryJobModel) -> None:
-        """Run the full extraction pipeline for *job*."""
-        logger.info("Processing memory job %s", job.id)
-        await self._emit_stage_event(job, MemoryJobStage.DIFFING)
-
+    async def _process_job(self, job: ClaimedJob) -> None:
         try:
-            with session_scope(self._session_factory) as session:
-                fb_repo = FeedbackRepository(self._user_ctx, session)
-                task_repo = TaskRepository(self._user_ctx, session)
+            context = await asyncio.to_thread(self._load_context, job)
+            await self._persist_and_broadcast_stage(context, MemoryJobStage.DIFFING)
 
-                # --- Load inputs ---
-                feedback = fb_repo.get_feedback(job.feedback_id)
-                if feedback is None:
-                    raise ValueError(f"Feedback {job.feedback_id} not found")
+            diff_result = None
+            if context.edited_output is not None and context.original_output is not None:
+                diff_result = compute_diff(context.original_output, context.edited_output)
 
-                original_output = ""
-                edited_output = feedback.edited_output
-                task_snapshot = task_repo.get_snapshot(feedback.task_id)
-                if task_snapshot and task_snapshot.final_message:
-                    original_output = task_snapshot.final_message.content
+            await self._persist_and_broadcast_stage(
+                context,
+                MemoryJobStage.CLASSIFYING_DURABILITY,
+            )
+            durability, reason = detect_durability(
+                explicit_text=context.explicit_text,
+                edited_output=context.edited_output,
+                rating=context.rating,
+                accepted=context.accepted,
+                has_editable_diff=(
+                    diff_result is not None and context.edited_output != context.original_output
+                ),
+            )
 
-                # --- Step 1: Diff ---
-                diff_result = compute_diff(
-                    original_output,
-                    edited_output or "",
+            early_disposition = _early_disposition(durability, reason)
+            if early_disposition is not None:
+                await self._persist_and_broadcast_stage(context, MemoryJobStage.ADMITTING)
+                events = await asyncio.to_thread(
+                    self._finish_without_candidates,
+                    context,
+                    early_disposition,
+                    diff_result,
                 )
-                await self._emit_stage_event(job, MemoryJobStage.CLASSIFYING_DURABILITY)
+                await self._broadcast_many(events)
+                return
 
-                # --- Step 2: Durability ---
-                has_edit_diff = bool(feedback.edited_output and original_output)
-                durability, reason = detect_durability(
-                    explicit_text=feedback.explicit_text,
-                    edited_output=feedback.edited_output,
-                    rating=feedback.rating,
-                    accepted=feedback.accepted,
-                    has_editable_diff=has_edit_diff,
-                )
+            await self._persist_and_broadcast_stage(context, MemoryJobStage.EXTRACTING)
+            prompt = self._build_prompt(context, diff_result, durability, reason)
+            raw = await self._provider.complete_json(
+                prompt,
+                ExtractionSchema.model_json_schema(),
+            )
 
-                # --- Early dispositions (no provider needed) ---
-                if durability == "ambiguous" and reason == "one_shot_marker_found":
-                    self._finish_job(
-                        session, job, Disposition.EPISODE_ONLY, [], fb_repo, task_repo
-                    )
-                    return
-                if durability == "reinforce_usage_only":
-                    self._finish_job(
-                        session, job, Disposition.REINFORCE_USAGE_ONLY, [], fb_repo, task_repo
-                    )
-                    return
-                if durability == "harmful_usage_only":
-                    self._finish_job(
-                        session, job, Disposition.NO_MEMORY, [], fb_repo, task_repo
-                    )
-                    return
-                if durability == "ambiguous" and not feedback.explicit_text:
-                    self._finish_job(
-                        session, job, Disposition.NO_MEMORY, [], fb_repo, task_repo
-                    )
-                    return
-
-                await self._emit_stage_event(job, MemoryJobStage.EXTRACTING)
-
-                # --- Step 3: Provider ---
-                from memtrace_api.compiler import (
-                    ExtractionSchema,
-                    MockStructuredProvider,
-                    ProviderFailure,
-                    build_structured_provider,
-                )
-
-                provider = build_structured_provider(self._settings)
-                prompt = self._build_prompt(
-                    feedback, original_output, diff_result, (durability, reason)
-                )
-                simulation = None  # fixture simulation key, if any
-
-                try:
-                    raw = await provider.complete_json(
-                        prompt, output_schema={}, simulation=simulation
-                    )
-                except ProviderFailure as exc:
-                    self._mark_failed(
-                        session, job,
-                        MemoryJobErrorCode.MEMORY_PROVIDER_ERROR,
-                        exc.retryable,
-                    )
-                    return
-                except Exception as exc:
-                    self._mark_failed(
-                        session, job,
-                        MemoryJobErrorCode.MEMORY_PROVIDER_ERROR,
-                        True,
-                    )
-                    logger.warning("Provider error: %s", exc)
-                    return
-
-                # --- Step 4: Validate (with one repair retry) ---
-                try:
-                    extracted = ExtractionSchema.model_validate(raw)
-                except Exception:
-                    repair_prompt = (
-                        "Your previous output did not match the required schema. "
-                        "Please fix it and output valid JSON.\n"
-                        f"Schema:\n{json.dumps(ExtractionSchema.model_json_schema(), ensure_ascii=False)}\n"
-                        f"Your output:\n{json.dumps(raw, ensure_ascii=False)}"
-                    )
-                    try:
-                        repaired = await provider.complete_json(
-                            repair_prompt, output_schema={}, simulation=simulation
-                        )
-                        extracted = ExtractionSchema.model_validate(repaired)
-                    except Exception:
-                        self._mark_failed(
-                            session, job,
-                            MemoryJobErrorCode.MEMORY_REPAIR_FAILED,
-                            False,
-                        )
-                        return
-
-                await self._emit_stage_event(job, MemoryJobStage.VALIDATING)
-
-                # --- Step 5: Run P0 Gates ---
-                candidate_dicts = self._map_candidates(
-                    extracted, feedback, diff_result, (durability, reason)
-                )
-                accepted_candidates, blocked_details = self._apply_gates(
-                    candidate_dicts, durability, feedback
-                )
-
-                # --- Step 6: Insert candidates + evidence + events ---
-                candidate_ids = self._insert_candidates(
-                    session, job, feedback, accepted_candidates, fb_repo, task_repo
-                )
-
-                # --- Finish ---
-                job_repo = MemoryJobRepository(self._user_ctx, session)
-                job_repo.complete_job(
-                    job_id=job.id,
-                    disposition=(
-                        Disposition.CANDIDATE_CREATED
-                        if candidate_ids
-                        else Disposition.NO_MEMORY
-                    ),
-                    candidate_ids=candidate_ids,
-                )
-                session.commit()
-                await self._emit_stage_event(job, MemoryJobStage.DONE)
-
-        except Exception as exc:
-            logger.exception("Job %s failed: %s", job.id, exc)
+            await self._persist_and_broadcast_stage(context, MemoryJobStage.VALIDATING)
             try:
-                with session_scope(self._session_factory) as session:
-                    self._mark_failed(
-                        session, job,
-                        MemoryJobErrorCode.MEMORY_PROVIDER_ERROR,
-                        True,
+                extracted = ExtractionSchema.model_validate(raw)
+            except ValidationError:
+                repair_prompt = self._build_repair_prompt(context, raw)
+                try:
+                    repaired = await self._provider.complete_json(
+                        repair_prompt,
+                        ExtractionSchema.model_json_schema(),
                     )
-            except Exception:
-                logger.exception("Failed to mark job %s as failed", job.id)
+                    extracted = ExtractionSchema.model_validate(repaired)
+                except (ProviderFailure, ValidationError) as exc:
+                    raise ProviderFailure("MEMORY_REPAIR_FAILED", retryable=False) from exc
 
-    # ------------------------------------------------------------------
-    # Job completion helpers
-    # ------------------------------------------------------------------
+            await self._persist_and_broadcast_stage(context, MemoryJobStage.ADMITTING)
+            candidates = self._admitted_candidates(
+                context,
+                extracted,
+                durability,
+            )
+            events = await asyncio.to_thread(
+                self._finish_with_candidates,
+                context,
+                candidates,
+                diff_result,
+            )
+            await self._broadcast_many(events)
+        except asyncio.CancelledError:
+            raise
+        except ProviderFailure as exc:
+            error_code = _provider_error_code(exc.code)
+            events = await asyncio.to_thread(self._fail_job, job, error_code, exc.retryable)
+            await self._broadcast_many(events)
+        except Exception as exc:
+            logger.error(
+                "memory.job.failed job_id=%s type=%s",
+                job.job_id,
+                type(exc).__name__,
+            )
+            events = await asyncio.to_thread(
+                self._fail_job,
+                job,
+                MemoryJobErrorCode.MEMORY_SCHEMA_INVALID,
+                False,
+            )
+            await self._broadcast_many(events)
 
-    def _finish_job(
+    def _load_context(self, job: ClaimedJob) -> JobContext:
+        with session_scope(self._session_factory) as session:
+            persisted_job = session.execute(
+                select(MemoryJobModel).where(
+                    and_(
+                        MemoryJobModel.id == job.job_id,
+                        MemoryJobModel.owner_id == job.owner_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if persisted_job is None or persisted_job.status != "running":
+                raise ValueError("claimed job is no longer running")
+            feedback = session.execute(
+                select(FeedbackEventModel).where(
+                    and_(
+                        FeedbackEventModel.id == job.feedback_id,
+                        FeedbackEventModel.owner_id == job.owner_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if feedback is None:
+                raise ValueError("feedback is missing")
+            fingerprint_row = session.execute(
+                select(TaskFingerprintModel).where(
+                    and_(
+                        TaskFingerprintModel.task_id == feedback.task_id,
+                        TaskFingerprintModel.owner_id == job.owner_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if fingerprint_row is None:
+                raise ValueError("task fingerprint is missing")
+            assistant = (
+                session.execute(
+                    select(MessageModel)
+                    .where(
+                        and_(
+                            MessageModel.owner_id == job.owner_id,
+                            MessageModel.task_id == feedback.task_id,
+                            MessageModel.run_id == feedback.run_id,
+                            MessageModel.role == "assistant",
+                        )
+                    )
+                    .order_by(MessageModel.created_at.desc())
+                )
+                .scalars()
+                .first()
+            )
+            return JobContext(
+                job=job,
+                task_id=feedback.task_id,
+                run_id=feedback.run_id,
+                explicit_text=feedback.explicit_text,
+                edited_output=feedback.edited_output,
+                rating=feedback.rating,
+                accepted=feedback.accepted,
+                original_output=assistant.content if assistant is not None else None,
+                fingerprint=TaskFingerprint.model_validate_json(fingerprint_row.fingerprint_json),
+            )
+
+    async def _persist_and_broadcast_stage(
         self,
-        session: Session,
-        job: MemoryJobModel,
-        disposition: Disposition,
-        candidate_ids: list[str],
-        fb_repo: Any,
-        task_repo: Any,
+        context: JobContext,
+        stage: MemoryJobStage,
     ) -> None:
-        job_repo = MemoryJobRepository(self._user_ctx, session)
-        job_repo.complete_job(
-            job_id=job.id,
-            disposition=disposition,
-            candidate_ids=candidate_ids,
-        )
-        session.commit()
+        event = await asyncio.to_thread(self._persist_stage, context, stage)
+        await self._broadcast(event)
 
-    def _mark_failed(
+    def _persist_stage(self, context: JobContext, stage: MemoryJobStage) -> PersistedEvent:
+        with session_scope(self._session_factory) as session:
+            changed = session.execute(
+                update(MemoryJobModel)
+                .where(
+                    and_(
+                        MemoryJobModel.id == context.job.job_id,
+                        MemoryJobModel.owner_id == context.job.owner_id,
+                        MemoryJobModel.status == "running",
+                    )
+                )
+                .values(stage=stage.value, updated_at=utc_now())
+            ).rowcount
+            if changed != 1:
+                raise ValueError("memory job stage transition lost ownership")
+            user_ctx = UserContext(context.job.owner_id, "memory_worker")
+            task_repo = TaskRepository(user_ctx, session)
+            data = MemoryExtractionStagePayload(
+                memory_job_id=context.job.job_id,
+                stage=stage,
+            ).model_dump(mode="json")
+            seq = task_repo.allocate_next_event_seq(context.task_id)
+            task_repo.append_event(
+                stream_type="task",
+                stream_id=context.task_id,
+                seq=seq,
+                event_type=EventType.MEMORY_EXTRACTION_STAGE.value,
+                metadata=data,
+            )
+            return PersistedEvent(
+                context.job.owner_id,
+                context.task_id,
+                EventType.MEMORY_EXTRACTION_STAGE,
+                seq,
+                data,
+            )
+
+    def _admitted_candidates(
         self,
-        session: Session,
-        job: MemoryJobModel,
+        context: JobContext,
+        extracted: ExtractionSchema,
+        durability: Durability,
+    ) -> list[dict[str, Any]]:
+        scope = _canonical_scope(context.fingerprint).model_dump(mode="json")
+        accepted: list[dict[str, Any]] = []
+        for index, candidate_model in enumerate(extracted.candidates):
+            candidate = candidate_model.model_dump(mode="json")
+            candidate["scope"] = scope
+            candidate["save_preselected"] = durability is Durability.EXPLICIT_DURABLE
+            result = run_all_gates(
+                candidate=candidate,
+                durability=durability.value,
+                feedback_text=context.explicit_text,
+                edited_output=context.edited_output,
+                fingerprint=context.fingerprint,
+                candidate_index=index,
+            )
+            if result.all_passed:
+                accepted.append(candidate)
+            else:
+                logger.info(
+                    "memory.candidate.blocked job_id=%s ordinal=%d gate=%s reason=%s",
+                    context.job.job_id,
+                    index,
+                    result.blocking_gate,
+                    result.final_decision.reason,
+                )
+        return accepted[:3]
+
+    def _finish_with_candidates(
+        self,
+        context: JobContext,
+        candidates: list[dict[str, Any]],
+        diff_result: DiffResult | None,
+    ) -> list[PersistedEvent]:
+        if not candidates:
+            return self._finish_without_candidates(
+                context,
+                Disposition.NO_MEMORY,
+                diff_result,
+            )
+        events: list[PersistedEvent] = []
+        with session_scope(self._session_factory) as session:
+            job = _running_job(session, context.job)
+            user_ctx = UserContext(context.job.owner_id, "memory_worker")
+            task_repo = TaskRepository(user_ctx, session)
+            for ordinal, candidate in enumerate(candidates):
+                memory_id = new_prefixed_ulid("mem")
+                evidence_id = new_prefixed_ulid("evidence")
+                scope = candidate["scope"]
+                source_type, source_field = _source_projection(candidate["evidence_source"])
+                now = utc_now()
+                card = MemoryCardModel(
+                    id=memory_id,
+                    owner_id=context.job.owner_id,
+                    memory_job_id=context.job.job_id,
+                    current_version_id=None,
+                    status="candidate",
+                    kind=candidate["kind"],
+                    source_type=source_type,
+                    save_preselected=bool(candidate["save_preselected"]),
+                    rejection_reason=None,
+                    title=candidate["title"],
+                    rule=candidate["rule"],
+                    avoid=candidate["avoid"],
+                    trigger_text=candidate["trigger_text"],
+                    scope_level=scope["level"],
+                    domain=scope["domain"],
+                    task_type=scope.get("task_type"),
+                    artifact_type=scope.get("artifact_type"),
+                    audience=scope.get("audience"),
+                    project_key=scope.get("project_key"),
+                    scope_json=json.dumps(scope, separators=(",", ":"), ensure_ascii=False),
+                    exceptions_json=json.dumps(
+                        candidate["exceptions"], separators=(",", ":"), ensure_ascii=False
+                    ),
+                    source_trust=1.0 if source_type == "explicit_feedback" else 0.8,
+                    rule_confidence=None,
+                    scope_confidence=None,
+                    evidence_count=1,
+                    version=0,
+                    valid_from=None,
+                    valid_to=None,
+                    created_at=now,
+                    updated_at=now,
+                )
+                evidence = MemoryEvidenceModel(
+                    id=evidence_id,
+                    owner_id=context.job.owner_id,
+                    feedback_id=context.job.feedback_id,
+                    task_id=context.task_id,
+                    run_id=context.run_id,
+                    memory_job_id=context.job.job_id,
+                    source_type=source_type,
+                    source_field=source_field,
+                    evidence_quote=candidate["evidence_quote"],
+                    diff_summary_json=_diff_summary_json(diff_result),
+                    normalized_edit_cost=(
+                        diff_result.normalized_edit_cost if diff_result is not None else None
+                    ),
+                    episode_summary=None,
+                    disposition=Disposition.CANDIDATE_CREATED.value,
+                    created_at=now,
+                )
+                link = MemoryEvidenceLinkModel(
+                    id=new_prefixed_ulid("evidlink"),
+                    owner_id=context.job.owner_id,
+                    memory_id=memory_id,
+                    evidence_id=evidence_id,
+                    ordinal=ordinal,
+                    created_at=now,
+                )
+                session.add_all([card, evidence, link])
+                session.flush()
+                data = MemoryCandidateCreatedPayload(
+                    memory_job_id=context.job.job_id,
+                    memory_id=memory_id,
+                    evidence_id=evidence_id,
+                    ordinal=ordinal,
+                ).model_dump(mode="json")
+                seq = task_repo.allocate_next_event_seq(context.task_id)
+                task_repo.append_event(
+                    stream_type="task",
+                    stream_id=context.task_id,
+                    seq=seq,
+                    event_type=EventType.MEMORY_CANDIDATE_CREATED.value,
+                    metadata=data,
+                )
+                events.append(
+                    PersistedEvent(
+                        context.job.owner_id,
+                        context.task_id,
+                        EventType.MEMORY_CANDIDATE_CREATED,
+                        seq,
+                        data,
+                    )
+                )
+
+            job.status = "completed"
+            job.stage = MemoryJobStage.DONE.value
+            job.disposition = Disposition.CANDIDATE_CREATED.value
+            job.last_error_code = None
+            job.retryable = False
+            job.updated_at = utc_now()
+            events.append(_append_done_event(task_repo, context))
+        return events
+
+    def _finish_without_candidates(
+        self,
+        context: JobContext,
+        disposition: Disposition,
+        diff_result: DiffResult | None,
+    ) -> list[PersistedEvent]:
+        with session_scope(self._session_factory) as session:
+            job = _running_job(session, context.job)
+            if disposition is Disposition.EPISODE_ONLY:
+                source = context.explicit_text or context.edited_output
+                if source:
+                    source_type, source_field = _source_projection(
+                        "explicit_text" if context.explicit_text else "edit_diff"
+                    )
+                    session.add(
+                        MemoryEvidenceModel(
+                            id=new_prefixed_ulid("evidence"),
+                            owner_id=context.job.owner_id,
+                            feedback_id=context.job.feedback_id,
+                            task_id=context.task_id,
+                            run_id=context.run_id,
+                            memory_job_id=context.job.job_id,
+                            source_type=source_type,
+                            source_field=source_field,
+                            evidence_quote=source[:2_000],
+                            diff_summary_json=_diff_summary_json(diff_result),
+                            normalized_edit_cost=(
+                                diff_result.normalized_edit_cost
+                                if diff_result is not None
+                                else None
+                            ),
+                            episode_summary="one_shot_feedback",
+                            disposition=Disposition.EPISODE_ONLY.value,
+                            created_at=utc_now(),
+                        )
+                    )
+            job.status = "completed"
+            job.stage = MemoryJobStage.DONE.value
+            job.disposition = disposition.value
+            job.last_error_code = None
+            job.retryable = False
+            job.updated_at = utc_now()
+            task_repo = TaskRepository(
+                UserContext(context.job.owner_id, "memory_worker"),
+                session,
+            )
+            return [_append_done_event(task_repo, context)]
+
+    def _fail_job(
+        self,
+        job: ClaimedJob,
         error_code: MemoryJobErrorCode,
         retryable: bool,
-    ) -> None:
-        job_repo = MemoryJobRepository(self._user_ctx, session)
-        job_repo.fail_job(job_id=job.id, error_code=error_code, retryable=retryable)
-        session.commit()
-
-        # Emit memory.job.failed event
-        try:
-            payload = MemoryJobFailedPayload(
-                memory_job_id=job.id,
+    ) -> list[PersistedEvent]:
+        with session_scope(self._session_factory) as session:
+            persisted = session.execute(
+                select(MemoryJobModel).where(
+                    and_(
+                        MemoryJobModel.id == job.job_id,
+                        MemoryJobModel.owner_id == job.owner_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if persisted is None or persisted.status not in {"running", "pending"}:
+                return []
+            feedback = session.execute(
+                select(FeedbackEventModel).where(
+                    and_(
+                        FeedbackEventModel.id == job.feedback_id,
+                        FeedbackEventModel.owner_id == job.owner_id,
+                    )
+                )
+            ).scalar_one()
+            persisted.status = "failed"
+            persisted.stage = MemoryJobStage.FAILED.value
+            persisted.last_error_code = error_code.value
+            persisted.retryable = retryable
+            persisted.disposition = Disposition.FAILED.value
+            persisted.updated_at = utc_now()
+            task_repo = TaskRepository(UserContext(job.owner_id, "memory_worker"), session)
+            data = MemoryJobFailedPayload(
+                memory_job_id=job.job_id,
                 stage=MemoryJobStage.FAILED,
                 error_code=error_code,
                 retryable=retryable,
-            )
-            task_repo = TaskRepository(self._user_ctx, session)
-            # We need the task_id; use feedback_id as approximate stream id
+            ).model_dump(mode="json")
+            seq = task_repo.allocate_next_event_seq(feedback.task_id)
             task_repo.append_event(
                 stream_type="task",
-                stream_id=job.feedback_id,
-                event_type=EventType.MEMORY_JOB_FAILED,
-                data=payload.model_dump(mode="json"),
+                stream_id=feedback.task_id,
+                seq=seq,
+                event_type=EventType.MEMORY_JOB_FAILED.value,
+                metadata=data,
             )
-        except Exception:
-            logger.exception("Failed to emit job failed event for %s", job.id)
-
-    async def _emit_stage_event(
-        self, job: MemoryJobModel, stage: MemoryJobStage
-    ) -> None:
-        """Update the job stage in DB and emit the SSE event."""
-        try:
-            with session_scope(self._session_factory) as session:
-                job_repo = MemoryJobRepository(self._user_ctx, session)
-                job_repo.update_stage(job_id=job.id, stage=stage)
-                session.commit()
-
-            payload = MemoryExtractionStagePayload(
-                memory_job_id=job.id, stage=stage
-            )
-            try:
-                with session_scope(self._session_factory) as session:
-                    task_repo = TaskRepository(self._user_ctx, session)
-                    task_repo.append_event(
-                        stream_type="task",
-                        stream_id=job.feedback_id,
-                        event_type=EventType.MEMORY_EXTRACTION_STAGE,
-                        data=payload.model_dump(mode="json"),
-                    )
-            except Exception:
-                pass
-        except Exception:
-            logger.exception("Failed to emit stage event for %s", job.id)
-
-    # ------------------------------------------------------------------
-    # Prompt / mapping / insertion
-    # ------------------------------------------------------------------
+            return [
+                PersistedEvent(
+                    job.owner_id,
+                    feedback.task_id,
+                    EventType.MEMORY_JOB_FAILED,
+                    seq,
+                    data,
+                )
+            ]
 
     def _build_prompt(
         self,
-        feedback: Any,
-        original: str,
-        diff_result: Any,
-        durability: tuple,
+        context: JobContext,
+        diff_result: DiffResult | None,
+        durability: Durability,
+        reason: Reason,
     ) -> str:
-        """Build the extraction prompt for the provider."""
-        parts = []
-        parts.append(f"Feedback: {feedback.explicit_text or '(edit only)'}")
-        if original:
-            parts.append(f"Original output:\n{original[:4_000]}")
-        if diff_result.hunk_count > 0:
-            parts.append(f"Diff: {diff_result.change_summary}")
-            if not diff_result.truncated:
-                parts.append(diff_result.changed_fragment)
-        parts.append(
-            f"\n[Hard constraint] Durability: {durability[0]} ({durability[1]})"
-        )
-        parts.append(
-            "\nExtract 0-3 candidate memory cards as JSON. "
-            "Schema: {\n"
-            '  "schema_version": "1.0",\n'
-            '  "feedback_summary": "brief summary",\n'
-            '  "durability": "explicit_durable|one_shot|ambiguous|reinforce_usage_only|harmful_usage_only",\n'
-            '  "disposition": "candidate_created|episode_only|reinforce_usage_only|no_memory|failed",\n'
-            '  "candidates": [\n'
-            '    {\n'
-            '      "category": "preference|rule|experience|one_shot",\n'
-            '      "kind": "preference|constraint|procedure|experience",\n'
-            '      "title": "4-40 chars",\n'
-            '      "rule": "20-300 chars",\n'
-            '      "avoid": "optional",\n'
-            '      "trigger_text": "optional",\n'
-            '      "scope": {"level": "task_family", "domain": "programming_learning"},\n'
-            '      "exceptions": [],\n'
-            '      "evidence_source": "explicit_text|edit_diff",\n'
-            '      "evidence_quote": "exact substring from feedback"\n'
-            "    }\n"
-            "  ]\n"
-            "}"
-        )
-        return "\n\n".join(parts)
-
-    def _map_candidates(
-        self,
-        extracted: Any,
-        feedback: Any,
-        diff_result: Any,
-        durability: tuple,
-    ) -> list[dict[str, Any]]:
-        if not extracted.candidates:
-            return []
-        return [
-            {
-                "category": card.category,
-                "kind": card.kind,
-                "title": card.title,
-                "rule": card.rule,
-                "avoid": card.avoid,
-                "trigger_text": card.trigger_text,
-                "scope": card.scope,
-                "exceptions": card.exceptions,
-                "evidence_source": card.evidence_source,
-                "evidence_quote": card.evidence_quote,
-                "save_preselected": str(durability[0]) == "explicit_durable",
-            }
-            for card in extracted.candidates
-        ]
-
-    def _apply_gates(
-        self,
-        candidates: list[dict],
-        durability: tuple,
-        feedback: Any,
-    ) -> tuple[list[dict], list[dict]]:
-        """Run P0 gates on each candidate.
-
-        Returns (accepted_candidates, blocked_candidates_with_reasons).
-        Gates that block a candidate mark it with ``_gate_blocked`` metadata
-        but do not raise — we skip blocked candidates and log the reason.
-        """
-        from memtrace_api.gates import run_all_gates
-
-        accepted: list[dict] = []
-        blocked: list[dict] = []
-
-        for idx, c in enumerate(candidates):
-            result = run_all_gates(
-                candidate=c,
-                durability=durability[0],
-                feedback_text=feedback.explicit_text,
-                edited_output=feedback.edited_output,
-                fingerprint=None,
-                candidate_index=idx,
-            )
-            if result.all_passed:
-                accepted.append(c)
-            else:
-                blocking = result.blocking_gate or "unknown"
-                c["_gate_blocked"] = blocking
-                c["_gate_detail"] = result.final_decision.detail
-                blocked.append(c)
-                logger.info(
-                    "Gate blocked candidate %d: %s — %s",
-                    idx,
-                    blocking,
-                    result.final_decision.detail,
-                )
-
-        return accepted, blocked
-
-    def _insert_candidates(
-        self,
-        session: Session,
-        job: MemoryJobModel,
-        feedback: Any,
-        candidates: list[dict],
-        fb_repo: Any,
-        task_repo: Any,
-    ) -> list[str]:
-        """Insert candidates + evidence + evidence links + events atomically."""
-        from memtrace_api.ids import new_prefixed_ulid
-
-        candidate_ids: list[str] = []
-        for i, c in enumerate(candidates[:3]):
-            memory_id = new_prefixed_ulid("mem")
-            evidence_id = new_prefixed_ulid("evidence")
-
-            # Evidence row
-            session.execute(
-                text(
-                    "INSERT INTO memory_evidence "
-                    "(id, owner_id, feedback_id, task_id, run_id, memory_job_id, "
-                    " source_type, source_field, evidence_quote, episode_summary, "
-                    " diff_summary_json, normalized_edit_cost, created_at) "
-                    "VALUES (:id, :owner, :fb, :task, :run, :job, "
-                    "        :src, :field, :quote, :summary, "
-                    "        :diff, :cost, :now)"
-                ),
-                {
-                    "id": evidence_id,
-                    "owner": self._user_ctx.user_id,
-                    "fb": feedback.id,
-                    "task": feedback.task_id,
-                    "run": feedback.run_id,
-                    "job": job.id,
-                    "src": c["evidence_source"],
-                    "field": (
-                        "explicit_text"
-                        if c["evidence_source"] == "explicit_text"
-                        else "edited_output"
-                    ),
-                    "quote": c["evidence_quote"][:2_000],
-                    "summary": None,
-                    "diff": None,
-                    "cost": None,
-                    "now": utc_now(),
-                },
-            )
-
-            # Candidate card (status = candidate, invariants enforced by CHECK)
-            scope_dict = c["scope"]
-            session.execute(
-                text(
-                    "INSERT INTO memory_cards "
-                    "(id, owner_id, memory_job_id, status, kind, source_type, "
-                    " save_preselected, title, rule, avoid, trigger_text, "
-                    " scope_level, domain, task_type, artifact_type, audience, project_key, "
-                    " scope_json, exceptions_json, source_trust, evidence_count, "
-                    " version, created_at, updated_at) "
-                    "VALUES (:id, :owner, :job, 'candidate', :kind, 'explicit_feedback', "
-                    "        :preselected, :title, :rule, :avoid, :trigger, "
-                    "        :level, :domain, :task_type, :artifact, :audience, :project, "
-                    "        :scope_json, :exceptions, :trust, 1, "
-                    "        0, :now, :now)"
-                ),
-                {
-                    "id": memory_id,
-                    "owner": self._user_ctx.user_id,
-                    "job": job.id,
-                    "kind": c["kind"],
-                    "preselected": c["save_preselected"],
-                    "title": c["title"][:40],
-                    "rule": c["rule"][:300],
-                    "avoid": c["avoid"][:400],
-                    "trigger": c["trigger_text"][:240],
-                    "level": scope_dict.get("level", "task_family"),
-                    "domain": scope_dict.get("domain", "other"),
-                    "task_type": scope_dict.get("task_type"),
-                    "artifact": scope_dict.get("artifact_type"),
-                    "audience": scope_dict.get("audience"),
-                    "project": scope_dict.get("project_key"),
-                    "scope_json": json.dumps(scope_dict),
-                    "exceptions": json.dumps(c["exceptions"]),
-                    "trust": 1.0,
-                    "now": utc_now(),
-                },
-            )
-
-            # Evidence link
-            link_id = new_prefixed_ulid("evlink")
-            session.execute(
-                text(
-                    "INSERT INTO memory_evidence_links "
-                    "(id, owner_id, memory_id, evidence_id, ordinal, created_at) "
-                    "VALUES (:id, :owner, :mem, :ev, :ord, :now)"
-                ),
-                {
-                    "id": link_id,
-                    "owner": self._user_ctx.user_id,
-                    "mem": memory_id,
-                    "ev": evidence_id,
-                    "ord": i,
-                    "now": utc_now(),
-                },
-            )
-
-            # Emit memory.candidate.created event
-            try:
-                ev_payload = MemoryCandidateCreatedPayload(
-                    memory_job_id=job.id,
-                    memory_id=memory_id,
-                    evidence_id=evidence_id,
-                    ordinal=i,
-                )
-                task_repo.append_event(
-                    stream_type="task",
-                    stream_id=feedback.task_id,
-                    event_type=EventType.MEMORY_CANDIDATE_CREATED,
-                    data=ev_payload.model_dump(mode="json"),
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to emit candidate.created event for %s", memory_id
-                )
-
-            candidate_ids.append(memory_id)
-
-        return candidate_ids
-
-
-# ---------------------------------------------------------------------------
-# Startup recovery
-# ---------------------------------------------------------------------------
-
-
-def recover_stale_jobs(
-    session_factory: Any,
-    user_ctx: UserContext,
-) -> int:
-    """Mark stale running jobs from a previous process as failed.
-
-    Called at application startup.  Any job still in ``running`` state
-    after a restart is assumed to have been interrupted.
-    """
-    recovered = 0
-    with session_scope(session_factory) as session:
-        result = session.execute(
-            text(
-                "UPDATE memory_jobs "
-                "SET status = 'failed', "
-                "    stage = 'failed', "
-                "    last_error_code = 'MEMORY_JOB_INTERRUPTED', "
-                "    retryable = 1, "
-                "    updated_at = :now "
-                "WHERE owner_id = :owner "
-                "  AND status = 'running' "
-                "RETURNING id"
+        payload = {
+            "explicit_text": context.explicit_text,
+            "edited_output": (
+                context.edited_output[:4_000] if context.edited_output is not None else None
             ),
-            {"owner": user_ctx.user_id, "now": utc_now()},
-        ).fetchall()
-        session.commit()
-        recovered = len(result)
-    if recovered:
-        logger.info("Recovered %d stale running jobs as failed", recovered)
-    return recovered
+            "original_output": (
+                context.original_output[:4_000] if context.original_output is not None else None
+            ),
+            "diff_summary": (
+                json.loads(_diff_summary_json(diff_result)) if diff_result is not None else None
+            ),
+            "durability": durability.value,
+            "durability_reason": reason.value,
+            "fingerprint": {
+                "domain": context.fingerprint.domain.value,
+                "task_type": context.fingerprint.task_type.value,
+                "artifact_type": context.fingerprint.artifact_type.value,
+                "audience": context.fingerprint.audience.value,
+                "classification_confidence": context.fingerprint.classification_confidence,
+            },
+        }
+        return (
+            "Extract zero to three atomic, reusable candidate memories. "
+            "Never broaden scope beyond the supplied fingerprint and quote exact user evidence.\n"
+            "MEMTRACE_CONTEXT_JSON:"
+            + json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+        )
+
+    def _build_repair_prompt(self, context: JobContext, raw: dict[str, Any]) -> str:
+        repair_context = {
+            "explicit_text": context.explicit_text,
+            "edited_output": context.edited_output[:4_000] if context.edited_output else None,
+            "previous_output": raw,
+        }
+        return (
+            "Repair the previous output to exactly match the supplied JSON Schema.\n"
+            "MEMTRACE_CONTEXT_JSON:"
+            + json.dumps(repair_context, separators=(",", ":"), ensure_ascii=False)
+        )
+
+    async def _broadcast_many(self, events: list[PersistedEvent]) -> None:
+        for event in events:
+            await self._broadcast(event)
+
+    async def _broadcast(self, event: PersistedEvent) -> None:
+        try:
+            record = await self._store.get(event.task_id)
+            if record.user_ctx is not None and record.user_ctx.user_id != event.owner_id:
+                return
+            await self._store.emit_preallocated_persistent(
+                record,
+                event_type=event.event_type,
+                event_seq=event.event_seq,
+                data=event.data,
+            )
+        except (TaskMissingError, ReplayCapacityError):
+            return
+
+
+def _running_job(session: Session, job: ClaimedJob) -> MemoryJobModel:
+    persisted = session.execute(
+        select(MemoryJobModel).where(
+            and_(
+                MemoryJobModel.id == job.job_id,
+                MemoryJobModel.owner_id == job.owner_id,
+                MemoryJobModel.status == "running",
+            )
+        )
+    ).scalar_one_or_none()
+    if persisted is None:
+        raise ValueError("memory job is no longer running")
+    return persisted
+
+
+def _canonical_scope(fingerprint: TaskFingerprint) -> MemoryScope:
+    if fingerprint.domain.value == "other" or fingerprint.classification_confidence < 0.70:
+        return MemoryScope(level=ScopeLevel.SESSION, domain=ScopeDomain.OTHER)
+    return MemoryScope(
+        level=ScopeLevel.TASK_FAMILY,
+        domain=ScopeDomain(fingerprint.domain.value),
+        task_type=fingerprint.task_type,
+        artifact_type=fingerprint.artifact_type,
+        audience=fingerprint.audience,
+    )
+
+
+def _early_disposition(durability: Durability, reason: Reason) -> Disposition | None:
+    if durability is Durability.ONE_SHOT:
+        return Disposition.EPISODE_ONLY
+    if durability is Durability.REINFORCE_USAGE_ONLY:
+        return Disposition.REINFORCE_USAGE_ONLY
+    if durability is Durability.HARMFUL_USAGE_ONLY:
+        return Disposition.NO_MEMORY
+    if durability is Durability.AMBIGUOUS and reason is not Reason.EDIT_DIFF_ONLY:
+        return Disposition.NO_MEMORY
+    return None
+
+
+def _source_projection(source: str) -> tuple[str, str]:
+    if source == "explicit_text":
+        return "explicit_feedback", "explicit_text"
+    return "edit_diff", "edited_output"
+
+
+def _diff_summary_json(diff_result: DiffResult | None) -> str | None:
+    if diff_result is None:
+        return None
+    return json.dumps(
+        {
+            "hunk_count": diff_result.hunk_count,
+            "added_chars": diff_result.added_chars,
+            "removed_chars": diff_result.removed_chars,
+            "original_len": diff_result.original_len,
+            "edited_len": diff_result.edited_len,
+            "truncated": diff_result.truncated,
+        },
+        separators=(",", ":"),
+    )
+
+
+def _append_done_event(
+    task_repo: TaskRepository,
+    context: JobContext,
+) -> PersistedEvent:
+    data = MemoryExtractionStagePayload(
+        memory_job_id=context.job.job_id,
+        stage=MemoryJobStage.DONE,
+    ).model_dump(mode="json")
+    seq = task_repo.allocate_next_event_seq(context.task_id)
+    task_repo.append_event(
+        stream_type="task",
+        stream_id=context.task_id,
+        seq=seq,
+        event_type=EventType.MEMORY_EXTRACTION_STAGE.value,
+        metadata=data,
+    )
+    return PersistedEvent(
+        context.job.owner_id,
+        context.task_id,
+        EventType.MEMORY_EXTRACTION_STAGE,
+        seq,
+        data,
+    )
+
+
+def _provider_error_code(code: str) -> MemoryJobErrorCode:
+    try:
+        return MemoryJobErrorCode(code)
+    except ValueError:
+        return MemoryJobErrorCode.MEMORY_PROVIDER_ERROR
+
+
+def recover_stale_jobs(session_factory: sessionmaker[Session]) -> int:
+    """Mark every prior-process running job interrupted and append a durable event."""
+    with session_scope(session_factory) as session:
+        rows = list(
+            session.execute(
+                select(MemoryJobModel, FeedbackEventModel)
+                .join(FeedbackEventModel, FeedbackEventModel.id == MemoryJobModel.feedback_id)
+                .where(MemoryJobModel.status == "running")
+                .order_by(MemoryJobModel.created_at.asc(), MemoryJobModel.id.asc())
+            ).all()
+        )
+        for job, feedback in rows:
+            job.status = "failed"
+            job.stage = MemoryJobStage.FAILED.value
+            job.last_error_code = MemoryJobErrorCode.MEMORY_JOB_INTERRUPTED.value
+            job.retryable = True
+            job.disposition = Disposition.FAILED.value
+            job.updated_at = utc_now()
+            task_repo = TaskRepository(UserContext(job.owner_id, "memory_worker"), session)
+            data = MemoryJobFailedPayload(
+                memory_job_id=job.id,
+                stage=MemoryJobStage.FAILED,
+                error_code=MemoryJobErrorCode.MEMORY_JOB_INTERRUPTED,
+                retryable=True,
+            ).model_dump(mode="json")
+            seq = task_repo.allocate_next_event_seq(feedback.task_id)
+            task_repo.append_event(
+                stream_type="task",
+                stream_id=feedback.task_id,
+                seq=seq,
+                event_type=EventType.MEMORY_JOB_FAILED.value,
+                metadata=data,
+            )
+        return len(rows)

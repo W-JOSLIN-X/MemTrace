@@ -565,6 +565,16 @@ class FeedbackRepository:
         )
         return fb, job, event
 
+    def get_feedback(self, feedback_id: str) -> FeedbackEventModel | None:
+        return self.session.execute(
+            select(FeedbackEventModel).where(
+                and_(
+                    FeedbackEventModel.id == feedback_id,
+                    FeedbackEventModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+        ).scalar_one_or_none()
+
 
 class MemoryJobRepository:
     def __init__(self, user_ctx: UserContext, session: Session) -> None:
@@ -580,6 +590,26 @@ class MemoryJobRepository:
                 )
             )
         ).scalar_one_or_none()
+
+    def list_candidate_ids(self, job_id: str) -> list[str]:
+        return list(
+            self.session.execute(
+                select(MemoryCardModel.id)
+                .join(
+                    MemoryEvidenceLinkModel,
+                    MemoryEvidenceLinkModel.memory_id == MemoryCardModel.id,
+                )
+                .where(
+                    and_(
+                        MemoryCardModel.memory_job_id == job_id,
+                        MemoryCardModel.owner_id == self.user_ctx.user_id,
+                        MemoryEvidenceLinkModel.owner_id == self.user_ctx.user_id,
+                    )
+                )
+                .order_by(MemoryEvidenceLinkModel.ordinal.asc(), MemoryCardModel.id.asc())
+                .limit(3)
+            ).scalars()
+        )
 
     def update_stage(self, job_id: str, stage: str) -> None:
         self.session.execute(
@@ -612,6 +642,8 @@ class MemoryJobRepository:
                 status="completed",
                 stage="done",
                 disposition=disposition,
+                retryable=False,
+                last_error_code=None,
                 updated_at=utc_now(),
             )
         )
@@ -668,9 +700,7 @@ class MemoryCardRepository:
             .values(**updates)
         )
 
-    def create_version(
-        self, card_id: str, version: int, created_by_action: str
-    ) -> str:
+    def create_version(self, card_id: str, version: int, created_by_action: str) -> str:
         from memtrace_api.ids import new_prefixed_ulid
 
         card = self.get_candidate(card_id)
@@ -706,6 +736,7 @@ class MemoryCardRepository:
             .where(
                 and_(
                     MemoryEvidenceLinkModel.memory_id == memory_id,
+                    MemoryEvidenceLinkModel.owner_id == self.user_ctx.user_id,
                     MemoryEvidenceModel.owner_id == self.user_ctx.user_id,
                 )
             )
@@ -713,9 +744,7 @@ class MemoryCardRepository:
         )
         return list(result.scalars().all())
 
-    def list_versions(
-        self, memory_id: str
-    ) -> list[MemoryVersionModel]:
+    def list_versions(self, memory_id: str) -> list[MemoryVersionModel]:
         result = self.session.execute(
             select(MemoryVersionModel)
             .where(
@@ -735,14 +764,12 @@ class MemoryCardRepository:
         cursor: str | None = None,
         limit: int = 50,
     ) -> list[MemoryCardModel]:
-        q = select(MemoryCardModel).where(
-            MemoryCardModel.owner_id == self.user_ctx.user_id
-        )
+        q = select(MemoryCardModel).where(MemoryCardModel.owner_id == self.user_ctx.user_id)
         if status:
             q = q.where(MemoryCardModel.status == status)
         if cursor:
-            q = q.where(MemoryCardModel.id > cursor)
-        q = q.order_by(MemoryCardModel.created_at).limit(limit)
+            q = q.where(MemoryCardModel.id < cursor)
+        q = q.order_by(MemoryCardModel.id.desc()).limit(limit)
         result = self.session.execute(q)
         return list(result.scalars().all())
 

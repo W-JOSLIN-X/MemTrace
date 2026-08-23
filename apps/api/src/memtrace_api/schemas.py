@@ -774,7 +774,7 @@ class MemoryCard(ContractModel):
 class MemoryCardPatch(ContractModel):
     title: TrimmedTitle | None = None
     rule: TrimmedRule | None = None
-    avoid: Annotated[str, StringConstraints(min_length=1, max_length=400)] | None = None
+    avoid: Annotated[str, StringConstraints(max_length=400)] | None = None
     scope: MemoryScope | None = None
     exceptions: Annotated[list[AllowedException], Field(max_length=8)] | None = None
 

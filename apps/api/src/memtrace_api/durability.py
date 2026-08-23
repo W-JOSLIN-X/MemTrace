@@ -1,6 +1,6 @@
 """Day 3 G2: Deterministic durability detector for feedback text.
 
-This is a **pure function** – no I/O, no model call, no randomness.
+This is a **pure function** - no I/O, no model call, no randomness.
 All input is first NFKC-normalized and casefolded.  The result is used
 as a *hard constraint* on the downstream LLM extraction: the model cannot
 override an ``one_shot`` or ``explicit_durable`` decision made here.
@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import unicodedata
 from enum import StrEnum
-
 
 # ---------------------------------------------------------------------------
 # Controlled enums
@@ -33,19 +32,19 @@ class Reason(StrEnum):
     """Controlled reason codes for each durability outcome."""
 
     # Negative / scoped signals (check FIRST, before durable/one-shot)
-    NEGATED_MEMORY_REQUEST = "negated_memory_request"           # 不要记住/忘掉…
-    INTERROGATIVE_CONTEXT = "interrogative_context"             # …吗？/反问
-    QUOTED_OR_REPORTED_SPEECH = "quoted_or_reported_speech"    # 引用/转述
-    MIXED_DURABILITY_SIGNALS = "mixed_durability_signals"       # 长期+一次性混合
+    NEGATED_MEMORY_REQUEST = "negated_memory_request"  # memory exclusion
+    INTERROGATIVE_CONTEXT = "interrogative_context"  # question context
+    QUOTED_OR_REPORTED_SPEECH = "quoted_or_reported_speech"  # reported speech
+    MIXED_DURABILITY_SIGNALS = "mixed_durability_signals"  # durable plus one-shot
 
     # Positive explicit
     DURABLE_MARKER_FOUND = "durable_marker_found"
     ONE_SHOT_MARKER_FOUND = "one_shot_marker_found"
 
     # Usage-only (no reusable text)
-    USAGE_SIGNAL_ONLY_POSITIVE = "usage_signal_only_positive"    # 采纳/好评
-    USAGE_SIGNAL_ONLY_NEGATIVE = "usage_signal_only_negative"    # 拒绝/差评
-    NEUTRAL_SIGNAL_ONLY = "neutral_signal_only"                  # 评分=3/中性
+    USAGE_SIGNAL_ONLY_POSITIVE = "usage_signal_only_positive"  # 采纳/好评
+    USAGE_SIGNAL_ONLY_NEGATIVE = "usage_signal_only_negative"  # 拒绝/差评
+    NEUTRAL_SIGNAL_ONLY = "neutral_signal_only"  # 评分=3/中性
 
     # Edit diff only
     EDIT_DIFF_ONLY = "edit_diff_only"
@@ -88,17 +87,37 @@ _DURABLE_MARKERS: set[str] = {
     "never forget",
 }
 
-# Strong one-shot markers – short phrases (2+ chars) to avoid matching
+# Strong one-shot markers - short phrases (2+ chars) to avoid matching
 # common words like "直接" that are often action descriptors, not time-scope.
 _ONE_SHOT_MARKERS: set[str] = {
-    # Chinese – time-scoped phrases
-    "这次", "本次", "当前", "暂时", "今天", "赶时间", "仅当前",
-    "先给补丁", "先给一个补丁", "这次先", "这次直接", "临时",
-    "只一次", "仅本次", "就这次", "这次算了", "这次就算了",
+    # Chinese time-scoped phrases
+    "这次",
+    "本次",
+    "当前",
+    "暂时",
+    "今天",
+    "赶时间",
+    "仅当前",
+    "先给补丁",
+    "先给一个补丁",
+    "这次先",
+    "这次直接",
+    "临时",
+    "只一次",
+    "仅本次",
+    "就这次",
+    "这次算了",
+    "这次就算了",
     # English
-    "this time", "this one time", "one time, skip",
-    "just this once", "temporary", "for now",
-    "quick fix", "direct fix", "patch only",
+    "this time",
+    "this one time",
+    "one time, skip",
+    "just this once",
+    "temporary",
+    "for now",
+    "quick fix",
+    "direct fix",
+    "patch only",
 }
 
 # Negation / exclusion markers targeting memory formation.
@@ -135,8 +154,10 @@ _INTERROGATIVE_MARKERS: set[str] = {
 # "老师" alone is too broad (can mean "as a teacher" not "teacher said").
 # "和我说" works because it literally means "said to me".
 _QUOTE_MARKERS: set[str] = {
-    # Chinese – specific reporting patterns
-    "他和我说", "她和我说", "和我说",
+    # Chinese specific reporting patterns
+    "他和我说",
+    "她和我说",
+    "和我说",
     "用户说",
     "文档说",
     "写道",
@@ -207,7 +228,7 @@ def detect_durability(
     edited_output:
         User-modified replacement output.
     rating:
-        1–5 star rating (``None`` if absent).
+        1-5 star rating (``None`` if absent).
     accepted:
         Explicit accept/reject flag.
     has_editable_diff:
@@ -237,7 +258,7 @@ def detect_durability(
         return Durability.AMBIGUOUS, Reason.NEGATED_MEMORY_REQUEST
 
     # ---------- 4. Quote / reported speech (check BEFORE interrogative) ----------
-    # d3-011: "同学和我说'请记住要先写测试'，你觉得这样对吗？"
+    # d3-011 combines reported speech with a question.
     # contains 和我说 (quote) + 吗 (interrogative); fixture expects quoted.
     # When both are present, quote wins because reported-speech is the stronger
     # signal that the user is relaying someone else's preference.
@@ -250,7 +271,7 @@ def detect_durability(
 
     # ---------- 6. Check both explicit durable AND one-shot markers ----------
     # Mixed signal check must come BEFORE the individual durable/one-shot checks
-    # so "这次先直接给答案，以后再慢慢讲解" matches mixed, not just one-shot.
+    # A phrase combining current-only and future behavior must stay ambiguous.
     durable_hit = has_text and any(m in working for m in _DURABLE_MARKERS)
     one_shot_hit = has_text and any(m in working for m in _ONE_SHOT_MARKERS)
 

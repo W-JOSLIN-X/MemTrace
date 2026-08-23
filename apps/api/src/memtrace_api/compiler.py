@@ -1,53 +1,39 @@
-"""Day 3 G2: Structured extraction provider and FeedbackCompiler."""
+"""Structured candidate extraction for the Day 3 feedback compiler."""
 
 from __future__ import annotations
 
 import json
-import logging
-from dataclasses import field
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from memtrace_api.config import Settings
-from memtrace_api.diff import compute_diff
-from memtrace_api.durability import detect_durability
-from memtrace_api.schemas import (
-    AsyncErrorCode,
-    Disposition,
-    MemoryScope,
-    SourceType,
-    TaskFingerprint,
-    utc_now,
-)
-
-logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Extraction result schema (provider output)
-# ---------------------------------------------------------------------------
+from memtrace_api.schemas import AllowedException, MemoryScope
 
 
 class CandidateCardSchema(BaseModel):
-    model_config: type[dict[str, Any]] = {"extra": "forbid"}
+    """Strict provider output; owner, status, trust, and version are server-derived."""
 
-    category: Literal["preference", "rule", "experience", "one_shot"]  # type: ignore[name-defined]
-    kind: Literal["preference", "constraint", "procedure", "experience"]  # type: ignore[name-defined]
-    title: str
-    rule: str
-    avoid: str = ""
-    trigger_text: str = ""
-    scope: dict[str, Any]
-    exceptions: list[str] = []
-    evidence_source: Literal["explicit_text", "edit_diff"]  # type: ignore[name-defined]
-    evidence_quote: str
+    model_config = ConfigDict(extra="forbid")
+
+    category: Literal["preference", "rule", "experience", "one_shot"]
+    kind: Literal["preference", "constraint", "procedure", "experience"]
+    title: Annotated[str, StringConstraints(min_length=4, max_length=40)]
+    rule: Annotated[str, StringConstraints(min_length=20, max_length=300)]
+    avoid: Annotated[str, StringConstraints(max_length=400)] = ""
+    trigger_text: Annotated[str, StringConstraints(max_length=240)] = ""
+    scope: MemoryScope
+    exceptions: list[AllowedException] = Field(default_factory=list, max_length=8)
+    evidence_source: Literal["explicit_text", "edit_diff"]
+    evidence_quote: Annotated[str, StringConstraints(min_length=1, max_length=2_000)]
 
 
 class ExtractionSchema(BaseModel):
-    model_config: type[dict[str, Any]] = {"extra": "forbid"}
+    model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["1.0"] = "1.0"  # type: ignore[name-defined]
-    feedback_summary: str
+    schema_version: Literal["1.0"] = "1.0"
+    feedback_summary: Annotated[str, StringConstraints(min_length=1, max_length=1_000)]
     durability: Literal[
         "explicit_durable",
         "one_shot",
@@ -64,21 +50,9 @@ class ExtractionSchema(BaseModel):
     ]
     candidates: list[CandidateCardSchema] = Field(default_factory=list, max_length=3)
 
-    @field_validator("candidates")
-    @classmethod
-    def at_most_three(cls, v: list[CandidateCardSchema]) -> list[CandidateCardSchema]:
-        if len(v) > 3:
-            raise ValueError("at most 3 candidates allowed")
-        return v
-
-
-# ---------------------------------------------------------------------------
-# Provider protocol
-# ---------------------------------------------------------------------------
-
 
 class StructuredProvider:
-    """Protocol for structured JSON extraction providers."""
+    """Small async protocol shared by the deterministic and real providers."""
 
     name: str
     mode: str
@@ -92,196 +66,43 @@ class StructuredProvider:
     ) -> dict[str, Any]:
         raise NotImplementedError
 
-
-# ---------------------------------------------------------------------------
-# Failure type
-# ---------------------------------------------------------------------------
+    async def aclose(self) -> None:
+        return None
 
 
 class ProviderFailure(Exception):
-    def __init__(
-        self,
-        code: str,
-        message: str,
-        *,
-        retryable: bool = False,
-    ) -> None:
-        super().__init__(message)
+    def __init__(self, code: str, *, retryable: bool) -> None:
+        super().__init__(code)
         self.code = code
-        self.message = message
         self.retryable = retryable
 
 
-# ---------------------------------------------------------------------------
-# Mock structured provider
-# ---------------------------------------------------------------------------
+def _valid_candidate(
+    *,
+    evidence_quote: str,
+    evidence_source: Literal["explicit_text", "edit_diff"] = "explicit_text",
+    title: str = "后续回答表达偏好",
+    kind: Literal["preference", "constraint", "procedure", "experience"] = "preference",
+) -> dict[str, Any]:
+    return {
+        "category": "preference" if kind == "preference" else "rule",
+        "kind": kind,
+        "title": title,
+        "rule": "在后续相似任务中，应持续遵循这条由用户反馈明确表达的要求。",
+        "avoid": "",
+        "trigger_text": "与当前任务类型相同的后续任务",
+        "scope": {"level": "session", "domain": "other"},
+        "exceptions": [],
+        "evidence_source": evidence_source,
+        "evidence_quote": evidence_quote,
+    }
 
 
 class MockStructuredProvider(StructuredProvider):
-    """Deterministic structured extraction for tests and demos."""
+    """Deterministic extraction used by the demo, automated tests, and Docker gate."""
 
     name = "mock-structured"
     mode = "mock"
-
-    _RESPONSES: dict[str, dict[str, Any]] = {
-        "two_candidates": {
-            "schema_version": "1.0",
-            "feedback_summary": "用户希望学习模式先提示再给答案，并偏好简洁中文讲解。",
-            "durability": "explicit_durable",
-            "disposition": "candidate_created",
-            "candidates": [
-                {
-                    "category": "preference",
-                    "kind": "preference",
-                    "title": "调试学习先提示",
-                    "rule": "先给一个可执行的诊断动作，再逐步增加提示。",
-                    "avoid": "首次回复直接给完整修复。",
-                    "trigger_text": "编程学习中的调试指导",
-                    "scope": {"level": "task_family", "domain": "programming_learning"},
-                    "exceptions": [],
-                    "evidence_source": "explicit_text",
-                    "evidence_quote": "以后学习调试先提示",
-                },
-                {
-                    "category": "preference",
-                    "kind": "preference",
-                    "title": "简洁中文讲解",
-                    "rule": "使用简洁清晰的中文进行讲解。",
-                    "avoid": "冗长的英文或中文解释。",
-                    "trigger_text": "所有回答",
-                    "scope": {"level": "task_family", "domain": "programming_learning"},
-                    "exceptions": [],
-                    "evidence_source": "explicit_text",
-                    "evidence_quote": "简洁清楚的讲解",
-                },
-            ],
-        },
-        "empty_json": {
-            "schema_version": "1.0",
-            "feedback_summary": "无有效可复用内容。",
-            "durability": "ambiguous",
-            "disposition": "no_memory",
-            "candidates": [],
-        },
-        "truncated_json": {
-            "schema_version": "1.0",
-            "feedback_summary": "用户希望先给提示再给完整修复。",
-            "durability": "explicit_durable",
-            "disposition": "candidate_created",
-            "candidates": [
-                {
-                    "category": "preference",
-                    "kind": "preference",
-                    "title": "学习调试先提示",
-                    "rule": "先给诊断动作，再逐步增加提示。",
-                    "avoid": "首次直接给完整修复。",
-                    "trigger_text": "编程学习中的调试指导",
-                    "scope": {"level": "task_family", "domain": "programming_learning"},
-                    "exceptions": [],
-                    "evidence_source": "explicit_text",
-                    "evidence_quote": "以后学习调试先提示",
-                }
-            ],
-        },
-        "unknown_fields": {
-            "schema_version": "1.0",
-            "feedback_summary": "用户希望先给提示再给答案。",
-            "durability": "explicit_durable",
-            "disposition": "candidate_created",
-            "candidates": [
-                {
-                    "category": "preference",
-                    "kind": "preference",
-                    "title": "先给提示",
-                    "rule": "先给提示再给完整答案。",
-                    "avoid": "直接给完整答案。",
-                    "trigger_text": "回答",
-                    "scope": {"level": "task_family", "domain": "programming_learning"},
-                    "exceptions": [],
-                    "evidence_source": "explicit_text",
-                    "evidence_quote": "先给提示",
-                }
-            ],
-            "extra_field_should_fail": "this will trigger schema rejection",
-        },
-        "four_candidates": {
-            "schema_version": "1.0",
-            "feedback_summary": "用户的多条偏好。",
-            "durability": "explicit_durable",
-            "disposition": "candidate_created",
-            "candidates": [
-                {
-                    "category": "preference",
-                    "kind": "preference",
-                    "title": "中文讲解",
-                    "rule": "使用中文。",
-                    "avoid": "",
-                    "trigger_text": "回答",
-                    "scope": {"level": "task_family", "domain": "programming_learning"},
-                    "exceptions": [],
-                    "evidence_source": "explicit_text",
-                    "evidence_quote": "用中文",
-                },
-                {
-                    "category": "preference",
-                    "kind": "preference",
-                    "title": "先给思路",
-                    "rule": "先给思路再给结论。",
-                    "avoid": "",
-                    "trigger_text": "回答",
-                    "scope": {"level": "task_family", "domain": "programming_learning"},
-                    "exceptions": [],
-                    "evidence_source": "explicit_text",
-                    "evidence_quote": "先给思路",
-                },
-                {
-                    "category": "preference",
-                    "kind": "preference",
-                    "title": "附示例",
-                    "rule": "附上代码示例。",
-                    "avoid": "",
-                    "trigger_text": "回答",
-                    "scope": {"level": "task_family", "domain": "programming_learning"},
-                    "exceptions": [],
-                    "evidence_source": "explicit_text",
-                    "evidence_quote": "附示例",
-                },
-                {
-                    "category": "preference",
-                    "kind": "preference",
-                    "title": "多余第四张",
-                    "rule": "这是第四张，应该被截断。",
-                    "avoid": "",
-                    "trigger_text": "回答",
-                    "scope": {"level": "task_family", "domain": "programming_learning"},
-                    "exceptions": [],
-                    "evidence_source": "explicit_text",
-                    "evidence_quote": "第四张",
-                },
-            ],
-        },
-        "evidence_not_found": {
-            "schema_version": "1.0",
-            "feedback_summary": "调试先提示，但证据不可定位。",
-            "durability": "explicit_durable",
-            "disposition": "candidate_created",
-            "candidates": [
-                {
-                    "category": "preference",
-                    "kind": "preference",
-                    "title": "调试先提示",
-                    "rule": "先给诊断动作，再逐步增加提示。",
-                    "avoid": "首次直接给完整修复。",
-                    "trigger_text": "编程学习中的调试指导",
-                    "scope": {"level": "task_family", "domain": "programming_learning"},
-                    "exceptions": [],
-                    "evidence_source": "explicit_text",
-                    "evidence_quote": "【mock:证据不实】",
-                }
-            ],
-        },
-        "invalid_json_repair_fails": None,  # sentinel: repair also fails
-    }
 
     async def complete_json(
         self,
@@ -290,50 +111,83 @@ class MockStructuredProvider(StructuredProvider):
         *,
         simulation: str | None = None,
     ) -> dict[str, Any]:
-        if simulation == "invalid_json_repair_fails":
-            raise ProviderFailure(
-                "MEMORY_REPAIR_FAILED",
-                "模拟：两次均返回非 JSON，repair 失败。",
-                retryable=False,
+        del output_schema
+        if simulation in {"provider_failure", "provider_timeout"}:
+            code = (
+                "MEMORY_PROVIDER_TIMEOUT"
+                if simulation == "provider_timeout"
+                else "MEMORY_PROVIDER_ERROR"
             )
-        if simulation and simulation in self._RESPONSES:
-            result = self._RESPONSES[simulation]
-            if result is None:
-                raise ProviderFailure(
-                    "MEMORY_REPAIR_FAILED",
-                    "模拟：repair 失败。",
-                    retryable=False,
-                )
-            return dict(result)
+            raise ProviderFailure(code, retryable=True)
+        if simulation == "invalid_json_repair_fails":
+            raise ProviderFailure("MEMORY_REPAIR_FAILED", retryable=False)
+        if simulation == "empty_json":
+            return self._empty("ambiguous")
+        if simulation == "unknown_fields":
+            invalid = self._empty("ambiguous")
+            invalid["unknown"] = True
+            return invalid
+        if simulation == "four_candidates":
+            candidate = _valid_candidate(evidence_quote="用户明确反馈")
+            body = self._empty("explicit_durable")
+            body["disposition"] = "candidate_created"
+            body["candidates"] = [dict(candidate) for _ in range(4)]
+            return body
+        if simulation == "evidence_not_found":
+            body = self._empty("explicit_durable")
+            body["disposition"] = "candidate_created"
+            body["candidates"] = [_valid_candidate(evidence_quote="不存在的模拟证据")]
+            return body
 
+        context = _context_from_prompt(prompt)
+        explicit_text = _optional_text(context.get("explicit_text"))
+        edited_output = _optional_text(context.get("edited_output"))
+        durability = str(context.get("durability") or "ambiguous")
+        if explicit_text is not None:
+            source: Literal["explicit_text", "edit_diff"] = "explicit_text"
+            quote = explicit_text[:2_000]
+        elif edited_output is not None:
+            source = "edit_diff"
+            quote = edited_output[:2_000]
+        else:
+            return self._empty(durability)
+
+        kind = _infer_kind(quote)
+        title = {
+            "preference": "后续回答表达偏好",
+            "constraint": "后续回答约束要求",
+            "procedure": "后续任务执行步骤",
+            "experience": "后续任务有效经验",
+        }[kind]
+        candidate = _valid_candidate(
+            evidence_quote=quote,
+            evidence_source=source,
+            title=title,
+            kind=kind,
+        )
+        candidate["rule"] = _rule_from_feedback(quote)
         return {
             "schema_version": "1.0",
-            "feedback_summary": "Mock 提取结果。",
-            "durability": "ambiguous",
+            "feedback_summary": "检测到一条可进入准入流程的用户反馈信号。",
+            "durability": durability,
             "disposition": "candidate_created",
-            "candidates": [
-                {
-                    "category": "preference",
-                    "kind": "preference",
-                    "title": "Mock 偏好",
-                    "rule": "Mock 规则正文。",
-                    "avoid": "",
-                    "trigger_text": "Mock",
-                    "scope": {"level": "task_family", "domain": "other"},
-                    "exceptions": [],
-                    "evidence_source": "explicit_text",
-                    "evidence_quote": "Mock",
-                }
-            ],
+            "candidates": [candidate],
+        }
+
+    @staticmethod
+    def _empty(durability: str) -> dict[str, Any]:
+        return {
+            "schema_version": "1.0",
+            "feedback_summary": "未检测到可复用的候选内容。",
+            "durability": durability,
+            "disposition": "no_memory",
+            "candidates": [],
         }
 
 
-# ---------------------------------------------------------------------------
-# Real structured provider
-# ---------------------------------------------------------------------------
-
-
 class DeepSeekStructuredProvider(StructuredProvider):
+    """OpenAI-compatible structured-output client for the optional real provider."""
+
     name = "deepseek-structured"
     mode = "real"
 
@@ -344,7 +198,7 @@ class DeepSeekStructuredProvider(StructuredProvider):
         self._client = client or AsyncOpenAI(
             api_key=settings.llm_api_key.get_secret_value(),
             base_url=settings.llm_base_url,
-            timeout=60,
+            timeout=settings.provider_timeout_seconds,
             max_retries=0,
         )
 
@@ -355,26 +209,81 @@ class DeepSeekStructuredProvider(StructuredProvider):
         *,
         simulation: str | None = None,
     ) -> dict[str, Any]:
-        messages = [{"role": "user", "content": prompt}]
-        response = await self._client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            response_format={"type": "json_object"},
-            extra_body={"thinking": {"type": "disabled"}},
-            max_tokens=1024,
-        )
-        choices = getattr(response, "choices", None) or []
-        if not choices:
-            raise ProviderFailure("MEMORY_PROVIDER_ERROR", "模型服务返回空响应。", retryable=True)
-        msg = getattr(choices[0], "message", None)
-        text = getattr(msg, "content", "") if msg else ""
-        if not text:
-            raise ProviderFailure(
-                "MEMORY_JSON_INVALID",
-                "模型服务返回空内容。",
-                retryable=False,
+        del simulation
+        try:
+            response = await self._client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "memory_extraction",
+                        "strict": True,
+                        "schema": output_schema,
+                    },
+                },
+                extra_body={"thinking": {"type": "disabled"}},
+                max_tokens=1_024,
             )
-        return json.loads(text)
+        except APITimeoutError as exc:
+            raise ProviderFailure("MEMORY_PROVIDER_TIMEOUT", retryable=True) from exc
+        except (APIConnectionError, APIStatusError) as exc:
+            raise ProviderFailure("MEMORY_PROVIDER_ERROR", retryable=True) from exc
+
+        choices = getattr(response, "choices", None) or []
+        message = getattr(choices[0], "message", None) if choices else None
+        content = getattr(message, "content", None)
+        if not isinstance(content, str) or not content:
+            raise ProviderFailure("MEMORY_JSON_INVALID", retryable=False)
+        try:
+            value = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise ProviderFailure("MEMORY_JSON_INVALID", retryable=False) from exc
+        if not isinstance(value, dict):
+            raise ProviderFailure("MEMORY_JSON_INVALID", retryable=False)
+        return value
+
+    async def aclose(self) -> None:
+        close = getattr(self._client, "close", None)
+        if close is not None:
+            result = close()
+            if hasattr(result, "__await__"):
+                await result
+
+
+def _context_from_prompt(prompt: str) -> dict[str, Any]:
+    marker = "MEMTRACE_CONTEXT_JSON:"
+    for line in prompt.splitlines():
+        if line.startswith(marker):
+            try:
+                value = json.loads(line[len(marker) :])
+            except json.JSONDecodeError:
+                return {}
+            return value if isinstance(value, dict) else {}
+    return {}
+
+
+def _optional_text(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _infer_kind(text: str) -> Literal["preference", "constraint", "procedure", "experience"]:
+    folded = text.casefold()
+    if any(cue in folded for cue in ("不要", "禁止", "必须", "must", "never", "always")):
+        return "constraint"
+    if any(cue in folded for cue in ("先", "然后", "步骤", "first", "then")):
+        return "procedure"
+    if any(cue in folded for cue in ("有效", "可行", "works", "worked", "经验")):
+        return "experience"
+    return "preference"
+
+
+def _rule_from_feedback(text: str) -> str:
+    compact = " ".join(text.split())[:240]
+    rule = f"在后续相似任务中，应遵循用户明确反馈的要求：{compact}"
+    if len(rule) < 20:
+        rule += "，并在输出前检查是否满足该要求。"
+    return rule[:300]
 
 
 def build_structured_provider(settings: Settings) -> StructuredProvider:
