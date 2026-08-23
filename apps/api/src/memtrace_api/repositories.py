@@ -565,6 +565,12 @@ class FeedbackRepository:
         )
         return fb, job, event
 
+
+class MemoryJobRepository:
+    def __init__(self, user_ctx: UserContext, session: Session) -> None:
+        self.user_ctx = user_ctx
+        self.session = session
+
     def get_memory_job(self, job_id: str) -> MemoryJobModel | None:
         return self.session.execute(
             select(MemoryJobModel).where(
@@ -575,7 +581,7 @@ class FeedbackRepository:
             )
         ).scalar_one_or_none()
 
-    def update_job_stage(self, job_id: str, stage: str) -> None:
+    def update_stage(self, job_id: str, stage: str) -> None:
         self.session.execute(
             update(MemoryJobModel)
             .where(

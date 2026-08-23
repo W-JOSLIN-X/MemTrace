@@ -45,6 +45,7 @@ from memtrace_api.readiness import (
 from memtrace_api.repositories import (
     FeedbackRepository,
     IdempotencyRepository,
+    MemoryJobRepository,
     SessionRepository,
     TaskRepository,
     UserContext,
@@ -775,8 +776,8 @@ def create_app(
     ) -> MemoryJobResponse:
         session_factory = request.app.state.db_session_factory
         with session_scope(session_factory) as session:
-            fb_repo = FeedbackRepository(user_ctx, session)
-            job = fb_repo.get_memory_job(job_id)
+            job_repo = MemoryJobRepository(user_ctx, session)
+            job = job_repo.get_memory_job(job_id)
             if job is None:
                 raise ApiError(
                     status_code=404,
