@@ -522,6 +522,132 @@ export type MemoryCardStatus =
   | 'archived'
   | 'deleted'
 
+export type MemoryKind =
+  | 'preference'
+  | 'constraint'
+  | 'procedure'
+  | 'experience'
+  | 'environment'
+  | 'learning_checkpoint'
+
+export type MemorySourceType =
+  | 'explicit_feedback'
+  | 'explicit_correction'
+  | 'edit_diff'
+  | 'accept'
+  | 'reject'
+  | 'rating'
+  | 'outcome'
+  | 'import'
+
+export type MemoryScopeLevel =
+  | 'session'
+  | 'task_family'
+  | 'project'
+  | 'global'
+
+export type MemoryScopeDomain = Scenario | 'any'
+
+export type AllowedMemoryException =
+  | 'response_policy:direct_fix'
+  | 'urgency:urgent'
+
+export interface MemoryScope {
+  level: MemoryScopeLevel
+  domain: MemoryScopeDomain
+  task_type: TaskFingerprint['task_type'] | null
+  artifact_type: TaskFingerprint['artifact_type'] | null
+  audience: TaskFingerprint['audience'] | null
+  project_key: string | null
+}
+
+export interface MemoryCard {
+  memory_id: MemoryId
+  schema_version: '1.0'
+  kind: MemoryKind
+  title: string
+  rule: string
+  avoid: string
+  trigger_text: string
+  scope: MemoryScope
+  exceptions: AllowedMemoryException[]
+  status: MemoryCardStatus
+  source_type: MemorySourceType
+  save_preselected: boolean
+  source_trust: number
+  rule_confidence: number | null
+  scope_confidence: number | null
+  evidence_count: number
+  version: number
+  current_version_id: MemoryVersionId | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MemoryCardPatch {
+  title?: string | null
+  rule?: string | null
+  avoid?: string | null
+  scope?: MemoryScope | null
+  exceptions?: AllowedMemoryException[] | null
+}
+
+export type ResolveAction = 'accept' | 'edit_accept' | 'reject' | 'one_shot'
+
+export interface ResolveRequest {
+  action: ResolveAction
+  patch?: MemoryCardPatch | null
+}
+
+export interface ResolveResponse {
+  request_id: RequestId
+  memory_id: MemoryId
+  action: ResolveAction
+  old_status: MemoryCardStatus
+  new_status: MemoryCardStatus
+  disposition: Disposition
+  memory_version_id: MemoryVersionId | null
+  card: MemoryCard
+}
+
+export interface MemoryListResponse {
+  request_id: RequestId
+  items: MemoryCard[]
+  next_cursor: string | null
+}
+
+export interface MemoryEvidenceProjection {
+  evidence_id: EvidenceId
+  source_type: MemorySourceType
+  feedback_id: FeedbackId | null
+  task_id: TaskId | null
+  run_id: RunId | null
+  evidence_quote: string
+  diff_summary: string | null
+  normalized_edit_cost: number | null
+  created_at: string
+}
+
+export interface MemoryVersionProjection {
+  memory_version_id: MemoryVersionId
+  version: number
+  title: string
+  rule: string
+  avoid: string
+  trigger_text: string
+  scope: MemoryScope
+  exceptions: AllowedMemoryException[]
+  created_by_action: ResolveAction
+  created_at: string
+}
+
+export interface MemoryDetailResponse {
+  request_id: RequestId
+  card: MemoryCard
+  evidence: MemoryEvidenceProjection[]
+  versions: MemoryVersionProjection[]
+}
+
 export type G0SseEvent =
   | TaskCreatedEvent
   | TaskStageEvent

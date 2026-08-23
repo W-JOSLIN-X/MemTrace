@@ -2,11 +2,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { browserG0Api, G0ApiError, type G0Api } from '../g0/api'
 import type { EventSourceFactory } from '../g0/eventStream'
-import type { G0Phase, G0State, StageRecord } from '../g0/reducer'
+import type {
+  G0Phase,
+  G0State,
+  PublicUiError,
+  StageRecord,
+} from '../g0/reducer'
 import type {
   ClassificationReasonCode,
   DemoAlias,
   FeedbackCreateRequest,
+  AllowedMemoryException,
+  MemoryDetailResponse,
+  MemoryId,
+  MemoryJobId,
+  MemoryScope,
+  ResolveAction,
+  ResolveRequest,
+  ResolveResponse,
   ResponsePolicy,
   Scenario,
   TaskId,
@@ -23,6 +36,7 @@ export interface ChatPageProps {
   retryDelaysMs?: readonly number[]
   idempotencyKeyFactory?: () => string
   feedbackCatchupTimeoutMs?: number
+  memoryMonitorTimeoutMs?: number
 }
 
 type SessionPhase = 'loading' | 'ready' | 'switching' | 'failed'
@@ -31,7 +45,7 @@ const TASK_ID_PATTERN = /^task_[0-9A-HJKMNP-TV-Z]{26}$/
 
 const stageDefinitions = [
   { key: 'fingerprinting', label: '任务指纹', detail: '识别任务类型与编程语言' },
-  { key: 'retrieving', label: '记忆检索', detail: 'Day 2 明确不检索长期记忆' },
+  { key: 'retrieving', label: '记忆检索', detail: 'Day 3 尚未接入长期记忆检索' },
   { key: 'planning', label: '公开计划', detail: '展示目标与下一步动作' },
   { key: 'tool_running', label: '静态工具', detail: '只解析 Python AST' },
   { key: 'generating', label: '生成回答', detail: '通过 SSE 接收模型正文' },
@@ -55,6 +69,7 @@ export function ChatPage({
   retryDelaysMs,
   idempotencyKeyFactory,
   feedbackCatchupTimeoutMs,
+  memoryMonitorTimeoutMs,
 }: ChatPageProps) {
   const resolvedApi = api ?? browserG0Api
   const sessionFeaturesEnabled = Boolean(
@@ -87,6 +102,10 @@ export function ChatPage({
     restoreTask,
     resetOwner,
     submitFeedback,
+    retryMemoryJob,
+    resolveCandidate,
+    toggleEvidence,
+    resumeMemoryJobMonitor,
     retryConnection,
   } = useG0Agent({
     api: resolvedApi,
@@ -94,6 +113,7 @@ export function ChatPage({
     retryDelaysMs,
     idempotencyKeyFactory,
     feedbackCatchupTimeoutMs,
+    memoryMonitorTimeoutMs,
   })
   const editedOutput =
     state.taskId && editedDraft?.taskId === state.taskId
@@ -356,7 +376,7 @@ export function ChatPage({
                   onChange={(event) => setMemoryEnabled(event.target.checked)}
                   type="checkbox"
                 />
-                开启记忆检索
+                允许记忆流程（Day 4 才检索）
               </label>
               <span
                 className={
@@ -421,7 +441,11 @@ export function ChatPage({
             }}
             onFeedbackText={setFeedbackText}
             onRating={setRating}
+            onResolve={resolveCandidate}
+            onResumeMonitor={resumeMemoryJobMonitor}
+            onRetryJob={retryMemoryJob}
             onSubmit={handleFeedbackSubmit}
+            onToggleEvidence={toggleEvidence}
             rating={rating}
             state={state}
           />
@@ -601,7 +625,7 @@ function stageDescription(
   }
   const completedLabels: Record<TimelineKey, string> = {
     fingerprinting: '确定性任务指纹已生成',
-    retrieving: '检索完成：Day 2 尚无长期记忆',
+    retrieving: '检索完成：Day 3 尚未接入长期记忆检索',
     planning: '公开计划已发布',
     tool_running: 'Python AST 静态检查已完成',
     generating: '模型回答已接收',
@@ -737,7 +761,11 @@ function FeedbackPanel({
   onEditedOutput,
   onFeedbackText,
   onRating,
+  onResolve,
+  onResumeMonitor,
+  onRetryJob,
   onSubmit,
+  onToggleEvidence,
   rating,
   state,
 }: {
@@ -750,7 +778,14 @@ function FeedbackPanel({
   onEditedOutput: (value: string) => void
   onFeedbackText: (value: string) => void
   onRating: (value: number | null) => void
+  onResolve: (
+    memoryId: MemoryId,
+    request: ResolveRequest,
+  ) => Promise<ResolveResponse | null>
+  onResumeMonitor: () => void
+  onRetryJob: (memoryJobId: MemoryJobId) => Promise<unknown>
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void
+  onToggleEvidence: (memoryId: MemoryId) => void
   rating: number | null
   state: G0State
 }) {
@@ -843,8 +878,40 @@ function FeedbackPanel({
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900" role="status">
             <p className="font-black">反馈已记录，等待 Day 3 处理</p>
             <p className="mt-1 text-xs font-semibold">
-              MemoryJob：{feedbackState.accepted?.memory_job_id} · {feedbackState.job?.status ?? 'pending'}
+              MemoryJob：{feedbackState.accepted?.memory_job_id} · {feedbackState.job?.stage ?? 'queued'}
             </p>
+            {feedbackState.monitor === 'still_processing' ? (
+              <div className="mt-3">
+                <p className="text-xs font-bold">仍在处理；这不是失败，刷新后也会继续恢复。</p>
+                <button
+                  className="mt-2 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-black"
+                  onClick={onResumeMonitor}
+                  type="button"
+                >
+                  继续检查
+                </button>
+              </div>
+            ) : null}
+            {feedbackState.job?.status === 'failed' ? (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-red-900">
+                <p className="text-xs font-black">
+                  处理失败：{feedbackState.job.error_code ?? 'MEMORY_JOB_FAILED'}
+                </p>
+                {feedbackState.job.retryable ? (
+                  <button
+                    className="mt-2 rounded-lg bg-red-800 px-3 py-2 text-xs font-black text-white"
+                    onClick={() => {
+                      if (feedbackState.accepted) {
+                        void onRetryJob(feedbackState.accepted.memory_job_id)
+                      }
+                    }}
+                    type="button"
+                  >
+                    重试处理
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         ) : null}
         <button
@@ -855,6 +922,12 @@ function FeedbackPanel({
           {submitting ? '正在记录反馈…' : '提交反馈'}
         </button>
       </form>
+      <CandidateTimeline
+        feedbackState={feedbackState}
+        onResolve={onResolve}
+        onToggleEvidence={onToggleEvidence}
+        state={state}
+      />
       {state.feedbackEvents.length > 0 ? (
         <p className="mt-4 text-xs font-bold text-slate-500">
           当前快照已恢复 {state.feedbackEvents.length.toLocaleString('zh-CN')} 条反馈记录。
@@ -862,6 +935,519 @@ function FeedbackPanel({
       ) : null}
     </section>
   )
+}
+
+function CandidateTimeline({
+  feedbackState,
+  onResolve,
+  onToggleEvidence,
+  state,
+}: {
+  feedbackState: FeedbackSubmissionState
+  onResolve: (
+    memoryId: MemoryId,
+    request: ResolveRequest,
+  ) => Promise<ResolveResponse | null>
+  onToggleEvidence: (memoryId: MemoryId) => void
+  state: G0State
+}) {
+  const jobId = feedbackState.accepted?.memory_job_id
+  if (!jobId) return null
+  const job = feedbackState.job ?? state.memoryJobs[jobId] ?? null
+  const candidateIds = job?.candidate_ids ?? state.memoryCandidateIds[jobId] ?? []
+  const details = candidateIds
+    .map((memoryId) => state.memoryDetails[memoryId])
+    .filter((detail): detail is MemoryDetailResponse => detail !== undefined)
+
+  if (job?.status === 'completed' && candidateIds.length === 0) {
+    const message =
+      job.disposition === 'episode_only'
+        ? '仅本次：不会进入长期记忆。'
+        : job.disposition === 'reinforce_usage_only'
+          ? '本次只更新使用证据，没有创建新候选。'
+          : '本次没有形成可复用候选。'
+    return (
+      <section
+        aria-label="候选记忆时间线"
+        className="mt-5 rounded-2xl border border-stone-200 bg-white p-4"
+      >
+        <p className="text-sm font-black text-slate-900">候选处理完成</p>
+        <p className="mt-2 text-sm text-slate-600">{message}</p>
+      </section>
+    )
+  }
+  if (candidateIds.length === 0) return null
+
+  return (
+    <section className="mt-6" aria-labelledby="candidate-timeline-title">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-violet-700">
+            G2 candidate timeline
+          </p>
+          <h3 className="mt-1 text-base font-black text-slate-950" id="candidate-timeline-title">
+            该反馈形成的候选记忆
+          </h3>
+        </div>
+        <span className="text-xs font-bold text-slate-500">
+          {details.length}/{candidateIds.length} 张详情已恢复
+        </span>
+      </div>
+      <div className="mt-4 space-y-4">
+        {candidateIds.map((memoryId) => {
+          const detail = state.memoryDetails[memoryId]
+          if (!detail) {
+            return (
+              <div className="rounded-2xl border border-dashed border-violet-200 bg-white p-4 text-sm text-slate-500" key={memoryId}>
+                正在读取候选 {memoryId}…
+              </div>
+            )
+          }
+          return (
+            <CandidateCard
+              detail={detail}
+              disposition={state.memoryDispositions[memoryId] ?? null}
+              evidenceOpen={state.openEvidenceMemoryId === memoryId}
+              key={memoryId}
+              onResolve={onResolve}
+              onToggleEvidence={() => onToggleEvidence(memoryId)}
+              pending={state.memoryResolvePending[memoryId] === true}
+              resolveAction={state.memoryResolveActions[memoryId] ?? null}
+              resolveError={state.memoryResolveErrors[memoryId] ?? null}
+            />
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+interface CandidateDraft {
+  title: string
+  rule: string
+  avoid: string
+  scope: MemoryScope
+  exceptions: AllowedMemoryException[]
+}
+
+function CandidateCard({
+  detail,
+  disposition,
+  evidenceOpen,
+  onResolve,
+  onToggleEvidence,
+  pending,
+  resolveAction,
+  resolveError,
+}: {
+  detail: MemoryDetailResponse
+  disposition: G0State['memoryDispositions'][MemoryId] | null
+  evidenceOpen: boolean
+  onResolve: (
+    memoryId: MemoryId,
+    request: ResolveRequest,
+  ) => Promise<ResolveResponse | null>
+  onToggleEvidence: () => void
+  pending: boolean
+  resolveAction: ResolveAction | null
+  resolveError: PublicUiError | null
+}) {
+  const { card } = detail
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<CandidateDraft>(() => cardDraft(card))
+  const isEditing = editing && card.status === 'candidate'
+
+  const resolve = async (action: ResolveAction) => {
+    const request: ResolveRequest =
+      action === 'edit_accept'
+        ? {
+            action,
+            patch: {
+              title: draft.title,
+              rule: draft.rule,
+              avoid: draft.avoid,
+              scope: draft.scope,
+              exceptions: draft.exceptions,
+            },
+          }
+        : { action, patch: null }
+    const result = await onResolve(card.memory_id, request)
+    if (result) setEditing(false)
+  }
+
+  return (
+    <article className="rounded-3xl border border-violet-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-black text-violet-800">
+            {memoryStatusLabel(card.status)}
+          </span>
+          <span className="ml-2 rounded-full bg-stone-100 px-3 py-1 text-xs font-bold text-slate-600">
+            {memoryKindLabel(card.kind)}
+          </span>
+        </div>
+        <span className="text-xs font-bold text-slate-400">{card.memory_id}</span>
+      </div>
+
+      {isEditing ? (
+        <CandidateEditor draft={draft} onChange={setDraft} />
+      ) : (
+        <MemoryCardSummary detail={detail} />
+      )}
+
+      <p className="mt-4 rounded-xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-900">
+        {memoryStatusMessage(card.status, resolveAction, disposition)}
+      </p>
+
+      {resolveError ? (
+        <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-800" role="alert">
+          {resolveError.message} 修改稿已保留，可重试同一操作。
+        </p>
+      ) : null}
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-xs font-black text-slate-700"
+          onClick={onToggleEvidence}
+          type="button"
+        >
+          {evidenceOpen ? '收起证据' : `查看证据（${card.evidence_count}）`}
+        </button>
+        {card.status === 'candidate' ? (
+          <>
+            <button
+              className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black text-white disabled:bg-slate-300"
+              disabled={pending}
+              onClick={() => void resolve('accept')}
+              type="button"
+            >
+              确认
+            </button>
+            <button
+              aria-pressed={isEditing}
+              className="rounded-xl bg-violet-700 px-3 py-2 text-xs font-black text-white disabled:bg-slate-300"
+              disabled={pending}
+              onClick={() => {
+                if (isEditing) void resolve('edit_accept')
+                else setEditing(true)
+              }}
+              type="button"
+            >
+              {isEditing ? '编辑后确认' : '编辑'}
+            </button>
+            <button
+              className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-black text-red-800 disabled:bg-slate-100"
+              disabled={pending}
+              onClick={() => void resolve('reject')}
+              type="button"
+            >
+              拒绝候选
+            </button>
+            <button
+              className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 disabled:bg-slate-100"
+              disabled={pending}
+              onClick={() => void resolve('one_shot')}
+              type="button"
+            >
+              仅本次
+            </button>
+          </>
+        ) : null}
+        {pending ? (
+          <span className="self-center text-xs font-bold text-slate-500">正在提交决定…</span>
+        ) : null}
+      </div>
+
+      {evidenceOpen ? <EvidenceDrawer detail={detail} /> : null}
+    </article>
+  )
+}
+
+function MemoryCardSummary({ detail }: { detail: MemoryDetailResponse }) {
+  const { card } = detail
+  return (
+    <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+      <MemoryField label="标题" value={card.title} />
+      <MemoryField label="来源" value={card.source_type} />
+      <div className="sm:col-span-2">
+        <MemoryField label="规则" value={card.rule} />
+      </div>
+      <MemoryField label="避免" value={card.avoid || '无'} />
+      <MemoryField label="触发" value={card.trigger_text || '无'} />
+      <MemoryField
+        label="范围"
+        value={`${card.scope.level} / ${card.scope.domain}`}
+      />
+      <MemoryField
+        label="证据"
+        value={`${card.source_type} · ${card.evidence_count} 条`}
+      />
+    </dl>
+  )
+}
+
+function MemoryField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs font-black text-slate-500">{label}</dt>
+      <dd className="mt-1 break-words leading-6 text-slate-800">{value}</dd>
+    </div>
+  )
+}
+
+function CandidateEditor({
+  draft,
+  onChange,
+}: {
+  draft: CandidateDraft
+  onChange: (draft: CandidateDraft) => void
+}) {
+  const updateScope = <K extends keyof MemoryScope>(
+    key: K,
+    value: MemoryScope[K],
+  ) => onChange({ ...draft, scope: { ...draft.scope, [key]: value } })
+  const toggleException = (value: AllowedMemoryException) => {
+    onChange({
+      ...draft,
+      exceptions: draft.exceptions.includes(value)
+        ? draft.exceptions.filter((item) => item !== value)
+        : [...draft.exceptions, value],
+    })
+  }
+  return (
+    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <label className="text-xs font-black text-slate-700">
+        标题
+        <input
+          aria-label="候选标题"
+          className="mt-1 w-full rounded-xl border border-violet-200 px-3 py-2 text-sm"
+          maxLength={40}
+          minLength={4}
+          onChange={(event) => onChange({ ...draft, title: event.target.value })}
+          value={draft.title}
+        />
+      </label>
+      <label className="text-xs font-black text-slate-700 sm:col-span-2">
+        规则
+        <textarea
+          aria-label="候选规则"
+          className="mt-1 min-h-24 w-full rounded-xl border border-violet-200 px-3 py-2 text-sm"
+          maxLength={300}
+          minLength={20}
+          onChange={(event) => onChange({ ...draft, rule: event.target.value })}
+          value={draft.rule}
+        />
+      </label>
+      <label className="text-xs font-black text-slate-700 sm:col-span-2">
+        避免（允许清空）
+        <textarea
+          aria-label="候选避免项"
+          className="mt-1 min-h-16 w-full rounded-xl border border-violet-200 px-3 py-2 text-sm"
+          maxLength={400}
+          onChange={(event) => onChange({ ...draft, avoid: event.target.value })}
+          value={draft.avoid}
+        />
+      </label>
+      <ScopeSelect
+        label="范围级别"
+        onChange={(value) => updateScope('level', value as MemoryScope['level'])}
+        options={['session', 'task_family', 'project', 'global']}
+        value={draft.scope.level}
+      />
+      <ScopeSelect
+        label="领域"
+        onChange={(value) => updateScope('domain', value as MemoryScope['domain'])}
+        options={[
+          'programming_learning',
+          'software_development',
+          'general_text',
+          'other',
+          'any',
+        ]}
+        value={draft.scope.domain}
+      />
+      <ScopeSelect
+        allowEmpty
+        label="任务类型"
+        onChange={(value) =>
+          updateScope(
+            'task_type',
+            (value || null) as MemoryScope['task_type'],
+          )
+        }
+        options={[
+          'debugging_guidance',
+          'code_review',
+          'code_explanation',
+          'code_generation',
+          'environment_configuration',
+          'general_question',
+          'other',
+        ]}
+        value={draft.scope.task_type ?? ''}
+      />
+      <ScopeSelect
+        allowEmpty
+        label="产物类型"
+        onChange={(value) =>
+          updateScope(
+            'artifact_type',
+            (value || null) as MemoryScope['artifact_type'],
+          )
+        }
+        options={['source_code', 'configuration', 'text', 'none', 'other']}
+        value={draft.scope.artifact_type ?? ''}
+      />
+      <ScopeSelect
+        allowEmpty
+        label="受众"
+        onChange={(value) =>
+          updateScope('audience', (value || null) as MemoryScope['audience'])
+        }
+        options={['beginner', 'intermediate', 'advanced', 'unknown']}
+        value={draft.scope.audience ?? ''}
+      />
+      <label className="text-xs font-black text-slate-700">
+        项目键
+        <input
+          aria-label="候选项目键"
+          className="mt-1 w-full rounded-xl border border-violet-200 px-3 py-2 text-sm"
+          maxLength={128}
+          onChange={(event) =>
+            updateScope('project_key', event.target.value || null)
+          }
+          value={draft.scope.project_key ?? ''}
+        />
+      </label>
+      <fieldset className="sm:col-span-2">
+        <legend className="text-xs font-black text-slate-700">例外</legend>
+        <div className="mt-2 flex flex-wrap gap-3 text-xs font-bold text-slate-600">
+          {(
+            [
+              'response_policy:direct_fix',
+              'urgency:urgent',
+            ] as AllowedMemoryException[]
+          ).map((exception) => (
+            <label className="flex items-center gap-2" key={exception}>
+              <input
+                checked={draft.exceptions.includes(exception)}
+                onChange={() => toggleException(exception)}
+                type="checkbox"
+              />
+              {exception}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+    </div>
+  )
+}
+
+function ScopeSelect({
+  allowEmpty = false,
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  allowEmpty?: boolean
+  label: string
+  onChange: (value: string) => void
+  options: string[]
+  value: string
+}) {
+  return (
+    <label className="text-xs font-black text-slate-700">
+      {label}
+      <select
+        aria-label={`候选${label}`}
+        className="mt-1 w-full rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm"
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
+        {allowEmpty ? <option value="">不限定</option> : null}
+        {options.map((option) => (
+          <option key={option} value={option}>{option}</option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+function EvidenceDrawer({ detail }: { detail: MemoryDetailResponse }) {
+  return (
+    <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4" aria-label="证据抽屉">
+      <p className="text-sm font-black text-blue-950">证据与修改差异</p>
+      {detail.evidence.length === 0 ? (
+        <p className="mt-2 text-sm text-blue-900/70">暂无证据投影。</p>
+      ) : (
+        <ol className="mt-3 space-y-3">
+          {detail.evidence.map((evidence) => (
+            <li className="rounded-xl bg-white p-3 text-xs leading-5 text-slate-700" key={evidence.evidence_id}>
+              <p className="font-black text-slate-900">{evidence.source_type}</p>
+              <p className="mt-2 whitespace-pre-wrap break-words">{evidence.evidence_quote}</p>
+              <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                <MemoryField label="diff summary" value={evidence.diff_summary ?? '无编辑稿'} />
+                <MemoryField
+                  label="normalized edit cost"
+                  value={
+                    evidence.normalized_edit_cost === null
+                      ? 'null'
+                      : evidence.normalized_edit_cost.toFixed(4)
+                  }
+                />
+                <MemoryField label="task / run" value={`${evidence.task_id ?? 'null'} / ${evidence.run_id ?? 'null'}`} />
+                <MemoryField label="feedback / evidence" value={`${evidence.feedback_id ?? 'null'} / ${evidence.evidence_id}`} />
+              </dl>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  )
+}
+
+function cardDraft(card: MemoryDetailResponse['card']): CandidateDraft {
+  return {
+    title: card.title,
+    rule: card.rule,
+    avoid: card.avoid,
+    scope: { ...card.scope },
+    exceptions: [...card.exceptions],
+  }
+}
+
+function memoryKindLabel(kind: MemoryDetailResponse['card']['kind']): string {
+  const labels: Record<MemoryDetailResponse['card']['kind'], string> = {
+    preference: '偏好',
+    constraint: '规则',
+    procedure: '流程',
+    experience: '经验',
+    environment: '环境',
+    learning_checkpoint: '学习检查点',
+  }
+  return labels[kind]
+}
+
+function memoryStatusLabel(status: MemoryDetailResponse['card']['status']): string {
+  if (status === 'candidate') return '候选'
+  if (status === 'active') return '已确认'
+  if (status === 'rejected') return '已拒绝'
+  return status
+}
+
+function memoryStatusMessage(
+  status: MemoryDetailResponse['card']['status'],
+  action: ResolveAction | null,
+  disposition: G0State['memoryDispositions'][MemoryId] | null,
+): string {
+  if (status === 'candidate') return '候选记忆，尚未生效。'
+  if (status === 'active') return '已确认保存，但 Day 4 才接入检索。'
+  if (action === 'one_shot' || disposition === 'episode_only') {
+    return '仅本次，不进入长期记忆。'
+  }
+  if (status === 'rejected') return '候选已拒绝，不会进入长期记忆。'
+  return '该记忆当前不参与 Day 3 后续生成。'
 }
 
 function decisionButtonClass(active: boolean): string {
@@ -877,11 +1463,11 @@ function RunSidebar({ state }: { state: G0State }) {
         <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">
           Memory status
         </p>
-        <h2 className="mt-3 text-lg font-black text-emerald-950">尚无长期记忆</h2>
+        <h2 className="mt-3 text-lg font-black text-emerald-950">G2 候选与确认流程</h2>
         <p className="mt-2 text-sm leading-6 text-emerald-900/70">
           {state.effectiveMemoryMode === 'off'
             ? '本次任务已关闭记忆。'
-            : 'Day 2 只记录显式反馈和待处理任务；长期记忆处理从 Day 3 开始。'}
+            : 'Day 3 可生成并确认候选；已确认卡片要到 Day 4 才会接入检索。'}
         </p>
       </section>
 
