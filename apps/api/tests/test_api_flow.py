@@ -56,6 +56,7 @@ def _migrate(db_url: str) -> None:
         env=env,
         check=True,
         capture_output=True,
+        cwd=str(PROJECT_ROOT),
     )
 
 
