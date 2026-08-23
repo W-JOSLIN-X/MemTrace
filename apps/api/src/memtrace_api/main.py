@@ -632,7 +632,8 @@ def create_app(
             )
             # Owner check if live
             if (
-                subscription._record.user_ctx is not None
+                subscription._record is not None
+                and subscription._record.user_ctx is not None
                 and subscription._record.user_ctx.user_id != user_ctx.user_id
             ):
                 raise _task_not_found(task_id)
@@ -1485,15 +1486,9 @@ async def _db_subscription(
             )
             replay_entries.append(ReplayEntry(ordinal=i, event=env))
 
-    dummy_store = TaskStore(max_tasks=1, max_subscribers_per_task=1, subscriber_queue_size=1)
-    dummy_task = TaskRecord(
-        request=None,  # type: ignore[arg-type]
-        snapshot=None,  # type: ignore[arg-type]
-        closed=True,
-    )
     return Subscription(
-        store=dummy_store,
-        record=dummy_task,
+        store=None,
+        record=None,
         replay=replay_entries,
         subscriber=None,
         closed_at_capture=True,

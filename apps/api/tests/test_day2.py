@@ -234,6 +234,15 @@ def test_terminal_task_restarts_and_recovers_messages(tmp_path: Path) -> None:
         assistant = next(m for m in body["messages"] if m["role"] == "assistant")
         assert assistant["content"] == body["partial_output"]
 
+        with client_b.stream(
+            "GET",
+            f"/api/v1/tasks/{task_id}/events"
+            f"?after_event_seq={body['last_persistent_event_seq']}"
+            f"&after_offset={body['end_offset']}",
+        ) as resumed:
+            assert resumed.status_code == 200
+            assert "".join(resumed.iter_text()) == ""
+
 
 def test_restart_marks_preexisting_nonterminal_run_interrupted(tmp_path: Path) -> None:
     db_url = f"sqlite:///{(tmp_path / 'db.sqlite3').as_posix()}"
