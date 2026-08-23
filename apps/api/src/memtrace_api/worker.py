@@ -276,9 +276,17 @@ class MemoryJobWorker:
 
                 await self._emit_stage_event(job, MemoryJobStage.VALIDATING)
 
-                # --- Step 5: Insert candidates + evidence + events ---
+                # --- Step 5: Run P0 Gates ---
+                candidate_dicts = self._map_candidates(
+                    extracted, feedback, diff_result, (durability, reason)
+                )
+                accepted_candidates, blocked_details = self._apply_gates(
+                    candidate_dicts, durability, feedback
+                )
+
+                # --- Step 6: Insert candidates + evidence + events ---
                 candidate_ids = self._insert_candidates(
-                    session, job, feedback, extracted, diff_result, fb_repo, task_repo
+                    session, job, feedback, accepted_candidates, fb_repo, task_repo
                 )
 
                 # --- Finish ---
@@ -458,6 +466,48 @@ class MemoryJobWorker:
             }
             for card in extracted.candidates
         ]
+
+    def _apply_gates(
+        self,
+        candidates: list[dict],
+        durability: tuple,
+        feedback: Any,
+    ) -> tuple[list[dict], list[dict]]:
+        """Run P0 gates on each candidate.
+
+        Returns (accepted_candidates, blocked_candidates_with_reasons).
+        Gates that block a candidate mark it with ``_gate_blocked`` metadata
+        but do not raise — we skip blocked candidates and log the reason.
+        """
+        from memtrace_api.gates import run_all_gates
+
+        accepted: list[dict] = []
+        blocked: list[dict] = []
+
+        for idx, c in enumerate(candidates):
+            result = run_all_gates(
+                candidate=c,
+                durability=durability[0],
+                feedback_text=feedback.explicit_text,
+                edited_output=feedback.edited_output,
+                fingerprint=None,
+                candidate_index=idx,
+            )
+            if result.all_passed:
+                accepted.append(c)
+            else:
+                blocking = result.blocking_gate or "unknown"
+                c["_gate_blocked"] = blocking
+                c["_gate_detail"] = result.final_decision.detail
+                blocked.append(c)
+                logger.info(
+                    "Gate blocked candidate %d: %s — %s",
+                    idx,
+                    blocking,
+                    result.final_decision.detail,
+                )
+
+        return accepted, blocked
 
     def _insert_candidates(
         self,
