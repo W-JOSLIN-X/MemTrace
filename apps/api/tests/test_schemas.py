@@ -204,13 +204,14 @@ def test_feedback_request_validation_rules() -> None:
     )
     assert fb_accepted.job_status == "pending"
 
-    # MemoryJobResponse schema
+    # MemoryJobResponse schema (Day 3 G2 shape)
     job_resp = MemoryJobResponse(
         request_id=REQ_ID,
         memory_job_id="job_01J00000000000000000000001",
+        feedback_id="feedback_01J00000000000000000000001",
         created_at=utc_now(),
         updated_at=utc_now(),
     )
     assert job_resp.job_type == "extract_feedback"
     assert job_resp.status == "pending"
-    assert job_resp.stage == "queued"
+    assert job_resp.stage.value == "queued"

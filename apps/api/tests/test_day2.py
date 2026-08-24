@@ -66,6 +66,7 @@ def _migrate(db_url: str) -> None:
         env=env,
         check=True,
         capture_output=True,
+        cwd=str(PROJECT_ROOT),
     )
 
 
@@ -233,6 +234,15 @@ def test_terminal_task_restarts_and_recovers_messages(tmp_path: Path) -> None:
         assistant = next(m for m in body["messages"] if m["role"] == "assistant")
         assert assistant["content"] == body["partial_output"]
 
+        with client_b.stream(
+            "GET",
+            f"/api/v1/tasks/{task_id}/events"
+            f"?after_event_seq={body['last_persistent_event_seq']}"
+            f"&after_offset={body['end_offset']}",
+        ) as resumed:
+            assert resumed.status_code == 200
+            assert "".join(resumed.iter_text()) == ""
+
 
 def test_restart_marks_preexisting_nonterminal_run_interrupted(tmp_path: Path) -> None:
     db_url = f"sqlite:///{(tmp_path / 'db.sqlite3').as_posix()}"
@@ -350,7 +360,14 @@ def test_feedback_same_transaction_creates_feedback_job_and_event(tmp_path: Path
         job = client.get(f"/api/v1/memory-jobs/{fb_body['memory_job_id']}")
         assert job.status_code == 200
         job_body = job.json()
-        assert job_body["status"] == "pending"
+        # Day 3 starts the memory worker in the application lifespan, so the
+        # job may already have advanced by the time this read-only assertion
+        # runs. The feedback POST itself remains contractually pending/202.
+        assert job_body["status"] in {"pending", "running", "completed"}
+        if job_body["status"] == "pending":
+            assert job_body["attempt"] == 0
+        else:
+            assert job_body["attempt"] >= 1
         assert job_body["created_at"].endswith("Z")
         assert job_body["updated_at"].endswith("Z")
 

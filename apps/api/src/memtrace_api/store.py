@@ -88,8 +88,8 @@ class Subscription:
     def __init__(
         self,
         *,
-        store: TaskStore,
-        record: TaskRecord,
+        store: TaskStore | None,
+        record: TaskRecord | None,
         replay: list[ReplayEntry],
         subscriber: Subscriber | None,
         closed_at_capture: bool,
@@ -101,7 +101,7 @@ class Subscription:
         self.closed_at_capture = closed_at_capture
 
     async def close(self) -> None:
-        if self.subscriber is not None:
+        if self.subscriber is not None and self._store is not None and self._record is not None:
             await self._store.unsubscribe(self._record, self.subscriber.subscriber_id)
 
 

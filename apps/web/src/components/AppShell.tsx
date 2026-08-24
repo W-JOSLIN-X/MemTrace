@@ -65,7 +65,7 @@ export function AppShell() {
             className="flex items-center gap-2 rounded-full border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm"
           >
             <span className="size-2 rounded-full bg-emerald-500" />
-            Day 2 · G1
+            Day 3 · G2
           </div>
         </div>
       </header>

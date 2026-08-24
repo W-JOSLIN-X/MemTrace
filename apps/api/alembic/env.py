@@ -1,10 +1,7 @@
-from logging.config import fileConfig
 import os
 import sys
+from logging.config import fileConfig
 from pathlib import Path
-
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
 
 from alembic import context
 
@@ -13,8 +10,8 @@ API_SRC = Path(__file__).resolve().parents[1] / "src"
 if str(API_SRC) not in sys.path:
     sys.path.insert(0, str(API_SRC))
 
-from memtrace_api.db_models import Base
-from memtrace_api.database import create_db_engine
+from memtrace_api.database import create_db_engine  # noqa: E402
+from memtrace_api.db_models import Base  # noqa: E402
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -35,6 +32,7 @@ def get_url() -> str:
     if url:
         return url
     from memtrace_api.config import get_settings
+
     return get_settings().memtrace_database_url
 
 
@@ -73,9 +71,7 @@ def run_migrations_online() -> None:
     connectable = create_db_engine(url)
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

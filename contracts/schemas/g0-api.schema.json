@@ -15,7 +15,12 @@
     {"$ref": "#/$defs/DemoSessionResponse"},
     {"$ref": "#/$defs/FeedbackCreateRequest"},
     {"$ref": "#/$defs/FeedbackCreateAccepted"},
-    {"$ref": "#/$defs/MemoryJobResponse"}
+    {"$ref": "#/$defs/MemoryJobResponse"},
+    {"$ref": "#/$defs/MemoryCard"},
+    {"$ref": "#/$defs/ResolveRequest"},
+    {"$ref": "#/$defs/ResolveResponse"},
+    {"$ref": "#/$defs/MemoryListResponse"},
+    {"$ref": "#/$defs/MemoryDetailResponse"}
   ],
   "$defs": {
     "TaskId": {
@@ -540,6 +545,7 @@
       "properties": {
         "request_id": {"$ref": "#/$defs/RequestId"},
         "memory_job_id": {"$ref": "#/$defs/MemoryJobId"},
+        "feedback_id": {"$ref": "#/$defs/FeedbackId"},
         "job_type": {
           "type": "string",
           "const": "extract_feedback"
@@ -550,14 +556,27 @@
         },
         "stage": {
           "type": "string",
-          "enum": ["queued", "extracting", "done", "failed"]
+          "enum": ["queued", "diffing", "classifying_durability", "extracting", "validating", "admitting", "done", "failed"]
         },
         "attempt": {"type": "integer", "minimum": 0},
-        "error": {"type": ["string", "null"]},
+        "candidate_ids": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/MemoryId"},
+          "maxItems": 3
+        },
+        "disposition": {
+          "type": ["string", "null"],
+          "enum": ["candidate_created", "episode_only", "reinforce_usage_only", "no_memory", "failed", null]
+        },
+        "error_code": {
+          "type": ["string", "null"],
+          "enum": ["MEMORY_JOB_INTERRUPTED", "MEMORY_JSON_INVALID", "MEMORY_SCHEMA_INVALID", "MEMORY_REPAIR_FAILED", "MEMORY_PROVIDER_ERROR", "MEMORY_PROVIDER_TIMEOUT", "MEMORY_EVIDENCE_NOT_FOUND", "MEMORY_NO_REUSABLE_CONTENT", "MEMORY_SCOPE_TOO_BROAD", null]
+        },
+        "retryable": {"type": "boolean"},
         "created_at": {"$ref": "#/$defs/Timestamp"},
         "updated_at": {"$ref": "#/$defs/Timestamp"}
       },
-      "required": ["request_id", "memory_job_id", "job_type", "status", "stage", "attempt", "created_at", "updated_at"],
+      "required": ["request_id", "memory_job_id", "feedback_id", "job_type", "status", "stage", "attempt", "candidate_ids", "disposition", "error_code", "retryable", "created_at", "updated_at"],
       "additionalProperties": false
     },
     "TaskSnapshot": {
@@ -803,7 +822,10 @@
         "SESSION_REQUIRED",
         "IDEMPOTENCY_CONFLICT",
         "FEEDBACK_NO_CHANGES",
-        "TASK_NOT_READY_FOR_FEEDBACK"
+        "TASK_NOT_READY_FOR_FEEDBACK",
+        "MEMORY_NOT_FOUND",
+        "MEMORY_ALREADY_RESOLVED",
+        "MEMORY_JOB_NOT_RETRYABLE"
       ]
     },
     "ErrorResponse": {
@@ -838,6 +860,279 @@
         "after_offset": {"type": "integer", "minimum": 0, "maximum": 262144, "default": 0}
       },
       "required": [],
+      "additionalProperties": false
+    },
+    "MemoryId": {
+      "type": "string",
+      "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "MemoryVersionId": {
+      "type": "string",
+      "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "EvidenceId": {
+      "type": "string",
+      "pattern": "^evidence_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "MemoryKind": {
+      "type": "string",
+      "enum": ["preference", "constraint", "procedure", "experience", "environment", "learning_checkpoint"]
+    },
+    "MemoryCardStatus": {
+      "type": "string",
+      "enum": ["candidate", "active", "rejected", "conflicted", "paused", "superseded", "merged", "archived", "deleted"]
+    },
+    "RejectionReason": {
+      "type": "string",
+      "enum": ["user_rejected", "episode_only"]
+    },
+    "SourceType": {
+      "type": "string",
+      "enum": ["explicit_feedback", "explicit_correction", "edit_diff", "accept", "reject", "rating", "outcome", "import"]
+    },
+    "ScopeLevel": {
+      "type": "string",
+      "enum": ["session", "task_family", "project", "global"]
+    },
+    "ScopeDomain": {
+      "type": "string",
+      "enum": ["programming_learning", "software_development", "general_text", "other", "any"]
+    },
+    "AllowedException": {
+      "type": "string",
+      "enum": ["response_policy:direct_fix", "urgency:urgent"]
+    },
+    "MemoryScope": {
+      "type": "object",
+      "properties": {
+        "level": {"$ref": "#/$defs/ScopeLevel"},
+        "domain": {"$ref": "#/$defs/ScopeDomain"},
+        "task_type": {
+          "oneOf": [
+            {"$ref": "#/$defs/TaskType"},
+            {"type": "null"}
+          ]
+        },
+        "artifact_type": {
+          "oneOf": [
+            {"$ref": "#/$defs/ArtifactType"},
+            {"type": "null"}
+          ]
+        },
+        "audience": {
+          "oneOf": [
+            {"type": "string", "enum": ["beginner", "intermediate", "advanced", "unknown"]},
+            {"type": "null"}
+          ]
+        },
+        "project_key": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": ["level", "domain"],
+      "additionalProperties": false
+    },
+    "MemoryCard": {
+      "type": "object",
+      "properties": {
+        "memory_id": {"$ref": "#/$defs/MemoryId"},
+        "schema_version": {"type": "string", "const": "1.0"},
+        "kind": {"$ref": "#/$defs/MemoryKind"},
+        "title": {"type": "string", "minLength": 4, "maxLength": 40},
+        "rule": {"type": "string", "minLength": 20, "maxLength": 300},
+        "avoid": {"type": "string", "maxLength": 400},
+        "trigger_text": {"type": "string", "maxLength": 240},
+        "scope": {"$ref": "#/$defs/MemoryScope"},
+        "exceptions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/AllowedException"},
+          "maxItems": 8,
+          "uniqueItems": true
+        },
+        "status": {"$ref": "#/$defs/MemoryCardStatus"},
+        "rejection_reason": {
+          "oneOf": [
+            {"$ref": "#/$defs/RejectionReason"},
+            {"type": "null"}
+          ]
+        },
+        "source_type": {"$ref": "#/$defs/SourceType"},
+        "save_preselected": {"type": "boolean"},
+        "source_trust": {"type": "number", "minimum": 0, "maximum": 1},
+        "rule_confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "scope_confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "evidence_count": {"type": "integer", "minimum": 0},
+        "version": {"type": "integer", "minimum": 0},
+        "current_version_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/MemoryVersionId"},
+            {"type": "null"}
+          ]
+        },
+        "created_at": {"$ref": "#/$defs/Timestamp"},
+        "updated_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["memory_id", "schema_version", "kind", "title", "rule", "avoid", "trigger_text", "scope", "exceptions", "status", "rejection_reason", "source_type", "save_preselected", "source_trust", "rule_confidence", "scope_confidence", "evidence_count", "version", "current_version_id", "created_at", "updated_at"],
+      "additionalProperties": false
+    },
+    "MemoryCardPatch": {
+      "type": "object",
+      "properties": {
+        "title": {"type": "string", "minLength": 4, "maxLength": 40},
+        "rule": {"type": "string", "minLength": 20, "maxLength": 300},
+        "avoid": {"type": "string", "maxLength": 400},
+        "scope": {"$ref": "#/$defs/MemoryScope"},
+        "exceptions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/AllowedException"},
+          "maxItems": 8,
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false,
+      "anyOf": [
+        {"required": ["title"]},
+        {"required": ["rule"]},
+        {"required": ["avoid"]},
+        {"required": ["scope"]},
+        {"required": ["exceptions"]}
+      ]
+    },
+    "ResolveAction": {
+      "type": "string",
+      "enum": ["accept", "edit_accept", "reject", "one_shot"]
+    },
+    "ResolveRequest": {
+      "type": "object",
+      "properties": {
+        "action": {"$ref": "#/$defs/ResolveAction"},
+        "patch": {
+          "oneOf": [
+            {"$ref": "#/$defs/MemoryCardPatch"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "required": ["action"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"properties": {"action": {"const": "edit_accept"}}, "required": ["action"]},
+          "then": {"properties": {"patch": {"$ref": "#/$defs/MemoryCardPatch"}}}
+        },
+        {
+          "if": {"properties": {"action": {"enum": ["accept", "reject", "one_shot"]}}, "required": ["action"]},
+          "then": {"properties": {"patch": {"type": "null"}}}
+        }
+      ]
+    },
+    "ResolveResponse": {
+      "type": "object",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "memory_id": {"$ref": "#/$defs/MemoryId"},
+        "action": {"$ref": "#/$defs/ResolveAction"},
+        "old_status": {"$ref": "#/$defs/MemoryCardStatus"},
+        "new_status": {"$ref": "#/$defs/MemoryCardStatus"},
+        "disposition": {
+          "type": "string",
+          "enum": ["candidate_created", "episode_only", "reinforce_usage_only", "no_memory", "failed"]
+        },
+        "memory_version_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/MemoryVersionId"},
+            {"type": "null"}
+          ]
+        },
+        "card": {"$ref": "#/$defs/MemoryCard"}
+      },
+      "required": ["request_id", "memory_id", "action", "old_status", "new_status", "disposition", "card"],
+      "additionalProperties": false
+    },
+    "MemoryListResponse": {
+      "type": "object",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "items": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/MemoryCard"},
+          "maxItems": 100
+        },
+        "next_cursor": {"type": ["string", "null"]}
+      },
+      "required": ["request_id", "items"],
+      "additionalProperties": false
+    },
+    "MemoryEvidenceProjection": {
+      "type": "object",
+      "properties": {
+        "evidence_id": {"$ref": "#/$defs/EvidenceId"},
+        "source_type": {"$ref": "#/$defs/SourceType"},
+        "feedback_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/FeedbackId"},
+            {"type": "null"}
+          ]
+        },
+        "task_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/TaskId"},
+            {"type": "null"}
+          ]
+        },
+        "run_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/RunId"},
+            {"type": "null"}
+          ]
+        },
+        "evidence_quote": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "diff_summary": {"type": ["string", "null"], "minLength": 1, "maxLength": 2000},
+        "normalized_edit_cost": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "created_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["evidence_id", "source_type", "evidence_quote", "created_at"],
+      "additionalProperties": false
+    },
+    "MemoryVersionProjection": {
+      "type": "object",
+      "properties": {
+        "memory_version_id": {"$ref": "#/$defs/MemoryVersionId"},
+        "version": {"type": "integer", "minimum": 1},
+        "title": {"type": "string", "minLength": 4, "maxLength": 40},
+        "rule": {"type": "string", "minLength": 20, "maxLength": 300},
+        "avoid": {"type": "string", "maxLength": 400},
+        "trigger_text": {"type": "string", "maxLength": 240},
+        "scope": {"$ref": "#/$defs/MemoryScope"},
+        "exceptions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/AllowedException"},
+          "maxItems": 8,
+          "uniqueItems": true
+        },
+        "created_by_action": {"$ref": "#/$defs/ResolveAction"},
+        "created_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["memory_version_id", "version", "title", "rule", "avoid", "trigger_text", "scope", "exceptions", "created_by_action", "created_at"],
+      "additionalProperties": false
+    },
+    "MemoryDetailResponse": {
+      "type": "object",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "card": {"$ref": "#/$defs/MemoryCard"},
+        "evidence": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/MemoryEvidenceProjection"}
+        },
+        "versions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/MemoryVersionProjection"}
+        }
+      },
+      "required": ["request_id", "card", "evidence", "versions"],
       "additionalProperties": false
     }
   }

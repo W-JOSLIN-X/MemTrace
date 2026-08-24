@@ -352,11 +352,15 @@ function memoryJob(): MemoryJobResponse {
   return {
     request_id: 'req_01J00000000000000000000003',
     memory_job_id: JOB_ID,
+    feedback_id: FEEDBACK_ID,
     job_type: 'extract_feedback',
     status: 'pending',
     stage: 'queued',
     attempt: 0,
-    error: null,
+    candidate_ids: [],
+    disposition: null,
+    error_code: null,
+    retryable: false,
     created_at: AT,
     updated_at: AT,
   }

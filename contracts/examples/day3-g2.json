@@ -1,0 +1,79 @@
+{
+  "mock_contract_version": "1.2.0",
+  "purpose": "Deterministic Day 3 G2 REST and SSE examples for member B UI integration and contract-lock tests. Not consumed by the runtime; the MockProvider has its own versioned fixture source.",
+  "job_states": {
+    "pending": {
+      "status": "pending",
+      "stage": "queued",
+      "disposition": null,
+      "candidate_ids": []
+    },
+    "completed_3_cards": {
+      "status": "completed",
+      "stage": "done",
+      "disposition": "candidate_created",
+      "candidate_ids": [
+        "mem_01J00000000000000000000001",
+        "mem_01J00000000000000000000002",
+        "mem_01J00000000000000000000003"
+      ]
+    },
+    "episode_only": {
+      "status": "completed",
+      "stage": "done",
+      "disposition": "episode_only",
+      "candidate_ids": []
+    },
+    "no_memory": {
+      "status": "completed",
+      "stage": "done",
+      "disposition": "no_memory",
+      "candidate_ids": []
+    },
+    "failed_repair": {
+      "status": "failed",
+      "stage": "extracting",
+      "disposition": "failed",
+      "error_code": "MEMORY_REPAIR_FAILED",
+      "retryable": true,
+      "candidate_ids": []
+    }
+  },
+  "sse_examples": [
+    {
+      "event": "memory.extraction.stage",
+      "data": {
+        "memory_job_id": "job_01J00000000000000000000001",
+        "stage": "extracting"
+      }
+    },
+    {
+      "event": "memory.candidate.created",
+      "data": {
+        "memory_job_id": "job_01J00000000000000000000001",
+        "memory_id": "mem_01J00000000000000000000001",
+        "evidence_id": "evidence_01J00000000000000000000001",
+        "ordinal": 0
+      }
+    },
+    {
+      "event": "memory.admission.resolved",
+      "data": {
+        "memory_id": "mem_01J00000000000000000000001",
+        "old_status": "candidate",
+        "new_status": "active",
+        "memory_version_id": "memver_01J00000000000000000000001",
+        "disposition": "candidate_created"
+      }
+    },
+    {
+      "event": "memory.job.failed",
+      "data": {
+        "memory_job_id": "job_01J00000000000000000000001",
+        "stage": "extracting",
+        "error_code": "MEMORY_JSON_INVALID",
+        "retryable": true
+      }
+    }
+  ]
+}

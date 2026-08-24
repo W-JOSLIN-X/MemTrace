@@ -24,7 +24,12 @@ import type {
   G0EventType,
   FeedbackCreateAccepted,
   FeedbackCreateRequest,
+  MemoryDetailResponse,
+  MemoryId,
+  MemoryJobId,
   MemoryJobResponse,
+  ResolveRequest,
+  ResolveResponse,
   ResponsePolicy,
   TaskCreateRequest,
   TaskId,
@@ -44,6 +49,7 @@ export interface UseG0AgentOptions {
   retryDelaysMs?: readonly number[]
   idempotencyKeyFactory?: () => string
   feedbackCatchupTimeoutMs?: number
+  memoryMonitorTimeoutMs?: number
 }
 
 export interface FeedbackSubmissionState {
@@ -51,6 +57,12 @@ export interface FeedbackSubmissionState {
   accepted: FeedbackCreateAccepted | null
   job: MemoryJobResponse | null
   catchup: 'event' | 'snapshot' | 'unconfirmed' | null
+  monitor:
+    | 'idle'
+    | 'monitoring'
+    | 'still_processing'
+    | 'completed'
+    | 'failed'
   error: PublicUiError | null
 }
 
@@ -59,6 +71,7 @@ const INITIAL_FEEDBACK_STATE: FeedbackSubmissionState = {
   accepted: null,
   job: null,
   catchup: null,
+  monitor: 'idle',
   error: null,
 }
 
@@ -68,6 +81,7 @@ export function useG0Agent({
   retryDelaysMs = DEFAULT_RETRY_DELAYS_MS,
   idempotencyKeyFactory = newIdempotencyKey,
   feedbackCatchupTimeoutMs = 1_500,
+  memoryMonitorTimeoutMs = 30_000,
 }: UseG0AgentOptions = {}) {
   const [state, reducerDispatch] = useReducer(
     g0Reducer,
@@ -83,6 +97,7 @@ export function useG0Agent({
   const connectionRef = useRef<EventStreamConnection | null>(null)
   const feedbackConnectionRef = useRef<EventStreamConnection | null>(null)
   const feedbackCatchupCancelRef = useRef<(() => void) | null>(null)
+  const memoryMonitorEpochRef = useRef(0)
   const controllersRef = useRef(new Set<AbortController>())
   const timerResolversRef = useRef(
     new Map<ReturnType<typeof setTimeout>, () => void>(),
@@ -96,6 +111,12 @@ export function useG0Agent({
     requestJson: string
     key: string
   } | null>(null)
+  const pendingRetryWriteRef = useRef(
+    new Map<MemoryJobId, { requestJson: string; key: string }>(),
+  )
+  const pendingResolveWriteRef = useRef(
+    new Map<MemoryId, { requestJson: string; key: string }>(),
+  )
 
   const commit = useCallback((action: G0Action) => {
     const next = g0Reducer(stateRef.current, action)
@@ -124,6 +145,7 @@ export function useG0Agent({
   }, [])
 
   const stopSession = useCallback(() => {
+    memoryMonitorEpochRef.current += 1
     closeConnection()
     feedbackCatchupCancelRef.current?.()
     feedbackCatchupCancelRef.current = null
@@ -196,6 +218,13 @@ export function useG0Agent({
   const finalizeRef = useRef<(generation: number) => Promise<void>>(
     async () => undefined,
   )
+  const monitorMemoryJobRef = useRef<
+    (
+      memoryJobId: MemoryJobId,
+      generation: number,
+      accepted: FeedbackCreateAccepted,
+    ) => Promise<void>
+  >(async () => undefined)
 
   const finalize = useCallback(
     async (generation: number) => {
@@ -427,6 +456,9 @@ export function useG0Agent({
       const generation = generationRef.current + 1
       generationRef.current = generation
       stopSession()
+      pendingFeedbackWriteRef.current = null
+      pendingRetryWriteRef.current.clear()
+      pendingResolveWriteRef.current.clear()
       commit({ type: 'submit_started' })
       const request: TaskCreateRequest = {
         task_text: trimmed,
@@ -474,6 +506,8 @@ export function useG0Agent({
     stopSession()
     pendingTaskWriteRef.current = null
     pendingFeedbackWriteRef.current = null
+    pendingRetryWriteRef.current.clear()
+    pendingResolveWriteRef.current.clear()
     setFeedbackState(INITIAL_FEEDBACK_STATE)
     commit({ type: 'owner_reset' })
   }, [commit, stopSession])
@@ -485,6 +519,8 @@ export function useG0Agent({
       stopSession()
       pendingTaskWriteRef.current = null
       pendingFeedbackWriteRef.current = null
+      pendingRetryWriteRef.current.clear()
+      pendingResolveWriteRef.current.clear()
       setFeedbackState(INITIAL_FEEDBACK_STATE)
       commit({ type: 'owner_reset' })
       try {
@@ -497,6 +533,28 @@ export function useG0Agent({
             next.lastPersistentEventSeq,
             next.endOffset,
             generation,
+          )
+        }
+        const latestFeedback = snapshot.feedback_events.at(-1)
+        if (latestFeedback) {
+          const accepted: FeedbackCreateAccepted = {
+            request_id: snapshot.request_id,
+            feedback_id: latestFeedback.feedback_id,
+            memory_job_id: latestFeedback.memory_job_id,
+            feedback_type: latestFeedback.feedback_type,
+            job_status: 'pending',
+          }
+          setFeedbackState({
+            ...INITIAL_FEEDBACK_STATE,
+            phase: 'recorded',
+            accepted,
+            catchup: 'snapshot',
+            monitor: 'monitoring',
+          })
+          void monitorMemoryJobRef.current(
+            latestFeedback.memory_job_id,
+            generation,
+            accepted,
           )
         }
         return snapshot
@@ -578,6 +636,189 @@ export function useG0Agent({
     [commit, eventSourceFactory, feedbackCatchupTimeoutMs],
   )
 
+  const catchUpMemoryEvents = useCallback(
+    (generation: number, timeoutMs = 150): Promise<void> => {
+      const current = stateRef.current
+      if (!current.taskId || !current.runId || !current.eventsUrl) {
+        return Promise.resolve()
+      }
+      const expectedTaskId = current.taskId
+      const expectedRunId = current.runId
+      const url = buildEventStreamUrl(
+        current.eventsUrl,
+        current.lastPersistentEventSeq,
+        current.endOffset,
+      )
+      return new Promise<void>((resolve) => {
+        let finished = false
+        let connection: EventStreamConnection | null = null
+        const finish = () => {
+          if (finished) return
+          finished = true
+          clearTimeout(timeout)
+          connection?.close()
+          resolve()
+        }
+        const timeout = setTimeout(finish, timeoutMs)
+        connection = eventSourceFactory(url, {
+          onOpen: () => undefined,
+          onEvent: (eventType, rawData, lastEventId) => {
+            if (generation !== generationRef.current) {
+              finish()
+              return
+            }
+            try {
+              const event = parseSseEvent(eventType, rawData, lastEventId)
+              if (
+                event.task_id === expectedTaskId &&
+                event.run_id === expectedRunId
+              ) {
+                commit({ type: 'sse_event', event })
+              }
+            } catch {
+              finish()
+            }
+          },
+          onError: finish,
+        })
+        if (finished) connection.close()
+      })
+    },
+    [commit, eventSourceFactory],
+  )
+
+  const loadCandidateDetails = useCallback(
+    async (
+      candidateIds: readonly MemoryId[],
+      generation: number,
+      controller: AbortController,
+    ): Promise<void> => {
+      if (!api.getMemory) return
+      for (const memoryId of candidateIds) {
+        const detail = await api.getMemory(memoryId, controller.signal)
+        if (generation !== generationRef.current) return
+        commit({ type: 'memory_detail_received', detail })
+      }
+    },
+    [api, commit],
+  )
+
+  const monitorMemoryJob = useCallback(
+    async (
+      memoryJobId: MemoryJobId,
+      generation: number,
+      accepted: FeedbackCreateAccepted,
+    ) => {
+      if (!api.getMemoryJob) return
+      const monitorEpoch = memoryMonitorEpochRef.current + 1
+      memoryMonitorEpochRef.current = monitorEpoch
+      const deadline = Date.now() + memoryMonitorTimeoutMs
+      const delays = [250, 500, 1000] as const
+      let delayIndex = 0
+      let previousSignature = ''
+      setFeedbackState((current) =>
+        current.accepted?.memory_job_id === memoryJobId
+          ? { ...current, monitor: 'monitoring', error: null }
+          : {
+              ...INITIAL_FEEDBACK_STATE,
+              phase: 'recorded',
+              accepted,
+              monitor: 'monitoring',
+            },
+      )
+
+      while (
+        generation === generationRef.current &&
+        monitorEpoch === memoryMonitorEpochRef.current
+      ) {
+        const controller = new AbortController()
+        controllersRef.current.add(controller)
+        try {
+          const job = await api.getMemoryJob(memoryJobId, controller.signal)
+          if (
+            generation !== generationRef.current ||
+            monitorEpoch !== memoryMonitorEpochRef.current
+          ) {
+            return
+          }
+          commit({ type: 'memory_job_received', job })
+          setFeedbackState((current) => ({
+            ...current,
+            phase: 'recorded',
+            accepted,
+            job,
+            monitor:
+              job.status === 'completed'
+                ? 'completed'
+                : job.status === 'failed'
+                  ? 'failed'
+                  : 'monitoring',
+            error:
+              job.status === 'failed'
+                ? {
+                    code: job.error_code ?? 'MEMORY_JOB_FAILED',
+                    message: '记忆候选处理失败。',
+                    retryable: job.retryable,
+                  }
+                : null,
+          }))
+
+          const signature = `${job.status}:${job.stage}:${job.attempt}:${job.candidate_ids.join(',')}`
+          if (signature !== previousSignature) {
+            previousSignature = signature
+            await catchUpMemoryEvents(generation)
+          }
+          if (job.status === 'completed') {
+            await loadCandidateDetails(job.candidate_ids, generation, controller)
+            return
+          }
+          if (job.status === 'failed') return
+        } catch (error) {
+          if (
+            isAbortError(error) ||
+            generation !== generationRef.current ||
+            monitorEpoch !== memoryMonitorEpochRef.current
+          ) {
+            return
+          }
+          if (Date.now() >= deadline) {
+            setFeedbackState((current) => ({
+              ...current,
+              monitor: 'still_processing',
+              error: null,
+            }))
+            return
+          }
+        } finally {
+          controllersRef.current.delete(controller)
+        }
+
+        if (Date.now() >= deadline) {
+          setFeedbackState((current) => ({
+            ...current,
+            monitor: 'still_processing',
+            error: null,
+          }))
+          return
+        }
+        await sleep(delays[Math.min(delayIndex, delays.length - 1)] ?? 1000)
+        delayIndex += 1
+      }
+    },
+    [
+      api,
+      catchUpMemoryEvents,
+      commit,
+      loadCandidateDetails,
+      memoryMonitorTimeoutMs,
+      sleep,
+    ],
+  )
+
+  useEffect(() => {
+    monitorMemoryJobRef.current = monitorMemoryJob
+  }, [monitorMemoryJob])
+
   const submitFeedback = useCallback(
     async (
       feedback: FeedbackCreateRequest,
@@ -653,22 +894,19 @@ export function useG0Agent({
           }
         }
 
-        let job: MemoryJobResponse | null = null
-        if (api.getMemoryJob) {
-          try {
-            job = await api.getMemoryJob(accepted.memory_job_id, controller.signal)
-          } catch (error) {
-            if (isAbortError(error) || generation !== generationRef.current) return null
-          }
-        }
-        if (generation !== generationRef.current) return null
         setFeedbackState({
           phase: 'recorded',
           accepted,
-          job,
+          job: null,
           catchup,
+          monitor: 'monitoring',
           error: null,
         })
+        void monitorMemoryJobRef.current(
+          accepted.memory_job_id,
+          generation,
+          accepted,
+        )
         return accepted
       } catch (error) {
         if (isAbortError(error) || generation !== generationRef.current) return null
@@ -684,6 +922,145 @@ export function useG0Agent({
     },
     [api, catchUpFeedback, commit, getSnapshot, idempotencyKeyFactory],
   )
+
+  const retryMemoryJob = useCallback(
+    async (memoryJobId: MemoryJobId): Promise<MemoryJobResponse | null> => {
+      if (!api.retryMemoryJob) return null
+      const generation = generationRef.current
+      const currentFeedback = feedbackState.accepted
+      const requestJson = `retry:${memoryJobId}`
+      let pending = pendingRetryWriteRef.current.get(memoryJobId)
+      if (!pending || pending.requestJson !== requestJson) {
+        pending = { requestJson, key: idempotencyKeyFactory() }
+        pendingRetryWriteRef.current.set(memoryJobId, pending)
+      }
+      const controller = new AbortController()
+      controllersRef.current.add(controller)
+      setFeedbackState((current) => ({
+        ...current,
+        monitor: 'monitoring',
+        error: null,
+      }))
+      try {
+        const job = await api.retryMemoryJob(
+          memoryJobId,
+          pending.key,
+          controller.signal,
+        )
+        if (generation !== generationRef.current) return null
+        pendingRetryWriteRef.current.delete(memoryJobId)
+        commit({ type: 'memory_job_received', job })
+        const accepted: FeedbackCreateAccepted = currentFeedback ?? {
+          request_id: job.request_id,
+          feedback_id: job.feedback_id,
+          memory_job_id: job.memory_job_id,
+          feedback_type:
+            stateRef.current.feedbackEvents.find(
+              (item) => item.feedback_id === job.feedback_id,
+            )?.feedback_type ?? 'explicit_text',
+          job_status: 'pending',
+        }
+        setFeedbackState((current) => ({
+          ...current,
+          phase: 'recorded',
+          accepted,
+          job,
+          monitor: 'monitoring',
+          error: null,
+        }))
+        void monitorMemoryJobRef.current(memoryJobId, generation, accepted)
+        return job
+      } catch (error) {
+        if (isAbortError(error) || generation !== generationRef.current) return null
+        setFeedbackState((current) => ({
+          ...current,
+          monitor: 'failed',
+          error: toPublicError(error),
+        }))
+        return null
+      } finally {
+        controllersRef.current.delete(controller)
+      }
+    },
+    [api, commit, feedbackState.accepted, idempotencyKeyFactory],
+  )
+
+  const resolveCandidate = useCallback(
+    async (
+      memoryId: MemoryId,
+      request: ResolveRequest,
+    ): Promise<ResolveResponse | null> => {
+      if (!api.resolveMemoryCandidate) return null
+      const generation = generationRef.current
+      const normalizedRequest: ResolveRequest = {
+        action: request.action,
+        patch: request.patch ?? null,
+      }
+      const requestJson = JSON.stringify(normalizedRequest)
+      let pending = pendingResolveWriteRef.current.get(memoryId)
+      if (!pending || pending.requestJson !== requestJson) {
+        pending = { requestJson, key: idempotencyKeyFactory() }
+        pendingResolveWriteRef.current.set(memoryId, pending)
+      }
+      commit({ type: 'memory_resolve_started', memoryId })
+      const controller = new AbortController()
+      controllersRef.current.add(controller)
+      try {
+        const resolved = await api.resolveMemoryCandidate(
+          memoryId,
+          normalizedRequest,
+          pending.key,
+          controller.signal,
+        )
+        if (generation !== generationRef.current) return null
+        pendingResolveWriteRef.current.delete(memoryId)
+        let detail: MemoryDetailResponse
+        if (api.getMemory) {
+          detail = await api.getMemory(memoryId, controller.signal)
+        } else {
+          const current = stateRef.current.memoryDetails[memoryId]
+          detail = {
+            request_id: resolved.request_id,
+            card: resolved.card,
+            evidence: current?.evidence ?? [],
+            versions: current?.versions ?? [],
+          }
+        }
+        if (generation !== generationRef.current) return null
+        commit({ type: 'memory_resolved', detail, resolution: resolved })
+        await catchUpMemoryEvents(generation)
+        return resolved
+      } catch (error) {
+        if (isAbortError(error) || generation !== generationRef.current) return null
+        commit({
+          type: 'memory_resolve_failed',
+          memoryId,
+          error: toPublicError(error),
+        })
+        return null
+      } finally {
+        controllersRef.current.delete(controller)
+      }
+    },
+    [api, catchUpMemoryEvents, commit, idempotencyKeyFactory],
+  )
+
+  const toggleEvidence = useCallback(
+    (memoryId: MemoryId) => {
+      commit({ type: 'memory_evidence_toggled', memoryId })
+    },
+    [commit],
+  )
+
+  const resumeMemoryJobMonitor = useCallback(() => {
+    const accepted = feedbackState.accepted
+    if (!accepted) return
+    void monitorMemoryJobRef.current(
+      accepted.memory_job_id,
+      generationRef.current,
+      accepted,
+    )
+  }, [feedbackState.accepted])
 
   const retryConnection = useCallback(() => {
     const current = stateRef.current
@@ -710,6 +1087,10 @@ export function useG0Agent({
     restoreTask,
     resetOwner,
     submitFeedback,
+    retryMemoryJob,
+    resolveCandidate,
+    toggleEvidence,
+    resumeMemoryJobMonitor,
     retryConnection,
   }
 }

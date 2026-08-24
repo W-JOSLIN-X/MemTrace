@@ -2,7 +2,11 @@ import {
   parseDemoSessionResponse,
   parseErrorResponse,
   parseFeedbackCreateAccepted,
+  parseMemoryDetailResponse,
   parseMemoryJobResponse,
+  parseMemoryListResponse,
+  parseResolveRequest,
+  parseResolveResponse,
   parseTaskCreateAccepted,
   parseTaskSnapshot,
 } from './runtime'
@@ -14,6 +18,12 @@ import type {
   FeedbackCreateRequest,
   MemoryJobId,
   MemoryJobResponse,
+  MemoryCardStatus,
+  MemoryDetailResponse,
+  MemoryId,
+  MemoryListResponse,
+  ResolveRequest,
+  ResolveResponse,
   TaskCreateAccepted,
   TaskCreateRequest,
   TaskId,
@@ -42,6 +52,28 @@ export interface G0Api {
     memoryJobId: MemoryJobId,
     signal?: AbortSignal,
   ): Promise<MemoryJobResponse>
+  retryMemoryJob?(
+    memoryJobId: MemoryJobId,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<MemoryJobResponse>
+  resolveMemoryCandidate?(
+    memoryId: MemoryId,
+    request: ResolveRequest,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<ResolveResponse>
+  listMemories?(
+    options?: {
+      status?: Extract<MemoryCardStatus, 'candidate' | 'active' | 'rejected'>
+      cursor?: string
+    },
+    signal?: AbortSignal,
+  ): Promise<MemoryListResponse>
+  getMemory?(
+    memoryId: MemoryId,
+    signal?: AbortSignal,
+  ): Promise<MemoryDetailResponse>
 }
 
 export class G0ApiError extends Error {
@@ -172,6 +204,96 @@ export const browserG0Api: G0Api = {
     if (!response.ok) throw responseError(response.status, body)
     try {
       return parseMemoryJobResponse(body)
+    } catch {
+      throw invalidResponse()
+    }
+  },
+
+  async retryMemoryJob(memoryJobId, idempotencyKey, signal) {
+    const response = await safeFetch(
+      `/api/v1/memory-jobs/${encodeURIComponent(memoryJobId)}/retry`,
+      {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Idempotency-Key': idempotencyKey,
+        },
+        credentials: 'same-origin',
+        signal,
+      },
+    )
+    const body = await readJson(response)
+    if (!response.ok) throw responseError(response.status, body)
+    try {
+      return parseMemoryJobResponse(body)
+    } catch {
+      throw invalidResponse()
+    }
+  },
+
+  async resolveMemoryCandidate(memoryId, request, idempotencyKey, signal) {
+    let normalized: ResolveRequest
+    try {
+      normalized = parseResolveRequest(request)
+    } catch {
+      throw invalidResponse()
+    }
+    const response = await safeFetch(
+      `/api/v1/memory-candidates/${encodeURIComponent(memoryId)}/resolve`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey,
+        },
+        body: JSON.stringify(normalized),
+        credentials: 'same-origin',
+        signal,
+      },
+    )
+    const body = await readJson(response)
+    if (!response.ok) throw responseError(response.status, body)
+    try {
+      return parseResolveResponse(body)
+    } catch {
+      throw invalidResponse()
+    }
+  },
+
+  async listMemories(options = {}, signal) {
+    const query = new URLSearchParams()
+    if (options.status) query.set('status', options.status)
+    if (options.cursor) query.set('cursor', options.cursor)
+    const suffix = query.size > 0 ? `?${query.toString()}` : ''
+    const response = await safeFetch(`/api/v1/memories${suffix}`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+      signal,
+    })
+    const body = await readJson(response)
+    if (!response.ok) throw responseError(response.status, body)
+    try {
+      return parseMemoryListResponse(body)
+    } catch {
+      throw invalidResponse()
+    }
+  },
+
+  async getMemory(memoryId, signal) {
+    const response = await safeFetch(
+      `/api/v1/memories/${encodeURIComponent(memoryId)}`,
+      {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        credentials: 'same-origin',
+        signal,
+      },
+    )
+    const body = await readJson(response)
+    if (!response.ok) throw responseError(response.status, body)
+    try {
+      return parseMemoryDetailResponse(body)
     } catch {
       throw invalidResponse()
     }

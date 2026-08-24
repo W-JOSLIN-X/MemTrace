@@ -12,6 +12,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day1"
 DAY2_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day2"
+DAY3_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day3"
 API_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "schemas" / "g0-api.schema.json"
 EVENT_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "schemas" / "events.schema.json"
 
@@ -149,6 +150,169 @@ def validate_day2_matrix() -> None:
         }
         assert entry["expected_persistent_event_profile"] in profiles
         assert entry["expected_feedback_available_after"] == "succeeded_only"
+
+
+def validate_day3_learning_events(api_schema: dict[str, Any]) -> None:
+    fixture = load_json(DAY3_FIXTURE_ROOT / "learning_events.json")
+    scan_forbidden(fixture, "learning_events")
+    assert fixture["contract_version"] == "1.2.0"
+    assert fixture["review_status"] == "member_b_approved_2026-08-24"
+    entries = fixture["entries"]
+    assert len(entries) >= 24, (
+        f"Day 3 learning events need >=24 entries, got {len(entries)}"
+    )
+    assert len({entry["id"] for entry in entries}) == len(entries)
+
+    durability_values = {
+        "explicit_durable",
+        "one_shot",
+        "ambiguous",
+        "reinforce_usage_only",
+        "harmful_usage_only",
+    }
+    categories = {"preference", "rule", "experience", "one_shot", "no_memory"}
+    dispositions = {
+        "candidate_created",
+        "episode_only",
+        "reinforce_usage_only",
+        "no_memory",
+        "failed",
+    }
+    kinds = {
+        "preference",
+        "constraint",
+        "procedure",
+        "experience",
+        "environment",
+        "learning_checkpoint",
+    }
+    domains = {"programming_learning", "software_development", "general_text", "other"}
+    task_types = {
+        "debugging_guidance",
+        "code_review",
+        "code_explanation",
+        "code_generation",
+        "environment_configuration",
+        "general_question",
+        "other",
+    }
+    stage_paths = fixture["stage_paths"]
+    declared_sims = set(fixture["provider_simulations"])
+    feedback_validator = schema_validator(api_schema, "FeedbackCreateRequest")
+
+    seen_durability: set[str] = set()
+    seen_candidate_counts: set[int] = set()
+    for entry in entries:
+        label = f"learning_events/{entry['id']}"
+        assert entry["task_text"].strip(), f"{label}: empty task_text"
+        fingerprint = entry["expected_fingerprint"]
+        assert fingerprint["domain"] in domains, f"{label}: bad domain"
+        assert fingerprint["task_type"] in task_types, f"{label}: bad task_type"
+
+        feedback = entry["feedback"]
+        non_null = {key: value for key, value in feedback.items() if value is not None}
+        assert non_null, f"{label}: feedback must carry at least one signal"
+        assert_valid(feedback_validator, feedback, f"{label}/feedback")
+
+        simulation = entry["provider_simulation"]
+        assert simulation is None or simulation in declared_sims, (
+            f"{label}: unknown simulation"
+        )
+
+        expected = entry["expected"]
+        assert expected["durability"] in durability_values, f"{label}: bad durability"
+        assert expected["durability_reason"] in fixture["durability_reason_codes"], (
+            f"{label}: bad durability_reason"
+        )
+        assert expected["category"] in categories, f"{label}: bad category"
+        assert expected["disposition"] in dispositions, f"{label}: bad disposition"
+        assert expected["stage_events"] in stage_paths, f"{label}: unknown stage path"
+
+        count = expected["candidate_count"]
+        kinds_expected = expected["candidate_kinds"]
+        assert 0 <= count <= 3, f"{label}: candidate_count out of 0..3"
+        assert len(kinds_expected) == count, f"{label}: kinds length mismatch"
+        assert all(kind in kinds for kind in kinds_expected), f"{label}: bad kind"
+        assert expected["candidate_created_events"] == count, (
+            f"{label}: candidate events must equal candidate_count"
+        )
+        if expected["save_preselected"]:
+            assert count >= 1, f"{label}: save_preselected requires candidates"
+        if expected["durability"] != "explicit_durable":
+            assert not expected["save_preselected"], (
+                f"{label}: only explicit_durable may preselect save"
+            )
+        if expected["category"] == "preference":
+            assert set(kinds_expected) <= {"preference"}, (
+                f"{label}: preference kind drift"
+            )
+        elif expected["category"] == "rule":
+            assert set(kinds_expected) <= {"constraint", "procedure"}, (
+                f"{label}: rule maps to constraint|procedure"
+            )
+        elif expected["category"] == "experience":
+            assert set(kinds_expected) <= {"experience"}, (
+                f"{label}: experience kind drift"
+            )
+        else:
+            assert count == 0, f"{label}: one_shot/no_memory cannot create cards"
+
+        if expected["job_status"] == "failed":
+            assert expected["job_error_code"] is not None, (
+                f"{label}: failed needs error code"
+            )
+            assert expected["job_failed_event"] is True, (
+                f"{label}: failed needs failure event"
+            )
+            assert expected["disposition"] == "failed", f"{label}: failed disposition"
+        else:
+            assert expected["job_error_code"] is None, (
+                f"{label}: completed has no error"
+            )
+            assert expected["job_failed_event"] is False, (
+                f"{label}: unexpected failure event"
+            )
+
+        if feedback["edited_output"] is not None:
+            original = entry["original_assistant_output"]
+            assert original is not None, f"{label}: diff entries need original output"
+            assert original != feedback["edited_output"], (
+                f"{label}: diff must change content"
+            )
+        else:
+            assert entry["original_assistant_output"] is None, (
+                f"{label}: original output only for diff entries"
+            )
+
+        seen_durability.add(expected["durability"])
+        seen_candidate_counts.add(count)
+
+    assert seen_durability == durability_values, (
+        f"learning_events must cover every durability, missing: {durability_values - seen_durability}"
+    )
+    assert {0, 1, 2, 3} <= seen_candidate_counts, (
+        f"learning_events must cover 0/1/2/3 candidate counts, missing: "
+        f"{ {0, 1, 2, 3} - seen_candidate_counts }"
+    )
+    assert any(
+        entry["provider_simulation"] == "evidence_not_found" for entry in entries
+    ), "learning_events must cover evidence_quote-not-a-substring"
+    assert any(entry["expected"]["job_status"] == "failed" for entry in entries), (
+        "learning_events must cover a repair-still-fails job"
+    )
+    english = [
+        e
+        for e in entries
+        if e["feedback"]["explicit_text"] and e["feedback"]["explicit_text"].isascii()
+    ]
+    assert english, "learning_events must include English feedback"
+    chinese = [
+        e
+        for e in entries
+        if e["feedback"]["explicit_text"]
+        and not e["feedback"]["explicit_text"].isascii()
+    ]
+    assert chinese, "learning_events must include Chinese feedback"
 
 
 def trace_signature(events: list[dict[str, Any]]) -> list[str]:
@@ -319,11 +483,16 @@ def main() -> int:
     validate_demo_core(api_schema)
     validate_feedback_drafts()
     validate_day2_matrix()
+    validate_day3_learning_events(api_schema)
     for path in MOCK_FIXTURES:
         validate_mock_fixture(path, api_schema, event_validator)
 
     print("PASS: both Draft 2020-12 schemas are structurally valid")
     print("PASS: 8 demo_core cases, 8 feedback drafts, and 24 Day 2 G1 matrix entries")
+    print(
+        "PASS: Day 3 learning events cover durability matrix, 0-3 candidates, "
+        "provider failure paths, and zh/en feedback"
+    )
     print("PASS: python_success, no_tool_success, and run_failure SSE fixtures")
     print(
         "PASS: UTF-8 byte offsets, trace order, metadata IDs, and secret/reasoning scan"

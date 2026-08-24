@@ -71,6 +71,7 @@ def _client(tmp_path: Path, store: CursorStore) -> TestClient:
         env=env,
         check=True,
         capture_output=True,
+        cwd=str(PROJECT_ROOT),
     )
     settings = Settings(
         _env_file=None,
