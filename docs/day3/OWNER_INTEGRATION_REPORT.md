@@ -1,7 +1,10 @@
 # MemTrace Day 3 G2 Owner Integration 核验报告
 
-> 状态：本地 G2 实现与验收已收口，接管分支已推送；远端晋级被 PR #3 缺少
-> `zlbk-wxy` 审批阻塞。本文只记录本轮实际执行证据，不从旧交接报告推断结果。
+> 状态：PR #3 已经 `zlbk-wxy` 在最终 head 审批并以 merge commit 合入
+> `integration/day2`；Day 3 接管分支已经合入该最新基线，替代 Draft PR #5 已建立。
+> 最终代码在干净 detached checkout 通过 G1+G2 自动化、容器与 Chrome/Edge 门禁，当前仅等待
+> `zlbk-wxy` 对 PR #5 最终 head 的受保护审批和 merge。本文只记录本轮实际执行证据，
+> 不从旧交接报告推断结果。
 
 ## 1. 分支与来源
 
@@ -9,8 +12,10 @@
 - Day 2 owner PR #3 head：`a668f8dc238835e773a882f9d40422bb24b72894`。
 - Day 3 协作者 PR #4 head：`de1dd2e0689f46da4e16df3c6acb4a3ae83eb018`。
 - 接管分支：`codex/day3-owner-integration`，从 PR #4 head 创建，保留全部协作者提交祖先。
-- PR #3、PR #4 在接管开始时均为 Open、`REVIEW_REQUIRED`、`BLOCKED`。
-- `integration/day2` 在接管开始时仍指向 Day 1 `0468904332ffa79512ac2319f9dfd81d1f67c4cd`。
+- PR #3 已于 2026-08-24 由 `zlbk-wxy` 在 `a668f8d` 上审批，并以 merge commit
+  `009ba872311e4a5b916fe8abe7929fd30730fe07` 合入 `integration/day2`。
+- PR #4 仍为 Open，且不能直接合并；替代 PR #5 的 base 是 `integration/day2`。
+- 接管分支通过普通 merge commit `6c63f0d` 引入最新 Day 2 基线，没有改写任一协作者提交。
 - 本地 `TEAMMATE_AGENT_PROMPT.md` 接管前未被 Git 跟踪；原始 SHA-256 为
   `9E3B6114D9AABC63B4B536CB65E43CDD1D8E2A611075C0B6DC157858927136E2`。
 
@@ -66,14 +71,17 @@
 | `4e64620` | REST-only EvalRunner、30 条已复核 fixture 与未来草案 |
 | `79a25dc` | 持久 rejection reason、one-shot 刷新恢复与 G2 release shell |
 | `58b6abb` | 进程重启后的 SQLite-only SSE cursor 恢复 |
+| `6c63f0d` | 普通 merge 引入 PR #3 合入后的最新 Day 2 基线 |
+| `68dba3e` | 修正独立 fixture validator 与成员 B 已复核标签的漂移，并加入 CLI 回归 |
 
-最后已知通过全部实现门禁的 commit 为 `58b6abb`；本报告之后的提交只改文档。
+最后已知通过全部实现门禁的代码 commit 为
+`68dba3e91f8ad8334415c4a9c995bddad770a060`；本报告之后的提交只改文档。
 
 ## 6. 自动化门禁
 
 | 门禁 | 实际命令 / 结果 |
 |---|---|
-| 后端完整测试 | `python -m pytest apps/api/tests -q` → exit 0，`352 passed in 197.83s` |
+| 后端完整测试 | 干净 checkout `python -m pytest tests -q` → exit 0，`353 passed in 147.57s` |
 | Ruff | `python -m ruff check apps/api` → exit 0，0 errors |
 | 格式 | `python -m ruff format --check apps/api` → exit 0，61 files already formatted |
 | Python 依赖 | `python -m pip check` → exit 0，No broken requirements |
@@ -81,6 +89,8 @@
 | 前端 ESLint | `npm run lint` → exit 0，0 warnings |
 | 前端测试 | `npm test` → exit 0，7 files / `42 passed` |
 | 前端构建 | `npm run build` → exit 0，53 modules transformed |
+| Fixture CLI | `python scripts/day1/validate_fixtures.py` → exit 0，5 组 PASS |
+| Alembic | `python -m alembic -c apps/api/alembic.ini heads` → 唯一 head `003_g2_job_retryable` |
 | REST Eval | 当前容器 → exit 0，`30/30 fixtures, 2/2 smoke checks` |
 | Eval 失败语义 | 不可达 base URL → exit 1，`0/0`；证明失败不返回 0 |
 
@@ -90,52 +100,64 @@
 
 ## 7. Docker、迁移、重启与隐私证据
 
-- 最终镜像：`memtrace:day3-g2`，manifest list
-  `sha256:80a254a351dd4044dd21e6f890dec816a3f7fb02ee48674e38ec6e18b544e53a`。
-- 主验收 project：`memtrace-day3-codex`，本机端口 18080，使用任务专属卷；最终证据记录
-  完成后已 `down -v` 删除容器、网络和三个纯 Mock 测试卷。
-- 最终镜像在独立 `memtrace-day3-cold-final` 全新卷 cold start；入口自动迁移，`/ready`
-  的 config/session/database/migration 均 pass。核验后已 `down -v` 删除这三个纯测试卷。
-- 主验收容器重启前后计数完全一致：32 tasks、33 completed jobs、5 active cards、
-  2 user-rejected cards、2 episode-only cards、26 evidence、5 immutable versions。
-- 精确复现旧 500 的 task cursor：`after_event_seq=32&after_offset=74`。修复后在进程重启、
-  空 live store 下返回 HTTP 200、0 bytes；新容器日志 0 ERROR / 0 Traceback。
-- 563 条 event_log 分属 32 个 task stream，`non_contiguous_streams=0`。只输出字段名的扫描
-  未发现 `task_text/explicit_text/edited_output/evidence_quote/output/rule/avoid/trigger_text`。
-- Eval 输出扫描未发现正文 key 或正文样例；容器日志正文模式和 token 模式均为 0。
-- Git tracked 文件中没有运行时 `.env`、SQLite/DB 或 `gho_`/`sk-` token 模式；本轮未读取
-  本地 `.env`，Mock 是唯一硬门禁。
+- 最终代码从干净 checkout 构建 `memtrace:day3-g2`，manifest list
+  `sha256:0da26351a0b76e0aac7b0e082dd053229ae5d4df5e25e8a6bfc791b1809cb1a7`。
+- 本轮 project 为 `memtrace-day3-pr5-68dba3e`，端口 18085，启动前确认没有同名容器或卷；
+  Compose 创建三个任务专属新卷。
+- 空卷 cold start 日志实际执行 `001_initial_g1_schema → 002_g2_memory_admission →
+  003_g2_job_retryable`；`/ready` 的 config、session_secret、data_dir、database 与
+  migration_revision 均 pass，provider 为 mock。
+- REST Eval 后重启前后计数完全一致：30 tasks、30 feedback、30 jobs、16 cards、18 evidence、
+  1 immutable version、499 events；重启后 readiness 再次成功。
+- Chrome/Edge 验收后共有 32 个 task stream，`non_contiguous_task_streams=0`；
+  metadata forbidden key hits=0。最终 card 投影为 2 active、15 candidate、1 rejected，
+  rejected reason 仅 `episode_only`，2 个 immutable version，证明 one-shot 未创建版本。
+- 容器日志扫描得到 0 ERROR/Traceback、0 正文键模式、0 token 模式；Eval 输出也不含
+  `task_text/explicit_text/edited_output/evidence_quote/rule/avoid/trigger_text` 键。
+- Git tracked 文件中没有运行时 `.env`、SQLite/DB 或 token 模式；`.env.example` 是公开模板。
+  本轮未读取本地 `.env`，Mock 是唯一硬门禁。
 
 ## 8. Chrome 与 Edge 实测
 
-Chrome 与 Microsoft Edge 均以 `79a25dc` 对应的最终前端完成以下产品路径；`58b6abb`
-之后只修改后端 SQLite-only SSE fallback，重建镜像后又以同一浏览器产生的真实 cursor
-通过 HTTP 精确复验该恢复请求：
+Chrome 与 Microsoft Edge 均针对 `68dba3e` 构建的最终容器，以隔离 Playwright session
+实际完成产品路径；没有复用旧浏览器报告作为本轮结论。
 
-1. blank/seeded demo 双向切换，切换后 URL task 指针、候选、证据和草稿清空；
-2. 创建任务并由服务端自动分类：Chrome 为 programming learning 95%，Edge 为 software
-   development 95%，界面没有手工 scenario；
-3. 等待 SSE 完成，提交真实修改稿、自然语言反馈、评分与采纳；
-4. 观察 MemoryJob done，恢复 1–3 张候选并打开 evidence drawer；
-5. 分别执行 accept、edit_accept、reject、one_shot 四条路径；
-6. 刷新后恢复 task、feedback、job、candidate、evidence、version 与 one-shot 文案；
-7. 切换 owner 后旧 task/candidate UI 消失；跨 owner API/SSE 404 另由完整后端测试覆盖。
+1. Chrome：blank demo 创建 Python 调试任务，服务端自动分类为 programming learning 90%，
+   界面无手工 scenario；SSE 完成后提交修改稿、长期反馈、5 分与采纳，MemoryJob done，
+   打开 evidence drawer 后 accept，形成 active v1；刷新后 task、feedback、job、card、证据和
+   “已确认保存，但 Day 4 才接入检索”文案全部恢复。
+2. Chrome：切到 seeded demo 后 URL task 指针、候选、证据和草稿清空；再访问 blank demo
+   原 task URL，页面清除 query 并显示 `TASK_NOT_FOUND`，对应 snapshot API 返回 404。
+3. Edge：创建 TypeScript 重构/部署任务，服务端自动分类为 software development 95%；
+   提交长期反馈后恢复候选与 evidence drawer，执行 one_shot；刷新后仍显示“仅本次，不进入
+   长期记忆”，数据库 reason 为 `episode_only` 且没有新增 version。
+4. accept/edit_accept/reject/one_shot 四种动作、失败草稿保留、幂等键重用与用户切换取消监控
+   另由 42 项完整前端测试和 353 项后端测试覆盖。
 
-两种浏览器各出现 1 条预期的首次 `GET /session` 401 网络记录（自动创建 demo session 前的
-认证探测），没有前端 JavaScript exception 或 warning。Chrome 首轮刷新暴露的 one-shot
-退化问题和容器重建后的 SSE 500 均已修复并在相同路径复验。
+两种浏览器各出现 1 条预期的首次 `GET /session` 401；Chrome 的跨 owner 探测另产生 1 条
+预期 404。没有其他 console warning/error，验收后两个隔离浏览器 session 均已关闭。
 
 ## 9. GitHub 与合并状态
 
-2026-08-24 最终在线核验：
+2026-08-24 本轮在线核验：
 
 - `gh auth status`：活动账号 `W-JOSLIN-X`，认证有效；
-- PR #3 head 仍为 `a668f8d`，`OPEN / REVIEW_REQUIRED / BLOCKED`，reviews 为空；
-- PR #4 head 仍为 `de1dd2e`，`OPEN / REVIEW_REQUIRED / BLOCKED`；
-- `origin/integration/day2` 与 `origin/main` 均仍为 `0468904`；
-- `codex/day3-owner-integration` 已推送到 origin；没有向协作者分支或受保护分支直接推送。
+- PR #3：`MERGED / APPROVED`，approval author=`zlbk-wxy`，review commit=`a668f8d`，
+  merge commit=`009ba872`；远端 `integration/day2` 已指向该 commit；
+- PR #4：仍为 Open，head=`de1dd2e`，待 PR #5 合入后再标记 superseded 并关闭；
+- PR #5：base=`integration/day2`，head=`codex/day3-owner-integration`，创建时为 Draft；
+- 没有向协作者分支、`integration/day2` 或 `main` 直接推送，也没有删除远端分支。
 
-因此本轮不能创建 base 正确的替代 PR、不能在最终 head 后取得 `zlbk-wxy` 审批，也不能
-合入 `integration/day2` 或 main。下一步必须先由 `zlbk-wxy` 审批并合并 PR #3，再按计划
-merge 最新 `origin/integration/day2`、重跑干净 checkout 门禁、创建替代 PR 并完成两级审批。
-在此之前只能报告“Day 3 实现分支已就绪”，不得报告“Day 3 已合入 main”。
+下一步是把本报告作为最后文档提交推送到 PR #5，转 Ready 并请求 `zlbk-wxy` 审批最终 head；
+审批后只能以 merge commit 合入 `integration/day2`。随后在新的干净 checkout 重跑 G1+G2，
+再创建 `integration/day2 → main` PR 并取得同样的最终 head 审批。在两个受保护 PR 真正合并
+前，不得报告“Day 3 已合入 main”。
+
+## 10. 本轮新增发现与修复
+
+独立执行 `scripts/day1/validate_fixtures.py` 时发现它仍要求历史状态
+`member_a_initial_labeling`，而已经双人复核的 fixture 正确声明
+`member_b_approved_2026-08-24`。因此旧完整 pytest 的绿色不能证明 CLI 门禁可用。
+
+`68dba3e` 将 validator 对齐到冻结状态，并新增从 pytest 实际启动 repository fixture CLI
+的回归测试。修复前 CLI exit 1；修复后 CLI exit 0，完整 pytest 从 352 增加为 353 项。
