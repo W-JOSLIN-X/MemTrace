@@ -2,8 +2,11 @@ import {
   G0_EVENT_TYPES,
   type ErrorCode,
   type ErrorResponse,
+  type DemoSessionResponse,
+  type FeedbackCreateAccepted,
   type G0EventType,
   type G0SseEvent,
+  type MemoryJobResponse,
   type TaskCreateAccepted,
   type TaskSnapshot,
 } from './types'
@@ -17,6 +20,8 @@ const planIdPattern = /^plan_[0-9A-HJKMNP-TV-Z]{26}$/
 const toolCallIdPattern = /^tool_[0-9A-HJKMNP-TV-Z]{26}$/
 const toolResultIdPattern = /^toolres_[0-9A-HJKMNP-TV-Z]{26}$/
 const errorIdPattern = /^err_[0-9A-HJKMNP-TV-Z]{26}$/
+const feedbackIdPattern = /^feedback_[0-9A-HJKMNP-TV-Z]{26}$/
+const memoryJobIdPattern = /^job_[0-9A-HJKMNP-TV-Z]{26}$/
 const textEncoder = new TextEncoder()
 
 export class ContractError extends Error {
@@ -100,12 +105,86 @@ export function parseTaskCreateAccepted(value: unknown): TaskCreateAccepted {
   return body as unknown as TaskCreateAccepted
 }
 
+export function parseDemoSessionResponse(value: unknown): DemoSessionResponse {
+  const body = record(value, 'DemoSessionResponse')
+  exactKeys(body, ['request_id', 'demo_alias', 'expires_at'])
+  patternString(body.request_id, requestIdPattern, 'request_id')
+  enumValue(body.demo_alias, ['blank_demo', 'seeded_demo'] as const, 'demo_alias')
+  timestamp(body.expires_at, 'expires_at')
+  return body as unknown as DemoSessionResponse
+}
+
+export function parseFeedbackCreateAccepted(
+  value: unknown,
+): FeedbackCreateAccepted {
+  const body = record(value, 'FeedbackCreateAccepted')
+  exactKeys(body, [
+    'request_id',
+    'feedback_id',
+    'memory_job_id',
+    'feedback_type',
+    'job_status',
+  ])
+  patternString(body.request_id, requestIdPattern, 'request_id')
+  patternString(body.feedback_id, feedbackIdPattern, 'feedback_id')
+  patternString(body.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+  enumValue(
+    body.feedback_type,
+    [
+      'explicit_text',
+      'edited_output',
+      'rating',
+      'accepted',
+      'rejected',
+      'composite',
+    ] as const,
+    'feedback_type',
+  )
+  constant(body.job_status, 'pending', 'job_status')
+  return body as unknown as FeedbackCreateAccepted
+}
+
+export function parseMemoryJobResponse(value: unknown): MemoryJobResponse {
+  const body = record(value, 'MemoryJobResponse')
+  exactKeys(body, [
+    'request_id',
+    'memory_job_id',
+    'job_type',
+    'status',
+    'stage',
+    'attempt',
+    'error',
+    'created_at',
+    'updated_at',
+  ])
+  patternString(body.request_id, requestIdPattern, 'request_id')
+  patternString(body.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+  constant(body.job_type, 'extract_feedback', 'job_type')
+  enumValue(
+    body.status,
+    ['pending', 'running', 'completed', 'failed'] as const,
+    'status',
+  )
+  enumValue(
+    body.stage,
+    ['queued', 'extracting', 'done', 'failed'] as const,
+    'stage',
+  )
+  nonNegativeInteger(body.attempt, 'attempt')
+  if (body.error !== null) boundedString(body.error, 240, 'error')
+  timestamp(body.created_at, 'created_at')
+  timestamp(body.updated_at, 'updated_at')
+  return body as unknown as MemoryJobResponse
+}
+
 export function parseTaskSnapshot(value: unknown): TaskSnapshot {
   const body = record(value, 'TaskSnapshot')
   exactKeys(body, [
     'request_id',
     'task_id',
     'run_id',
+    'task_text',
+    'scenario',
     'task_status',
     'run_status',
     'provider_mode',
@@ -117,7 +196,9 @@ export function parseTaskSnapshot(value: unknown): TaskSnapshot {
     'partial_output',
     'end_offset',
     'offset_unit',
+    'messages',
     'final_message',
+    'feedback_events',
     'error',
     'terminal',
     'last_persistent_event_seq',
@@ -126,6 +207,17 @@ export function parseTaskSnapshot(value: unknown): TaskSnapshot {
   patternString(body.request_id, requestIdPattern, 'request_id')
   patternString(body.task_id, taskIdPattern, 'task_id')
   patternString(body.run_id, runIdPattern, 'run_id')
+  nonEmptyBoundedString(body.task_text, 20000, 'task_text')
+  enumValue(
+    body.scenario,
+    [
+      'programming_learning',
+      'software_development',
+      'general_text',
+      'other',
+    ] as const,
+    'scenario',
+  )
   constant(body.task_status, 'active', 'task_status')
   const runStatus = enumValue(
     body.run_status,
@@ -161,7 +253,11 @@ export function parseTaskSnapshot(value: unknown): TaskSnapshot {
   if (utf8ByteLength(partialOutput) !== endOffset) {
     throw new ContractError('partial_output does not match UTF-8 end_offset')
   }
+  const messages = arrayValue(body.messages, 'messages')
+  messages.forEach(validateTaskMessageRecord)
   validateMessage(body.final_message)
+  const feedbackEvents = arrayValue(body.feedback_events, 'feedback_events')
+  feedbackEvents.forEach(validateFeedbackEventRecord)
   validateRunError(body.error)
   const terminal = booleanValue(body.terminal, 'terminal')
   nonNegativeInteger(
@@ -206,6 +302,10 @@ export function parseErrorResponse(value: unknown): ErrorResponse | null {
         'TOOL_INPUT_INVALID',
         'STREAM_INTERRUPTED',
         'INTERNAL_ERROR',
+        'SESSION_REQUIRED',
+        'IDEMPOTENCY_CONFLICT',
+        'FEEDBACK_NO_CHANGES',
+        'TASK_NOT_READY_FOR_FEEDBACK',
       ] satisfies readonly ErrorCode[],
       'error.code',
     )
@@ -262,6 +362,9 @@ function validateEventPayload(
       exactKeys(data, [
         'fingerprint_id',
         'domain',
+        'classification_source',
+        'classification_confidence',
+        'classification_reasons',
         'task_type',
         'artifact_type',
         'language',
@@ -276,6 +379,15 @@ function validateEventPayload(
           'other',
         ] as const,
         'domain',
+      )
+      constant(data.classification_source, 'auto_rule_v1', 'classification_source')
+      validateClassificationConfidence(
+        data.classification_confidence,
+        'classification_confidence',
+      )
+      validateClassificationReasons(
+        data.classification_reasons,
+        'classification_reasons',
       )
       enumValue(
         data.task_type,
@@ -300,7 +412,7 @@ function validateEventPayload(
     case 'memory.retrieval.started':
       exactKeys(data, ['memory_count', 'summary'])
       constant(data.memory_count, 0, 'memory_count')
-      constant(data.summary, 'no_long_term_memory_day1', 'summary')
+      constant(data.summary, 'no_long_term_memory_day2', 'summary')
       return
     case 'agent.plan.published':
       exactKeys(data, [
@@ -317,7 +429,7 @@ function validateEventPayload(
       )
       constant(
         data.memory_summary_code,
-        'no_long_term_memory_day1',
+        'no_long_term_memory_day2',
         'memory_summary_code',
       )
       enumValue(
@@ -441,6 +553,23 @@ function validateEventPayload(
       enumValue(data.status, ['succeeded', 'failed'] as const, 'status')
       constant(data.final_snapshot_required, true, 'final_snapshot_required')
       return
+    case 'feedback.recorded':
+      exactKeys(data, ['feedback_id', 'memory_job_id', 'feedback_type'])
+      patternString(data.feedback_id, feedbackIdPattern, 'feedback_id')
+      patternString(data.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+      enumValue(
+        data.feedback_type,
+        [
+          'explicit_text',
+          'edited_output',
+          'rating',
+          'accepted',
+          'rejected',
+          'composite',
+        ] as const,
+        'feedback_type',
+      )
+      return
   }
 }
 
@@ -451,6 +580,9 @@ function validateFingerprint(value: unknown): void {
     'id',
     'schema_version',
     'domain',
+    'classification_source',
+    'classification_confidence',
+    'classification_reasons',
     'task_type',
     'artifact_type',
     'audience',
@@ -463,11 +595,24 @@ function validateFingerprint(value: unknown): void {
     'semantic_query',
   ])
   patternString(data.id, fingerprintIdPattern, 'fingerprint.id')
-  constant(data.schema_version, '1.0', 'fingerprint.schema_version')
+  constant(data.schema_version, '1.1', 'fingerprint.schema_version')
   enumValue(
     data.domain,
     ['programming_learning', 'software_development', 'general_text', 'other'] as const,
     'fingerprint.domain',
+  )
+  constant(
+    data.classification_source,
+    'auto_rule_v1',
+    'fingerprint.classification_source',
+  )
+  validateClassificationConfidence(
+    data.classification_confidence,
+    'fingerprint.classification_confidence',
+  )
+  validateClassificationReasons(
+    data.classification_reasons,
+    'fingerprint.classification_reasons',
   )
   enumValue(
     data.task_type,
@@ -516,6 +661,36 @@ function validateFingerprint(value: unknown): void {
     'fingerprint.semantic_query',
   )
   if (semanticQuery.length === 0) throw new ContractError('semantic_query is empty')
+}
+
+function validateClassificationConfidence(value: unknown, label: string): void {
+  const confidence = nonNegativeNumber(value, label)
+  if (confidence > 1) throw new ContractError(`${label} exceeds 1`)
+}
+
+function validateClassificationReasons(value: unknown, label: string): void {
+  const reasons = arrayValue(value, label)
+  if (reasons.length > 5) throw new ContractError(`${label} exceeds 5 entries`)
+  reasons.forEach((reason) =>
+    enumValue(
+      reason,
+      [
+        'code_present',
+        'technical_context',
+        'debugging_cue',
+        'learning_cue',
+        'explanation_intent',
+        'development_action',
+        'deployment_cue',
+        'text_task',
+        'ambiguous',
+      ] as const,
+      label,
+    ),
+  )
+  if (new Set(reasons).size !== reasons.length) {
+    throw new ContractError(`${label} contains duplicates`)
+  }
 }
 
 function validatePublicPlan(value: unknown): void {
@@ -604,6 +779,61 @@ function validateAstResult(value: unknown): void {
   nullablePositiveInteger(error.column, 'syntax_error.column')
   nullablePositiveInteger(error.end_line, 'syntax_error.end_line')
   nullablePositiveInteger(error.end_column, 'syntax_error.end_column')
+}
+
+function validateTaskMessageRecord(value: unknown): void {
+  const data = record(value, 'message record')
+  exactKeys(data, ['message_id', 'run_id', 'role', 'content', 'created_at'])
+  patternString(data.message_id, messageIdPattern, 'message_id')
+  if (data.run_id !== null) {
+    patternString(data.run_id, runIdPattern, 'run_id')
+  }
+  enumValue(data.role, ['user', 'assistant'] as const, 'role')
+  boundedString(data.content, 262144, 'content')
+  timestamp(data.created_at, 'created_at')
+}
+
+function validateFeedbackEventRecord(value: unknown): void {
+  const data = record(value, 'feedback event record')
+  exactKeys(data, [
+    'feedback_id',
+    'run_id',
+    'feedback_type',
+    'explicit_text',
+    'edited_output',
+    'rating',
+    'accepted',
+    'memory_job_id',
+    'created_at',
+  ])
+  patternString(data.feedback_id, feedbackIdPattern, 'feedback_id')
+  patternString(data.run_id, runIdPattern, 'run_id')
+  enumValue(
+    data.feedback_type,
+    [
+      'explicit_text',
+      'edited_output',
+      'rating',
+      'accepted',
+      'rejected',
+      'composite',
+    ] as const,
+    'feedback_type',
+  )
+  if (data.explicit_text !== null) {
+    nonEmptyBoundedString(data.explicit_text, 4000, 'explicit_text')
+  }
+  if (data.edited_output !== null) {
+    nonEmptyBoundedString(data.edited_output, 100000, 'edited_output')
+  }
+  if (data.rating !== null) {
+    boundedInteger(data.rating, 1, 5, 'rating')
+  }
+  if (data.accepted !== null) {
+    booleanValue(data.accepted, 'accepted')
+  }
+  patternString(data.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+  timestamp(data.created_at, 'created_at')
 }
 
 function validateMessage(value: unknown): void {

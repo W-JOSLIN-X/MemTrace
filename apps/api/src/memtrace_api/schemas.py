@@ -11,6 +11,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    field_serializer,
     field_validator,
     model_validator,
 )
@@ -24,14 +25,40 @@ PlanId = Annotated[str, StringConstraints(pattern=r"^plan_[0-9A-HJKMNP-TV-Z]{26}
 ToolCallId = Annotated[str, StringConstraints(pattern=r"^tool_[0-9A-HJKMNP-TV-Z]{26}$")]
 ToolResultId = Annotated[str, StringConstraints(pattern=r"^toolres_[0-9A-HJKMNP-TV-Z]{26}$")]
 ErrorId = Annotated[str, StringConstraints(pattern=r"^err_[0-9A-HJKMNP-TV-Z]{26}$")]
+FeedbackId = Annotated[str, StringConstraints(pattern=r"^feedback_[0-9A-HJKMNP-TV-Z]{26}$")]
+MemoryJobId = Annotated[str, StringConstraints(pattern=r"^job_[0-9A-HJKMNP-TV-Z]{26}$")]
+SessionId = Annotated[str, StringConstraints(pattern=r"^sess_[0-9A-HJKMNP-TV-Z]{26}$")]
+UserId = Annotated[str, StringConstraints(pattern=r"^usr_[0-9A-HJKMNP-TV-Z]{26}$")]
+IdempotencyKey = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9._:-]{8,128}$")]
 
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _serialize_utc_datetime(value: datetime) -> str:
+    """Emit RFC 3339 UTC timestamps even when SQLite returns naive values.
+
+    SQLite does not retain timezone information for ``DateTime(timezone=True)``.
+    All persisted timestamps in this service originate from ``utc_now()``, so a
+    naive value read back from SQLite is UTC rather than local time.
+    """
+
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    else:
+        value = value.astimezone(UTC)
+    return value.isoformat().replace("+00:00", "Z")
+
+
 class ContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    @field_serializer("*", when_used="json", check_fields=False)
+    def serialize_utc_datetimes(self, value: object):
+        if isinstance(value, datetime):
+            return _serialize_utc_datetime(value)
+        return value
 
 
 class ProviderMode(StrEnum):
@@ -74,7 +101,6 @@ TrimmedTaskText = Annotated[str, StringConstraints(min_length=1, max_length=20_0
 
 class TaskCreateRequest(ContractModel):
     task_text: TrimmedTaskText
-    scenario: Scenario
     memory_mode: EffectiveMemoryMode
     current_constraints: CurrentConstraints
 
@@ -154,13 +180,28 @@ class Audience(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ClassificationReasonCode(StrEnum):
+    CODE_PRESENT = "code_present"
+    TECHNICAL_CONTEXT = "technical_context"
+    DEBUGGING_CUE = "debugging_cue"
+    LEARNING_CUE = "learning_cue"
+    EXPLANATION_INTENT = "explanation_intent"
+    DEVELOPMENT_ACTION = "development_action"
+    DEPLOYMENT_CUE = "deployment_cue"
+    TEXT_TASK = "text_task"
+    AMBIGUOUS = "ambiguous"
+
+
 Concept = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")]
 
 
 class TaskFingerprint(ContractModel):
     id: FingerprintId
-    schema_version: Literal["1.0"] = "1.0"
+    schema_version: Literal["1.1"] = "1.1"
     domain: Domain
+    classification_source: Literal["auto_rule_v1"] = "auto_rule_v1"
+    classification_confidence: float = Field(ge=0, le=1)
+    classification_reasons: Annotated[list[ClassificationReasonCode], Field(max_length=5)]
     task_type: TaskType
     artifact_type: ArtifactType
     audience: Audience
@@ -172,7 +213,7 @@ class TaskFingerprint(ContractModel):
     current_constraints: CurrentConstraints
     semantic_query: Annotated[str, StringConstraints(min_length=1, max_length=512)]
 
-    @field_validator("concepts", "tool_context")
+    @field_validator("classification_reasons", "concepts", "tool_context")
     @classmethod
     def items_are_unique(cls, value: list[str]) -> list[str]:
         if len(value) != len(set(value)):
@@ -287,12 +328,66 @@ class MessageSnapshot(ContractModel):
     created_at: datetime
 
 
+class MessageRole(StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"
+
+
+class TaskMessageRecord(ContractModel):
+    """A persisted message restored via the owner-checked TaskSnapshot.
+
+    Unlike ``MessageSnapshot`` (the terminal ``final_message`` projection), a
+    restored message carries its originating ``run_id`` and may be either role.
+    """
+
+    message_id: MessageId
+    run_id: RunId | None = None
+    role: MessageRole
+    content: Annotated[str, StringConstraints(max_length=262_144)]
+    created_at: datetime
+
+
+class FeedbackType(StrEnum):
+    """Derived feedback category. ``rejected`` is the derived type when the
+    client sets ``accepted=false`` without any other signal; ``composite`` is
+    used when more than one signal is present."""
+
+    EXPLICIT_TEXT = "explicit_text"
+    EDITED_OUTPUT = "edited_output"
+    RATING = "rating"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    COMPOSITE = "composite"
+
+
+class FeedbackEventRecord(ContractModel):
+    """A persisted feedback event restored via the owner-checked TaskSnapshot.
+
+    Body fields (``explicit_text``/``edited_output``) appear only here, never in
+    ``event_log`` metadata.
+    """
+
+    feedback_id: FeedbackId
+    run_id: RunId
+    feedback_type: FeedbackType
+    explicit_text: Annotated[str, StringConstraints(min_length=1, max_length=4_000)] | None = None
+    edited_output: Annotated[str, StringConstraints(min_length=1, max_length=100_000)] | None = None
+    rating: int | None = Field(default=None, ge=1, le=5)
+    accepted: bool | None = None
+    memory_job_id: MemoryJobId
+    created_at: datetime
+
+
 class AsyncErrorCode(StrEnum):
     PROVIDER_TIMEOUT = "PROVIDER_TIMEOUT"
     PROVIDER_ERROR = "PROVIDER_ERROR"
     TOOL_NOT_FOUND = "TOOL_NOT_FOUND"
     TOOL_INPUT_INVALID = "TOOL_INPUT_INVALID"
     STREAM_INTERRUPTED = "STREAM_INTERRUPTED"
+    # Day 2 G1: a run still in a non-terminal stage when the API process
+    # restarts is marked failed with this code. It must never be silently
+    # resumed or pretend to succeed.
+    RUN_INTERRUPTED = "RUN_INTERRUPTED"
 
 
 class RunErrorSnapshot(ContractModel):
@@ -313,10 +408,122 @@ class RunStatus(StrEnum):
     FAILED = "failed"
 
 
+class DemoAlias(StrEnum):
+    BLANK_DEMO = "blank_demo"
+    SEEDED_DEMO = "seeded_demo"
+
+
+class DemoSessionCreateRequest(ContractModel):
+    demo_alias: DemoAlias
+
+
+class DemoSessionResponse(ContractModel):
+    request_id: RequestId
+    demo_alias: DemoAlias
+    expires_at: datetime
+
+
+class FeedbackCreateRequest(ContractModel):
+    explicit_text: Annotated[str, StringConstraints(min_length=1, max_length=4_000)] | None = None
+    edited_output: Annotated[str, StringConstraints(min_length=1, max_length=100_000)] | None = None
+    rating: int | None = Field(default=None, ge=1, le=5)
+    accepted: bool | None = None
+
+    @field_validator("explicit_text", "edited_output", mode="before")
+    @classmethod
+    def check_non_empty_whitespace(cls, value: object) -> object:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return value
+        if not value.strip():
+            raise ValueError("feedback text fields must not be empty or whitespace only")
+        return value
+
+    @field_validator("rating", mode="before")
+    @classmethod
+    def strict_integer_rating(cls, value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("rating must be a strict integer between 1 and 5")
+        return value
+
+    @field_validator("accepted", mode="before")
+    @classmethod
+    def strict_boolean_accepted(cls, value: object) -> object:
+        if value is None:
+            return None
+        if not isinstance(value, bool):
+            raise ValueError("accepted must be a boolean")
+        return value
+
+    @model_validator(mode="after")
+    def at_least_one_field_present(self) -> FeedbackCreateRequest:
+        if (
+            self.explicit_text is None
+            and self.edited_output is None
+            and self.rating is None
+            and self.accepted is None
+        ):
+            raise ValueError("at least one feedback field must be non-null")
+        return self
+
+
+def derive_feedback_type(
+    *,
+    explicit_text: str | None = None,
+    edited_output: str | None = None,
+    rating: int | None = None,
+    accepted: bool | None = None,
+) -> FeedbackType:
+    signals = 0
+    single_type: FeedbackType | None = None
+    if explicit_text is not None:
+        signals += 1
+        single_type = FeedbackType.EXPLICIT_TEXT
+    if edited_output is not None:
+        signals += 1
+        single_type = FeedbackType.EDITED_OUTPUT
+    if rating is not None:
+        signals += 1
+        single_type = FeedbackType.RATING
+    if accepted is not None:
+        signals += 1
+        single_type = FeedbackType.ACCEPTED if accepted else FeedbackType.REJECTED
+    if signals > 1:
+        return FeedbackType.COMPOSITE
+    if single_type is not None:
+        return single_type
+    raise ValueError("cannot derive feedback type with no signals")
+
+
+class FeedbackCreateAccepted(ContractModel):
+    request_id: RequestId
+    feedback_id: FeedbackId
+    memory_job_id: MemoryJobId
+    feedback_type: FeedbackType
+    job_status: Literal["pending"] = "pending"
+
+
+class MemoryJobResponse(ContractModel):
+    request_id: RequestId
+    memory_job_id: MemoryJobId
+    job_type: Literal["extract_feedback"] = "extract_feedback"
+    status: Literal["pending", "running", "completed", "failed"] = "pending"
+    stage: Literal["queued", "extracting", "done", "failed"] = "queued"
+    attempt: int = Field(default=0, ge=0)
+    error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class TaskSnapshot(ContractModel):
     request_id: RequestId
     task_id: TaskId
     run_id: RunId
+    task_text: TrimmedTaskText
+    scenario: Scenario
     task_status: Literal["active"] = "active"
     run_status: RunStatus
     provider_mode: ProviderMode
@@ -324,11 +531,13 @@ class TaskSnapshot(ContractModel):
     fingerprint: TaskFingerprint | None = None
     public_plan: PublicPlan | None = None
     tool_decision: ToolDecision | None = None
-    tool_calls: Annotated[list[ToolCallSnapshot], Field(max_length=1)]
+    tool_calls: Annotated[list[ToolCallSnapshot], Field(max_length=1)] = Field(default_factory=list)
     partial_output: Annotated[str, StringConstraints(max_length=262_144)] = ""
     end_offset: int = Field(default=0, ge=0, le=262_144)
     offset_unit: Literal["utf8_bytes"] = "utf8_bytes"
+    messages: list[TaskMessageRecord] = Field(default_factory=list)
     final_message: MessageSnapshot | None = None
+    feedback_events: list[FeedbackEventRecord] = Field(default_factory=list)
     error: RunErrorSnapshot | None = None
     terminal: bool = False
     last_persistent_event_seq: int = Field(default=0, ge=0)
@@ -362,9 +571,12 @@ class HealthResponse(ContractModel):
 
 class ReadinessChecks(ContractModel):
     config: Literal["pass"] = "pass"
+    session_secret: Literal["pass"]
     data_dir: Literal["pass"] = "pass"
     provider_credentials: Literal["pass", "not_required"]
     provider_network: Literal["unchecked"] = "unchecked"
+    database: Literal["pass"]
+    migration_revision: Literal["pass"]
 
 
 class ReadyResponse(ContractModel):

@@ -7,7 +7,6 @@
       "description": "Valid Python in a fenced block must call the AST tool and produce a successful Python trace.",
       "request": {
         "task_text": "请检查下面的 Python 代码并说明语法是否有效：\n```python\ndef add(a, b):\n    return a + b\n```",
-        "scenario": "programming_learning",
         "memory_mode": "on",
         "current_constraints": {
           "response_policy": "guided_hint",
@@ -31,7 +30,6 @@
       "description": "Invalid Python is fenced, so SyntaxError is a successful tool execution with valid=false, not a TOOL_INPUT_INVALID run failure.",
       "request": {
         "task_text": "这段 Python 为什么报语法错误？\n```python\ndef greet(:\n    print(\"hello\")\n```",
-        "scenario": "programming_learning",
         "memory_mode": "on",
         "current_constraints": {
           "response_policy": "guided_hint",
@@ -55,7 +53,6 @@
       "description": "A JavaScript concept question must not fabricate a Python AST call.",
       "request": {
         "task_text": "请解释 JavaScript 的事件循环，不需要给完整代码。",
-        "scenario": "programming_learning",
         "memory_mode": "on",
         "current_constraints": {
           "response_policy": "default",
@@ -79,7 +76,6 @@
       "description": "Chinese text plus an emoji verifies that chunk offsets use UTF-8 bytes rather than JavaScript string length.",
       "request": {
         "task_text": "请用一句话解释什么是递归，并给我一个直观比喻。🙂",
-        "scenario": "programming_learning",
         "memory_mode": "on",
         "current_constraints": {
           "response_policy": "guided_hint",
@@ -104,7 +100,6 @@
       "description": "An empty task is rejected before a task or run is created.",
       "request": {
         "task_text": "",
-        "scenario": "programming_learning",
         "memory_mode": "on",
         "current_constraints": {
           "response_policy": "default",
@@ -125,7 +120,6 @@
       "description": "Whitespace is trimmed before validation and is rejected without creating a task.",
       "request": {
         "task_text": "   \r\n\t  ",
-        "scenario": "programming_learning",
         "memory_mode": "on",
         "current_constraints": {
           "response_policy": "default",
@@ -151,7 +145,6 @@
         "count": 20001
       },
       "request_template": {
-        "scenario": "programming_learning",
         "memory_mode": "off",
         "current_constraints": {
           "response_policy": "default",
@@ -172,7 +165,6 @@
       "description": "A forced MockProvider failure after chunks preserves partial output and follows the failure trace without a silent retry.",
       "request": {
         "task_text": "请解释这个异常产生的常见原因；测试时在首个 chunk 后强制 Provider 失败。",
-        "scenario": "software_development",
         "memory_mode": "on",
         "current_constraints": {
           "response_policy": "default",

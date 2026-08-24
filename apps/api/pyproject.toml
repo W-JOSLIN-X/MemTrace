@@ -19,6 +19,11 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "B", "UP", "ASYNC", "RUF"]
 ignore = ["RUF001"]
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's declarative ``Depends``-in-default pattern is idiomatic; ``Path``,
+# ``Query``, and ``Header`` are already exempted by ruff's built-in whitelist.
+extend-immutable-calls = ["fastapi.Depends"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"

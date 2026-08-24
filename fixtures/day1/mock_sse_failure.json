@@ -5,7 +5,6 @@
   "provider_evidence_label": "MockProvider forced-failure fixture",
   "request": {
     "task_text": "请解释这个异常产生的常见原因；测试时在首个 chunk 后强制 Provider 失败。",
-    "scenario": "software_development",
     "memory_mode": "on",
     "current_constraints": {
       "response_policy": "default",
@@ -50,9 +49,12 @@
       "at": "2026-08-21T00:20:03Z",
       "data": {
         "fingerprint_id": "fp_01J00000000000000000000021",
-        "domain": "software_development",
-        "task_type": "general_question",
-        "artifact_type": "text",
+        "domain": "programming_learning",
+        "classification_source": "auto_rule_v1",
+        "classification_confidence": 0.78,
+        "classification_reasons": ["technical_context", "explanation_intent"],
+        "task_type": "code_explanation",
+        "artifact_type": "none",
         "language": "unknown"
       }
     },
@@ -72,7 +74,7 @@
       "task_id": "task_01J00000000000000000000021",
       "run_id": "run_01J00000000000000000000021",
       "at": "2026-08-21T00:20:05Z",
-      "data": {"memory_count": 0, "summary": "no_long_term_memory_day1"}
+      "data": {"memory_count": 0, "summary": "no_long_term_memory_day2"}
     },
     {
       "event_version": "1.0",
@@ -93,7 +95,7 @@
       "data": {
         "plan_id": "plan_01J00000000000000000000021",
         "goal_code": "answer_question",
-        "memory_summary_code": "no_long_term_memory_day1",
+        "memory_summary_code": "no_long_term_memory_day2",
         "next_action_code": "generate_directly"
       }
     },
@@ -131,7 +133,7 @@
       "task_id": "task_01J00000000000000000000021",
       "run_id": "run_01J00000000000000000000021",
       "at": "2026-08-21T00:20:11Z",
-      "data": {"provider": "mock", "model": "fixture-g0", "provider_mode": "mock", "first_token_ms": 9.0, "total_ms": 30.0, "prompt_tokens": null, "output_tokens": null, "token_source": "unavailable"}
+      "data": {"provider": "mock", "model": "fixture-g1", "provider_mode": "mock", "first_token_ms": 9.0, "total_ms": 30.0, "prompt_tokens": null, "output_tokens": null, "token_source": "unavailable"}
     },
     {
       "event_version": "1.0",
@@ -174,29 +176,34 @@
     "request_id": "req_01J00000000000000000000022",
     "task_id": "task_01J00000000000000000000021",
     "run_id": "run_01J00000000000000000000021",
+    "task_text": "请解释这个异常产生的常见原因；测试时在首个 chunk 后强制 Provider 失败。",
+    "scenario": "programming_learning",
     "task_status": "active",
     "run_status": "failed",
     "provider_mode": "mock",
     "effective_memory_mode": "off",
     "fingerprint": {
       "id": "fp_01J00000000000000000000021",
-      "schema_version": "1.0",
-      "domain": "software_development",
-      "task_type": "general_question",
-      "artifact_type": "text",
+      "schema_version": "1.1",
+      "domain": "programming_learning",
+      "classification_source": "auto_rule_v1",
+      "classification_confidence": 0.78,
+      "classification_reasons": ["technical_context", "explanation_intent"],
+      "task_type": "code_explanation",
+      "artifact_type": "none",
       "audience": "unknown",
       "project_key": null,
       "language": "unknown",
       "framework": null,
-      "concepts": ["exception"],
+      "concepts": ["exception", "testing"],
       "tool_context": [],
       "current_constraints": {"response_policy": "default", "urgency": "normal", "memory_disabled": true, "source": "ui"},
-      "semantic_query": "解释异常的常见原因"
+      "semantic_query": "domain:programming_learning task_type:code_explanation language:unknown concept:exception concept:testing"
     },
     "public_plan": {
       "id": "plan_01J00000000000000000000021",
       "goal": "概括异常产生的常见原因。",
-      "memory_summary": "当前任务显式关闭记忆，且 Day 1 尚无长期记忆。",
+      "memory_summary": "当前任务显式关闭记忆，且 Day 2 尚无长期记忆。",
       "next_action": "该任务没有可解析的 Python 代码，直接生成解释。"
     },
     "tool_decision": {"action": "skip", "tool_name": null, "reason_code": "non_python_task", "reason": "输入没有可解析的 Python 代码。"},
@@ -204,6 +211,8 @@
     "partial_output": "正在生成部分结果…",
     "end_offset": 27,
     "offset_unit": "utf8_bytes",
+    "messages": [],
+    "feedback_events": [],
     "final_message": null,
     "error": {"error_id": "err_01J00000000000000000000021", "code": "PROVIDER_ERROR", "message": "模型服务在生成过程中中断，请保留部分结果后重试。", "retryable": true},
     "terminal": true,

@@ -9,9 +9,9 @@ from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day1"
+DAY2_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day2"
 API_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "schemas" / "g0-api.schema.json"
 EVENT_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "schemas" / "events.schema.json"
 
@@ -33,7 +33,9 @@ def load_json(path: Path) -> Any:
         return json.load(handle)
 
 
-def schema_validator(root_schema: dict[str, Any], definition: str) -> Draft202012Validator:
+def schema_validator(
+    root_schema: dict[str, Any], definition: str
+) -> Draft202012Validator:
     selected = {
         "$schema": root_schema["$schema"],
         "$ref": f"#/$defs/{definition}",
@@ -43,14 +45,18 @@ def schema_validator(root_schema: dict[str, Any], definition: str) -> Draft20201
 
 
 def assert_valid(validator: Draft202012Validator, instance: Any, label: str) -> None:
-    errors = sorted(validator.iter_errors(instance), key=lambda error: list(error.absolute_path))
+    errors = sorted(
+        validator.iter_errors(instance), key=lambda error: list(error.absolute_path)
+    )
     if not errors:
         return
     rendered = []
     for error in errors:
         location = ".".join(str(part) for part in error.absolute_path) or "<root>"
         rendered.append(f"{location}: {error.message}")
-    raise AssertionError(f"{label} failed schema validation:\n  " + "\n  ".join(rendered))
+    raise AssertionError(
+        f"{label} failed schema validation:\n  " + "\n  ".join(rendered)
+    )
 
 
 def scan_forbidden(value: Any, path: str = "<root>") -> None:
@@ -121,6 +127,28 @@ def validate_feedback_drafts() -> None:
         assert rating is None or 1 <= rating <= 5, f"{draft['id']}: invalid rating"
         assert isinstance(draft["accepted"], bool)
         assert draft["explicit_text"] is not None or draft["edited_output"] is not None
+
+
+def validate_day2_matrix() -> None:
+    fixture = load_json(DAY2_FIXTURE_ROOT / "g1_classification_feedback_matrix.json")
+    scan_forbidden(fixture, "g1_classification_feedback_matrix")
+    assert fixture["contract_version"] == "1.1.0"
+    assert fixture["classification_source"] == "auto_rule_v1"
+    entries = fixture["entries"]
+    assert len(entries) == 24, (
+        f"Day 2 matrix must contain 24 entries, got {len(entries)}"
+    )
+    assert len({entry["id"] for entry in entries}) == 24
+    profiles = fixture["persistent_event_profiles"]
+    for entry in entries:
+        assert entry["expected_domain"] in {
+            "programming_learning",
+            "software_development",
+            "general_text",
+            "other",
+        }
+        assert entry["expected_persistent_event_profile"] in profiles
+        assert entry["expected_feedback_available_after"] == "succeeded_only"
 
 
 def trace_signature(events: list[dict[str, Any]]) -> list[str]:
@@ -201,9 +229,21 @@ def validate_mock_fixture(
     assert fixture["simulated"] is True
     assert "MockProvider" in fixture["provider_evidence_label"]
 
-    assert_valid(schema_validator(api_schema, "TaskCreateRequest"), fixture["request"], f"{path.name}/request")
-    assert_valid(schema_validator(api_schema, "TaskCreateAccepted"), fixture["accepted"], f"{path.name}/accepted")
-    assert_valid(schema_validator(api_schema, "TaskSnapshot"), fixture["terminal_snapshot"], f"{path.name}/terminal_snapshot")
+    assert_valid(
+        schema_validator(api_schema, "TaskCreateRequest"),
+        fixture["request"],
+        f"{path.name}/request",
+    )
+    assert_valid(
+        schema_validator(api_schema, "TaskCreateAccepted"),
+        fixture["accepted"],
+        f"{path.name}/accepted",
+    )
+    assert_valid(
+        schema_validator(api_schema, "TaskSnapshot"),
+        fixture["terminal_snapshot"],
+        f"{path.name}/terminal_snapshot",
+    )
 
     events = fixture["events"]
     for index, event in enumerate(events):
@@ -211,8 +251,12 @@ def validate_mock_fixture(
         assert event["task_id"] == fixture["accepted"]["task_id"]
         assert event["run_id"] == fixture["accepted"]["run_id"]
 
-    persistent = [event["event_seq"] for event in events if event["event_seq"] is not None]
-    assert persistent == list(range(1, len(persistent) + 1)), f"{path.name}: persistent event_seq is not contiguous"
+    persistent = [
+        event["event_seq"] for event in events if event["event_seq"] is not None
+    ]
+    assert persistent == list(range(1, len(persistent) + 1)), (
+        f"{path.name}: persistent event_seq is not contiguous"
+    )
     assert len(persistent) == fixture["expectations"]["persistent_event_count"]
 
     chunks = [event["data"] for event in events if event["event_type"] == "agent.chunk"]
@@ -240,16 +284,27 @@ def validate_mock_fixture(
         assert snapshot["error"] is None
     else:
         assert snapshot["final_message"] is None
-        assert snapshot["error"]["code"] == fixture["expectations"]["terminal_error_code"]
+        assert (
+            snapshot["error"]["code"] == fixture["expectations"]["terminal_error_code"]
+        )
 
     trace_name = fixture["expectations"]["trace"]
-    assert trace_signature(events) == EXPECTED_TRACES[trace_name], f"{path.name}: trace does not match {trace_name}"
+    assert trace_signature(events) == EXPECTED_TRACES[trace_name], (
+        f"{path.name}: trace does not match {trace_name}"
+    )
 
     tool_events = [event for event in events if event["event_type"] == "tool.called"]
     if fixture["name"] == "python_success":
-        match = re.search(r"```(?:python|py)\s*\n(.*?)```", fixture["request"]["task_text"], re.DOTALL | re.IGNORECASE)
+        match = re.search(
+            r"```(?:python|py)\s*\n(.*?)```",
+            fixture["request"]["task_text"],
+            re.DOTALL | re.IGNORECASE,
+        )
         assert match is not None
-        assert len(match.group(1).encode("utf-8")) == tool_events[0]["data"]["args_summary"]["code_bytes"]
+        assert (
+            len(match.group(1).encode("utf-8"))
+            == tool_events[0]["data"]["args_summary"]["code_bytes"]
+        )
     else:
         assert not tool_events
 
@@ -263,13 +318,16 @@ def main() -> int:
 
     validate_demo_core(api_schema)
     validate_feedback_drafts()
+    validate_day2_matrix()
     for path in MOCK_FIXTURES:
         validate_mock_fixture(path, api_schema, event_validator)
 
     print("PASS: both Draft 2020-12 schemas are structurally valid")
-    print("PASS: 8 demo_core cases and 8 Day 2-only feedback drafts")
+    print("PASS: 8 demo_core cases, 8 feedback drafts, and 24 Day 2 G1 matrix entries")
     print("PASS: python_success, no_tool_success, and run_failure SSE fixtures")
-    print("PASS: UTF-8 byte offsets, trace order, metadata IDs, and secret/reasoning scan")
+    print(
+        "PASS: UTF-8 byte offsets, trace order, metadata IDs, and secret/reasoning scan"
+    )
     return 0
 
 

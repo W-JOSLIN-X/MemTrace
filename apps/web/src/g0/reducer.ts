@@ -5,6 +5,7 @@ import type {
   ProviderMode,
   RunMetricsEvent,
   RunStatus,
+  Scenario,
   Stage,
   TaskCreateAccepted,
   TaskFingerprintedEvent,
@@ -60,6 +61,8 @@ export interface G0State {
   taskId: TaskId | null
   runId: string | null
   eventsUrl: string | null
+  taskText: string
+  scenario: Scenario | null
   providerMode: ProviderMode | null
   effectiveMemoryMode: 'on' | 'off' | null
   runStatus: RunStatus | null
@@ -75,6 +78,12 @@ export interface G0State {
   endOffset: number
   lastPersistentEventSeq: number
   metrics: RunMetricsEvent['data'] | null
+  messages: TaskSnapshot['messages']
+  feedbackEvents: TaskSnapshot['feedback_events']
+  lastFeedbackRecorded: Extract<
+    G0SseEvent,
+    { event_type: 'feedback.recorded' }
+  >['data'] | null
   error: PublicUiError | null
   terminal: boolean
   reconnectAttempt: number
@@ -82,9 +91,11 @@ export interface G0State {
 }
 
 export type G0Action =
+  | { type: 'owner_reset' }
   | { type: 'submit_started' }
   | { type: 'submit_failed'; error: PublicUiError }
-  | { type: 'task_accepted'; accepted: TaskCreateAccepted }
+  | { type: 'task_accepted'; accepted: TaskCreateAccepted; taskText: string }
+  | { type: 'task_restored'; snapshot: TaskSnapshot }
   | { type: 'connection_opened' }
   | { type: 'connection_recovering'; attempt: number; reason: RecoveryReason }
   | { type: 'connection_exhausted'; error: PublicUiError }
@@ -93,7 +104,7 @@ export type G0Action =
   | {
       type: 'snapshot_received'
       snapshot: TaskSnapshot
-      mode: 'enrichment' | 'recovery' | 'final'
+      mode: 'enrichment' | 'recovery' | 'final' | 'restore'
     }
 
 export function createInitialG0State(): G0State {
@@ -102,6 +113,8 @@ export function createInitialG0State(): G0State {
     taskId: null,
     runId: null,
     eventsUrl: null,
+    taskText: '',
+    scenario: null,
     providerMode: null,
     effectiveMemoryMode: null,
     runStatus: null,
@@ -117,6 +130,9 @@ export function createInitialG0State(): G0State {
     endOffset: 0,
     lastPersistentEventSeq: 0,
     metrics: null,
+    messages: [],
+    feedbackEvents: [],
+    lastFeedbackRecorded: null,
     error: null,
     terminal: false,
     reconnectAttempt: 0,
@@ -126,6 +142,8 @@ export function createInitialG0State(): G0State {
 
 export function g0Reducer(state: G0State, action: G0Action): G0State {
   switch (action.type) {
+    case 'owner_reset':
+      return createInitialG0State()
     case 'submit_started':
       return { ...createInitialG0State(), phase: 'submitting' }
     case 'submit_failed':
@@ -141,10 +159,31 @@ export function g0Reducer(state: G0State, action: G0Action): G0State {
         taskId: action.accepted.task_id,
         runId: action.accepted.run_id,
         eventsUrl: action.accepted.events_url,
+        taskText: action.taskText,
         providerMode: action.accepted.provider_mode,
         effectiveMemoryMode: action.accepted.effective_memory_mode,
         runStatus: 'queued',
       }
+    case 'task_restored': {
+      const snapshot = action.snapshot
+      const base: G0State = {
+        ...createInitialG0State(),
+        phase: snapshot.terminal ? 'finalizing' : 'reconnecting',
+        taskId: snapshot.task_id,
+        runId: snapshot.run_id,
+        eventsUrl: `/api/v1/tasks/${snapshot.task_id}/events`,
+        taskText: snapshot.task_text,
+        scenario: snapshot.scenario,
+        providerMode: snapshot.provider_mode,
+        effectiveMemoryMode: snapshot.effective_memory_mode,
+        runStatus: snapshot.run_status,
+      }
+      return mergeSnapshot(
+        base,
+        snapshot,
+        snapshot.terminal ? 'final' : 'restore',
+      )
+    }
     case 'connection_opened':
       if (state.terminal) return state
       return {
@@ -176,7 +215,7 @@ export function g0Reducer(state: G0State, action: G0Action): G0State {
         recoveryReason: 'protocol_error',
         error: {
           code: 'INVALID_STREAM_EVENT',
-          message: '收到不符合 G0 契约的流事件，正在通过任务快照恢复。',
+          message: '收到不符合 G1 契约的流事件，正在通过任务快照恢复。',
           retryable: true,
         },
       }
@@ -222,7 +261,11 @@ function reduceSseEvent(state: G0State, event: G0SseEvent): G0State {
         ],
       }
     case 'task.fingerprinted':
-      return { ...next, fingerprintSummary: event.data }
+      return {
+        ...next,
+        scenario: event.data.domain,
+        fingerprintSummary: event.data,
+      }
     case 'memory.retrieval.started':
       return { ...next, memoryObserved: true }
     case 'agent.plan.published':
@@ -293,13 +336,15 @@ function reduceSseEvent(state: G0State, event: G0SseEvent): G0State {
       }
     case 'stream.done':
       return { ...next, phase: 'finalizing' }
+    case 'feedback.recorded':
+      return { ...next, lastFeedbackRecorded: event.data }
   }
 }
 
 function mergeSnapshot(
   state: G0State,
   snapshot: TaskSnapshot,
-  mode: 'enrichment' | 'recovery' | 'final',
+  mode: 'enrichment' | 'recovery' | 'final' | 'restore',
 ): G0State {
   if (snapshot.task_id !== state.taskId || snapshot.run_id !== state.runId) {
     return state
@@ -308,10 +353,15 @@ function mergeSnapshot(
     ...state,
     providerMode: snapshot.provider_mode,
     effectiveMemoryMode: snapshot.effective_memory_mode,
+    taskText: snapshot.task_text,
+    scenario: snapshot.scenario,
     fingerprintSummary: snapshot.fingerprint
       ? {
           fingerprint_id: snapshot.fingerprint.id,
           domain: snapshot.fingerprint.domain,
+          classification_source: snapshot.fingerprint.classification_source,
+          classification_confidence: snapshot.fingerprint.classification_confidence,
+          classification_reasons: snapshot.fingerprint.classification_reasons,
           task_type: snapshot.fingerprint.task_type,
           artifact_type: snapshot.fingerprint.artifact_type,
           language: snapshot.fingerprint.language,
@@ -320,11 +370,13 @@ function mergeSnapshot(
     publicPlan: snapshot.public_plan ?? state.publicPlan,
     toolDecision: snapshot.tool_decision ?? state.toolDecision,
     toolCalls: mergeToolCalls(state.toolCalls, snapshot.tool_calls),
+    messages: snapshot.messages,
+    feedbackEvents: snapshot.feedback_events,
   }
   if (mode === 'enrichment') return shared
 
   const canReplaceOutput = snapshot.end_offset >= state.endOffset
-  if (mode === 'recovery') {
+  if (mode === 'recovery' || mode === 'restore') {
     return {
       ...shared,
       phase: 'reconnecting',
@@ -334,7 +386,10 @@ function mergeSnapshot(
       // A TaskSnapshot is materialized state, not an event log. Advancing this
       // cursor would skip persistent events (notably metrics and stream.done)
       // that the snapshot cannot reconstruct.
-      lastPersistentEventSeq: state.lastPersistentEventSeq,
+      lastPersistentEventSeq:
+        mode === 'restore'
+          ? snapshot.last_persistent_event_seq
+          : state.lastPersistentEventSeq,
       error: snapshot.error
         ? {
             code: snapshot.error.code,

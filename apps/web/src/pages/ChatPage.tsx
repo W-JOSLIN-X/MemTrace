@@ -1,20 +1,37 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { G0Api } from '../g0/api'
+import { browserG0Api, G0ApiError, type G0Api } from '../g0/api'
 import type { EventSourceFactory } from '../g0/eventStream'
 import type { G0Phase, G0State, StageRecord } from '../g0/reducer'
-import type { ResponsePolicy, Scenario, ToolCallSnapshot } from '../g0/types'
-import { useG0Agent } from '../g0/useG0Agent'
+import type {
+  ClassificationReasonCode,
+  DemoAlias,
+  FeedbackCreateRequest,
+  ResponsePolicy,
+  Scenario,
+  TaskId,
+  ToolCallSnapshot,
+} from '../g0/types'
+import {
+  useG0Agent,
+  type FeedbackSubmissionState,
+} from '../g0/useG0Agent'
 
 export interface ChatPageProps {
   api?: G0Api
   eventSourceFactory?: EventSourceFactory
   retryDelaysMs?: readonly number[]
+  idempotencyKeyFactory?: () => string
+  feedbackCatchupTimeoutMs?: number
 }
+
+type SessionPhase = 'loading' | 'ready' | 'switching' | 'failed'
+
+const TASK_ID_PATTERN = /^task_[0-9A-HJKMNP-TV-Z]{26}$/
 
 const stageDefinitions = [
   { key: 'fingerprinting', label: '任务指纹', detail: '识别任务类型与编程语言' },
-  { key: 'retrieving', label: '记忆检索', detail: 'Day 1 明确返回空长期记忆' },
+  { key: 'retrieving', label: '记忆检索', detail: 'Day 2 明确不检索长期记忆' },
   { key: 'planning', label: '公开计划', detail: '展示目标与下一步动作' },
   { key: 'tool_running', label: '静态工具', detail: '只解析 Python AST' },
   { key: 'generating', label: '生成回答', detail: '通过 SSE 接收模型正文' },
@@ -36,35 +53,225 @@ export function ChatPage({
   api,
   eventSourceFactory,
   retryDelaysMs,
+  idempotencyKeyFactory,
+  feedbackCatchupTimeoutMs,
 }: ChatPageProps) {
+  const resolvedApi = api ?? browserG0Api
+  const sessionFeaturesEnabled = Boolean(
+    resolvedApi.getSession && resolvedApi.createDemoSession,
+  )
   const [taskText, setTaskText] = useState('')
-  const [scenario, setScenario] = useState<Scenario>('programming_learning')
   const [responsePolicy, setResponsePolicy] =
     useState<ResponsePolicy>('default')
   const [memoryEnabled, setMemoryEnabled] = useState(true)
-  const { state, submitTask, retryConnection } = useG0Agent({
-    api,
+  const [demoAlias, setDemoAlias] = useState<DemoAlias | null>(
+    sessionFeaturesEnabled ? null : 'blank_demo',
+  )
+  const [sessionPhase, setSessionPhase] = useState<SessionPhase>(
+    sessionFeaturesEnabled ? 'loading' : 'ready',
+  )
+  const [sessionError, setSessionError] = useState<string | null>(null)
+  const [feedbackText, setFeedbackText] = useState('')
+  const [editedDraft, setEditedDraft] = useState<{
+    taskId: TaskId
+    value: string
+  } | null>(null)
+  const [rating, setRating] = useState<number | null>(null)
+  const [acceptedDecision, setAcceptedDecision] = useState<boolean | null>(null)
+  const [feedbackFormError, setFeedbackFormError] = useState<string | null>(null)
+  const restoredAliasRef = useRef<DemoAlias | null>(null)
+  const {
+    state,
+    feedbackState,
+    submitTask,
+    restoreTask,
+    resetOwner,
+    submitFeedback,
+    retryConnection,
+  } = useG0Agent({
+    api: resolvedApi,
     eventSourceFactory,
     retryDelaysMs,
+    idempotencyKeyFactory,
+    feedbackCatchupTimeoutMs,
   })
+  const editedOutput =
+    state.taskId && editedDraft?.taskId === state.taskId
+      ? editedDraft.value
+      : state.output
   const trimmedScalarLength = useMemo(
     () => [...taskText.trim()].length,
     [taskText],
   )
   const invalidLength = trimmedScalarLength === 0 || trimmedScalarLength > 20000
   const isSubmitting = state.phase === 'submitting'
+  const sessionUnavailable = sessionPhase !== 'ready'
   const hasActiveRun =
     state.taskId !== null && !state.terminal && state.phase !== 'connection_failed'
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (invalidLength || isSubmitting) return
+    if (invalidLength || isSubmitting || sessionUnavailable) return
+    resetFeedbackForm()
     void submitTask(taskText, {
-      scenario,
       memoryMode: memoryEnabled ? 'on' : 'off',
       responsePolicy,
     })
   }
+
+  const resetFeedbackForm = useCallback(() => {
+    setFeedbackText('')
+    setEditedDraft(null)
+    setRating(null)
+    setAcceptedDecision(null)
+    setFeedbackFormError(null)
+  }, [])
+
+  useEffect(() => {
+    if (!sessionFeaturesEnabled) return
+    const getSession = resolvedApi.getSession
+    const createDemoSession = resolvedApi.createDemoSession
+    if (!getSession || !createDemoSession) return
+    const controller = new AbortController()
+    let cancelled = false
+    const initialize = async () => {
+      setSessionPhase('loading')
+      setSessionError(null)
+      try {
+        let session
+        try {
+          session = await getSession(controller.signal)
+        } catch (error) {
+          if (!(error instanceof G0ApiError) || error.code !== 'SESSION_REQUIRED') {
+            throw error
+          }
+          session = await createDemoSession('blank_demo', controller.signal)
+        }
+        if (cancelled) return
+        setDemoAlias(session.demo_alias)
+        setSessionPhase('ready')
+      } catch (error) {
+        if (cancelled || isAbortError(error)) return
+        setSessionPhase('failed')
+        setSessionError(publicErrorMessage(error, '无法初始化 Demo 会话。'))
+      }
+    }
+    void initialize()
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [resolvedApi, sessionFeaturesEnabled])
+
+  useEffect(() => {
+    if (
+      !sessionFeaturesEnabled ||
+      sessionPhase !== 'ready' ||
+      demoAlias === null ||
+      restoredAliasRef.current === demoAlias
+    ) {
+      return
+    }
+    restoredAliasRef.current = demoAlias
+    const taskId = readSavedTaskId(demoAlias)
+    if (!taskId) return
+    let cancelled = false
+    const restore = async () => {
+      const snapshot = await restoreTask(taskId)
+      if (cancelled) return
+      if (!snapshot) {
+        clearSavedTask(demoAlias)
+        return
+      }
+      setTaskText(snapshot.task_text)
+    }
+    void restore()
+    return () => {
+      cancelled = true
+    }
+  }, [demoAlias, restoreTask, sessionFeaturesEnabled, sessionPhase])
+
+  useEffect(() => {
+    if (
+      !sessionFeaturesEnabled ||
+      sessionPhase !== 'ready' ||
+      demoAlias === null ||
+      state.taskId === null
+    ) {
+      return
+    }
+    saveTaskId(demoAlias, state.taskId)
+  }, [demoAlias, sessionFeaturesEnabled, sessionPhase, state.taskId])
+
+  const switchDemoAlias = useCallback(
+    async (nextAlias: DemoAlias) => {
+      if (
+        !sessionFeaturesEnabled ||
+        !resolvedApi.createDemoSession ||
+        sessionPhase === 'switching' ||
+        nextAlias === demoAlias
+      ) {
+        return
+      }
+      setSessionPhase('switching')
+      setSessionError(null)
+      resetOwner()
+      resetFeedbackForm()
+      setTaskText('')
+      clearTaskUrl()
+      const controller = new AbortController()
+      try {
+        const session = await resolvedApi.createDemoSession(
+          nextAlias,
+          controller.signal,
+        )
+        restoredAliasRef.current = null
+        setDemoAlias(session.demo_alias)
+        setSessionPhase('ready')
+      } catch (error) {
+        if (isAbortError(error)) return
+        setSessionPhase('failed')
+        setSessionError(publicErrorMessage(error, '切换 Demo 用户失败。'))
+      }
+    },
+    [
+      demoAlias,
+      resetFeedbackForm,
+      resetOwner,
+      resolvedApi,
+      sessionFeaturesEnabled,
+      sessionPhase,
+    ],
+  )
+
+  const handleFeedbackSubmit = useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      setFeedbackFormError(null)
+      const request: FeedbackCreateRequest = {}
+      if (feedbackText.trim()) request.explicit_text = feedbackText.trim()
+      if (editedOutput !== state.output) {
+        if (!editedOutput.trim()) {
+          setFeedbackFormError('修改稿不能为空；如不提交修改稿，请恢复原始输出。')
+          return
+        }
+        request.edited_output = editedOutput
+      }
+      if (rating !== null) request.rating = rating
+      if (acceptedDecision !== null) request.accepted = acceptedDecision
+      if (Object.keys(request).length === 0) {
+        setFeedbackFormError('请至少填写文字反馈、修改稿、评分或采纳决定中的一项。')
+        return
+      }
+      const result = await submitFeedback(request)
+      if (result) {
+        setFeedbackText('')
+        setRating(null)
+        setAcceptedDecision(null)
+      }
+    },
+    [acceptedDecision, editedOutput, feedbackText, rating, state.output, submitFeedback],
+  )
 
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -81,6 +288,14 @@ export function ChatPage({
             >
               {phaseLabels[state.phase]}
             </span>
+            {sessionFeaturesEnabled ? (
+              <DemoSessionSwitch
+                activeAlias={demoAlias}
+                disabled={sessionPhase !== 'ready'}
+                onSwitch={(alias) => void switchDemoAlias(alias)}
+                phase={sessionPhase}
+              />
+            ) : null}
           </div>
           <h1
             className="mt-5 max-w-2xl text-3xl font-black leading-tight tracking-tight text-slate-950 sm:text-4xl"
@@ -94,6 +309,12 @@ export function ChatPage({
         </div>
 
         <div className="p-5 sm:p-8">
+          {sessionError ? (
+            <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-4" role="alert">
+              <p className="text-sm font-black text-red-900">Demo 会话不可用</p>
+              <p className="mt-1 text-sm text-red-800">{sessionError}</p>
+            </div>
+          ) : null}
           <form onSubmit={handleSubmit}>
             <label className="text-sm font-black text-slate-800" htmlFor="task-text">
               编程任务
@@ -110,20 +331,7 @@ export function ChatPage({
               提交新任务会安全关闭当前事件流；提交失败不会清空输入。
             </p>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label className="text-xs font-black text-slate-700">
-                使用场景
-                <select
-                  className="mt-2 w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm font-semibold outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100"
-                  onChange={(event) => setScenario(event.target.value as Scenario)}
-                  value={scenario}
-                >
-                  <option value="programming_learning">编程学习</option>
-                  <option value="software_development">软件开发</option>
-                  <option value="general_text">通用文本</option>
-                  <option value="other">其他</option>
-                </select>
-              </label>
+            <div className="mt-4 max-w-sm">
               <label className="text-xs font-black text-slate-700">
                 回答方式
                 <select
@@ -164,7 +372,7 @@ export function ChatPage({
 
             <button
               className="mt-5 w-full rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 sm:w-auto"
-              disabled={invalidLength || isSubmitting}
+              disabled={invalidLength || isSubmitting || sessionUnavailable}
               type="submit"
             >
               {isSubmitting
@@ -201,6 +409,22 @@ export function ChatPage({
           <RunTimeline state={state} />
           <PlanAndTool state={state} />
           <OutputPanel state={state} />
+          <FeedbackPanel
+            acceptedDecision={acceptedDecision}
+            editedOutput={editedOutput}
+            feedbackFormError={feedbackFormError}
+            feedbackState={feedbackState}
+            feedbackText={feedbackText}
+            onAcceptedDecision={setAcceptedDecision}
+            onEditedOutput={(value) => {
+              if (state.taskId) setEditedDraft({ taskId: state.taskId, value })
+            }}
+            onFeedbackText={setFeedbackText}
+            onRating={setRating}
+            onSubmit={handleFeedbackSubmit}
+            rating={rating}
+            state={state}
+          />
         </div>
       </section>
 
@@ -225,6 +449,44 @@ function ProviderBadge({ providerMode }: { providerMode: G0State['providerMode']
     >
       {label}
     </span>
+  )
+}
+
+function DemoSessionSwitch({
+  activeAlias,
+  disabled,
+  onSwitch,
+  phase,
+}: {
+  activeAlias: DemoAlias | null
+  disabled: boolean
+  onSwitch: (alias: DemoAlias) => void
+  phase: SessionPhase
+}) {
+  return (
+    <div className="ml-auto flex items-center gap-1 rounded-full border border-stone-200 bg-white/90 p-1" aria-label="Demo 用户">
+      {(['blank_demo', 'seeded_demo'] as const).map((alias) => (
+        <button
+          aria-pressed={activeAlias === alias}
+          className={
+            activeAlias === alias
+              ? 'rounded-full bg-slate-900 px-3 py-1.5 text-xs font-black text-white'
+              : 'rounded-full px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-stone-100'
+          }
+          disabled={disabled}
+          key={alias}
+          onClick={() => onSwitch(alias)}
+          type="button"
+        >
+          {alias === 'blank_demo' ? '空白用户' : '种子用户'}
+        </button>
+      ))}
+      {phase === 'loading' || phase === 'switching' ? (
+        <span className="px-2 text-xs font-bold text-slate-500">
+          {phase === 'loading' ? '初始化…' : '切换…'}
+        </span>
+      ) : null}
+    </div>
   )
 }
 
@@ -339,7 +601,7 @@ function stageDescription(
   }
   const completedLabels: Record<TimelineKey, string> = {
     fingerprinting: '确定性任务指纹已生成',
-    retrieving: '检索完成：Day 1 尚无长期记忆',
+    retrieving: '检索完成：Day 2 尚无长期记忆',
     planning: '公开计划已发布',
     tool_running: 'Python AST 静态检查已完成',
     generating: '模型回答已接收',
@@ -447,13 +709,14 @@ function OutputPanel({ state }: { state: G0State }) {
     <section className="mt-6 rounded-3xl border border-slate-800 bg-slate-950 p-5 text-slate-100" aria-labelledby="answer-title">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-black" id="answer-title">
-          Agent 回答
+          原始输出（只读）
         </h2>
         <span className="text-xs font-bold text-slate-400">
           {state.endOffset.toLocaleString('zh-CN')} UTF-8 bytes
         </span>
       </div>
       <pre
+        aria-label="原始输出"
         aria-busy={busy}
         aria-live="polite"
         className="mt-4 min-h-24 whitespace-pre-wrap break-words font-sans text-sm leading-7 text-slate-200"
@@ -462,6 +725,149 @@ function OutputPanel({ state }: { state: G0State }) {
       </pre>
     </section>
   )
+}
+
+function FeedbackPanel({
+  acceptedDecision,
+  editedOutput,
+  feedbackFormError,
+  feedbackState,
+  feedbackText,
+  onAcceptedDecision,
+  onEditedOutput,
+  onFeedbackText,
+  onRating,
+  onSubmit,
+  rating,
+  state,
+}: {
+  acceptedDecision: boolean | null
+  editedOutput: string
+  feedbackFormError: string | null
+  feedbackState: FeedbackSubmissionState
+  feedbackText: string
+  onAcceptedDecision: (value: boolean | null) => void
+  onEditedOutput: (value: string) => void
+  onFeedbackText: (value: string) => void
+  onRating: (value: number | null) => void
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void
+  rating: number | null
+  state: G0State
+}) {
+  if (!state.terminal || state.runStatus !== 'succeeded') return null
+  const delta = [...editedOutput].length - [...state.output].length
+  const submitting = feedbackState.phase === 'submitting'
+  return (
+    <section className="mt-6 rounded-3xl border border-violet-200 bg-violet-50/60 p-5" aria-labelledby="feedback-title">
+      <p className="text-xs font-black uppercase tracking-[0.18em] text-violet-700">
+        Post-run feedback
+      </p>
+      <h2 className="mt-2 text-lg font-black text-slate-950" id="feedback-title">
+        修改稿与明确反馈
+      </h2>
+      <p className="mt-2 text-sm leading-6 text-slate-600">
+        原始输出始终保持只读；下方修改稿会作为单独反馈保存。
+      </p>
+      <form className="mt-5 space-y-4" onSubmit={onSubmit}>
+        <label className="block text-sm font-black text-slate-800">
+          修改稿
+          <textarea
+            aria-label="修改稿"
+            className="mt-2 min-h-40 w-full rounded-2xl border border-violet-200 bg-white px-4 py-3 text-sm leading-6 text-slate-900 outline-none focus:border-violet-600 focus:ring-4 focus:ring-violet-100"
+            onChange={(event) => onEditedOutput(event.target.value)}
+            value={editedOutput}
+          />
+        </label>
+        <p className="text-xs font-bold text-slate-500">
+          相对原始输出字符变化：{delta > 0 ? '+' : ''}{delta.toLocaleString('zh-CN')}
+        </p>
+        <label className="block text-sm font-black text-slate-800">
+          自然语言反馈
+          <textarea
+            aria-label="自然语言反馈"
+            className="mt-2 min-h-24 w-full rounded-2xl border border-violet-200 bg-white px-4 py-3 text-sm leading-6 text-slate-900 outline-none focus:border-violet-600 focus:ring-4 focus:ring-violet-100"
+            onChange={(event) => onFeedbackText(event.target.value)}
+            placeholder="例如：以后先提示我检查边界条件。"
+            value={feedbackText}
+          />
+        </label>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="text-sm font-black text-slate-800">
+            评分（1–5）
+            <select
+              aria-label="评分"
+              className="mt-2 w-full rounded-xl border border-violet-200 bg-white px-3 py-2.5 text-sm font-semibold"
+              onChange={(event) =>
+                onRating(event.target.value ? Number(event.target.value) : null)
+              }
+              value={rating ?? ''}
+            >
+              <option value="">暂不评分</option>
+              {[1, 2, 3, 4, 5].map((value) => (
+                <option key={value} value={value}>{value}</option>
+              ))}
+            </select>
+          </label>
+          <fieldset>
+            <legend className="text-sm font-black text-slate-800">采纳决定</legend>
+            <div className="mt-2 flex gap-2">
+              <button
+                aria-pressed={acceptedDecision === true}
+                className={decisionButtonClass(acceptedDecision === true)}
+                onClick={() =>
+                  onAcceptedDecision(acceptedDecision === true ? null : true)
+                }
+                type="button"
+              >
+                采纳
+              </button>
+              <button
+                aria-pressed={acceptedDecision === false}
+                className={decisionButtonClass(acceptedDecision === false)}
+                onClick={() =>
+                  onAcceptedDecision(acceptedDecision === false ? null : false)
+                }
+                type="button"
+              >
+                拒绝
+              </button>
+            </div>
+          </fieldset>
+        </div>
+        {feedbackFormError || feedbackState.error ? (
+          <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-800" role="alert">
+            {feedbackFormError ?? feedbackState.error?.message}
+          </p>
+        ) : null}
+        {feedbackState.phase === 'recorded' ? (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900" role="status">
+            <p className="font-black">反馈已记录，等待 Day 3 处理</p>
+            <p className="mt-1 text-xs font-semibold">
+              MemoryJob：{feedbackState.accepted?.memory_job_id} · {feedbackState.job?.status ?? 'pending'}
+            </p>
+          </div>
+        ) : null}
+        <button
+          className="rounded-xl bg-violet-700 px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+          disabled={submitting}
+          type="submit"
+        >
+          {submitting ? '正在记录反馈…' : '提交反馈'}
+        </button>
+      </form>
+      {state.feedbackEvents.length > 0 ? (
+        <p className="mt-4 text-xs font-bold text-slate-500">
+          当前快照已恢复 {state.feedbackEvents.length.toLocaleString('zh-CN')} 条反馈记录。
+        </p>
+      ) : null}
+    </section>
+  )
+}
+
+function decisionButtonClass(active: boolean): string {
+  return active
+    ? 'rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-black text-white'
+    : 'rounded-xl border border-violet-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700'
 }
 
 function RunSidebar({ state }: { state: G0State }) {
@@ -475,17 +881,36 @@ function RunSidebar({ state }: { state: G0State }) {
         <p className="mt-2 text-sm leading-6 text-emerald-900/70">
           {state.effectiveMemoryMode === 'off'
             ? '本次任务已关闭记忆。'
-            : 'Day 1 会执行空检索，但不会提取或保存长期记忆。'}
+            : 'Day 2 只记录显式反馈和待处理任务；长期记忆处理从 Day 3 开始。'}
         </p>
       </section>
 
       {state.fingerprintSummary ? (
         <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
-          <h2 className="text-sm font-black text-slate-900">任务指纹</h2>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-700">
+            Auto classification
+          </p>
+          <h2 className="mt-2 text-sm font-black text-slate-900">系统识别场景</h2>
+          <p className="mt-3 text-lg font-black text-slate-950">
+            {state.fingerprintSummary.domain === 'other'
+              ? '暂未明确识别'
+              : domainLabel(state.fingerprintSummary.domain)}
+          </p>
+          <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+            规则置信度：{Math.round(state.fingerprintSummary.classification_confidence * 100)}%
+            （确定性规则分数，不是统计概率）
+          </p>
+          {state.fingerprintSummary.classification_confidence < 0.7 ? (
+            <p className="mt-2 rounded-xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-900">
+              低置信提示：当前信号较弱或冲突，系统不会要求你手工选择类别。
+            </p>
+          ) : null}
           <div className="mt-4 flex flex-wrap gap-2">
-            <InfoChip>{state.fingerprintSummary.domain}</InfoChip>
             <InfoChip>{state.fingerprintSummary.task_type}</InfoChip>
             <InfoChip>{state.fingerprintSummary.language}</InfoChip>
+            {state.fingerprintSummary.classification_reasons.map((reason) => (
+              <InfoChip key={reason}>{reasonLabel(reason)}</InfoChip>
+            ))}
           </div>
         </section>
       ) : null}
@@ -561,4 +986,78 @@ function BoundaryItem({ children }: { children: string }) {
       <span>{children}</span>
     </li>
   )
+}
+
+function domainLabel(domain: Scenario): string {
+  return {
+    programming_learning: '编程学习',
+    software_development: '软件开发',
+    general_text: '通用文本',
+    other: '暂未明确识别',
+  }[domain]
+}
+
+function reasonLabel(reason: ClassificationReasonCode): string {
+  return {
+    code_present: '包含代码',
+    technical_context: '技术语境',
+    debugging_cue: '调试线索',
+    learning_cue: '学习线索',
+    explanation_intent: '解释意图',
+    development_action: '开发动作',
+    deployment_cue: '部署线索',
+    text_task: '文本任务',
+    ambiguous: '信号模糊',
+  }[reason]
+}
+
+function readSavedTaskId(alias: DemoAlias): TaskId | null {
+  const fromUrl = new URL(window.location.href).searchParams.get('task_id')
+  if (fromUrl && TASK_ID_PATTERN.test(fromUrl)) return fromUrl as TaskId
+  try {
+    const fromStorage = window.sessionStorage.getItem(taskStorageKey(alias))
+    return fromStorage && TASK_ID_PATTERN.test(fromStorage)
+      ? (fromStorage as TaskId)
+      : null
+  } catch {
+    return null
+  }
+}
+
+function saveTaskId(alias: DemoAlias, taskId: TaskId): void {
+  try {
+    window.sessionStorage.setItem(taskStorageKey(alias), taskId)
+  } catch {
+    // URL persistence still provides refresh recovery when storage is blocked.
+  }
+  const url = new URL(window.location.href)
+  url.searchParams.set('task_id', taskId)
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+}
+
+function clearSavedTask(alias: DemoAlias): void {
+  try {
+    window.sessionStorage.removeItem(taskStorageKey(alias))
+  } catch {
+    // Continue clearing the URL when storage is unavailable.
+  }
+  clearTaskUrl()
+}
+
+function clearTaskUrl(): void {
+  const url = new URL(window.location.href)
+  url.searchParams.delete('task_id')
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+}
+
+function taskStorageKey(alias: DemoAlias): string {
+  return `memtrace.currentTask.${alias}`
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
+
+function publicErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof G0ApiError ? error.message : fallback
 }

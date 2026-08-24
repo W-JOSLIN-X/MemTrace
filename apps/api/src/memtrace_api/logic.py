@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Literal
 
@@ -10,6 +11,7 @@ from memtrace_api.ids import new_prefixed_ulid
 from memtrace_api.schemas import (
     ArtifactType,
     Audience,
+    ClassificationReasonCode,
     Domain,
     ProgrammingLanguage,
     PublicPlan,
@@ -52,7 +54,189 @@ _CONCEPT_KEYWORDS = {
     "api": ("api", "接口"),
     "configuration": ("config", "environment", "环境", "配置"),
     "debugging": ("debug", "bug", "修复", "调试"),
+    "recursion": ("recursion", "recursive", "递归"),
 }
+
+_DEBUGGING_CUES = (
+    "traceback",
+    "exception",
+    "报错",
+    "错误",
+    "调试",
+    "debug",
+    "bug",
+)
+_LEARNING_CUES = (
+    "学习",
+    "教程",
+    "初学者",
+    "初学",
+    "新手",
+    "入门",
+    "提示而不是答案",
+    "不要直接给答案",
+    "teach me",
+    "tutorial",
+    "beginner",
+    "hint not the answer",
+    "guide me",
+)
+_EXPLANATION_CUES = (
+    "解释",
+    "说明",
+    "为什么",
+    "原理",
+    "讲解",
+    "explain",
+    "why",
+    "walk me through",
+)
+_DEVELOPMENT_CUES = (
+    "实现",
+    "重构",
+    "审查",
+    "代码审查",
+    "修复",
+    "开发",
+    "feature",
+    "implement",
+    "refactor",
+    "review",
+    "fix",
+    "production code",
+)
+_DEPLOYMENT_CUES = (
+    "部署",
+    "环境配置",
+    "依赖",
+    "上线",
+    "devops",
+    "deploy",
+    "deployment",
+    "environment setup",
+    "configure",
+    "configuration",
+    "dependency",
+    "dependencies",
+    "install",
+    "setup",
+)
+_TEXT_TASK_CUES = (
+    "改写",
+    "总结",
+    "翻译",
+    "语气",
+    "格式",
+    "润色",
+    "rewrite",
+    "summarize",
+    "summary",
+    "translate",
+    "tone",
+    "format",
+    "proofread",
+)
+
+
+def _normalize_for_rules(text: str) -> str:
+    return unicodedata.normalize("NFKC", text).casefold()
+
+
+def _contains_cue(text: str, cues: tuple[str, ...]) -> bool:
+    for cue in cues:
+        if cue.isascii() and cue.replace(" ", "").isalnum():
+            if re.search(rf"(?<![\w]){re.escape(cue)}(?![\w])", text):
+                return True
+        elif cue in text:
+            return True
+    return False
+
+
+def _classify_domain(
+    *,
+    text: str,
+    extracted: ExtractedPython | None,
+    language: ProgrammingLanguage,
+    framework: str | None,
+    concepts: list[str],
+) -> tuple[Domain, float, list[ClassificationReasonCode]]:
+    normalized = _normalize_for_rules(text)
+    code_present = extracted is not None or "```" in normalized
+    technical_context = not code_present and (
+        language is not ProgrammingLanguage.UNKNOWN or framework is not None or bool(concepts)
+    )
+    debugging_cue = _contains_cue(normalized, _DEBUGGING_CUES)
+    learning_cue = _contains_cue(normalized, _LEARNING_CUES)
+    explanation_intent = _contains_cue(normalized, _EXPLANATION_CUES) and (
+        code_present or technical_context or debugging_cue
+    )
+    development_action = _contains_cue(normalized, _DEVELOPMENT_CUES)
+    deployment_cue = _contains_cue(normalized, _DEPLOYMENT_CUES)
+    text_task = _contains_cue(normalized, _TEXT_TASK_CUES) and not (
+        code_present or technical_context or debugging_cue or development_action or deployment_cue
+    )
+
+    detected: list[ClassificationReasonCode] = []
+    signals = (
+        (ClassificationReasonCode.CODE_PRESENT, code_present),
+        (ClassificationReasonCode.TECHNICAL_CONTEXT, technical_context),
+        (ClassificationReasonCode.DEBUGGING_CUE, debugging_cue),
+        (ClassificationReasonCode.LEARNING_CUE, learning_cue),
+        (ClassificationReasonCode.EXPLANATION_INTENT, explanation_intent),
+        (ClassificationReasonCode.DEVELOPMENT_ACTION, development_action),
+        (ClassificationReasonCode.DEPLOYMENT_CUE, deployment_cue),
+        (ClassificationReasonCode.TEXT_TASK, text_task),
+    )
+    detected.extend(reason for reason, present in signals if present)
+
+    scores = {
+        Domain.PROGRAMMING_LEARNING: (
+            int(code_present)
+            + int(technical_context)
+            + 3 * int(debugging_cue)
+            + 3 * int(learning_cue)
+            + 2 * int(explanation_intent)
+        ),
+        Domain.SOFTWARE_DEVELOPMENT: (
+            int(code_present)
+            + int(technical_context)
+            + 3 * int(development_action)
+            + 3 * int(deployment_cue)
+        ),
+        Domain.GENERAL_TEXT: 4 * int(text_task),
+    }
+    ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0].value))
+    (top_domain, top_score), (_, second_score) = ranked[:2]
+    if top_score < 3 or top_score == second_score:
+        reasons = [*detected[:4], ClassificationReasonCode.AMBIGUOUS]
+        confidence = 0.2 if top_score == 0 else 0.3
+        return Domain.OTHER, confidence, reasons
+
+    confidence = round(
+        min(
+            0.95,
+            0.50 + 0.06 * min(top_score, 5) + 0.05 * min(top_score - second_score, 3),
+        ),
+        2,
+    )
+    allowed_by_domain = {
+        Domain.PROGRAMMING_LEARNING: {
+            ClassificationReasonCode.CODE_PRESENT,
+            ClassificationReasonCode.TECHNICAL_CONTEXT,
+            ClassificationReasonCode.DEBUGGING_CUE,
+            ClassificationReasonCode.LEARNING_CUE,
+            ClassificationReasonCode.EXPLANATION_INTENT,
+        },
+        Domain.SOFTWARE_DEVELOPMENT: {
+            ClassificationReasonCode.CODE_PRESENT,
+            ClassificationReasonCode.TECHNICAL_CONTEXT,
+            ClassificationReasonCode.DEVELOPMENT_ACTION,
+            ClassificationReasonCode.DEPLOYMENT_CUE,
+        },
+        Domain.GENERAL_TEXT: {ClassificationReasonCode.TEXT_TASK},
+    }
+    reasons = [reason for reason in detected if reason in allowed_by_domain[top_domain]][:5]
+    return top_domain, confidence, reasons
 
 
 def _detect_language(text: str, extracted: ExtractedPython | None) -> ProgrammingLanguage:
@@ -77,7 +261,7 @@ def _detect_task_type(text: str) -> TaskType:
         return TaskType.DEBUGGING_GUIDANCE
     if any(token in lowered for token in ("review", "审查", "检查代码")):
         return TaskType.CODE_REVIEW
-    if any(token in lowered for token in ("解释", "explain", "为什么", "原理")):
+    if any(token in lowered for token in ("解释", "说明", "explain", "为什么", "原理")):
         return TaskType.CODE_EXPLANATION
     if any(token in lowered for token in ("生成代码", "write code", "implement", "实现")):
         return TaskType.CODE_GENERATION
@@ -118,20 +302,20 @@ def _tool_decision(
             action=ToolAction.SKIP,
             tool_name=None,
             reason_code=ToolReasonCode.NO_EXTRACTABLE_PYTHON,
-            reason="任务涉及 Python，但没有可按 G0 规则提取的代码块。",
+            reason="任务涉及 Python，但没有可按 G1 规则提取的代码块。",
         )
     if language is not ProgrammingLanguage.UNKNOWN:
         return ToolDecision(
             action=ToolAction.SKIP,
             tool_name=None,
             reason_code=ToolReasonCode.NON_PYTHON_TASK,
-            reason="当前代码不是 Python，Day 1 的 Python AST 工具不适用。",
+            reason="当前代码不是 Python，Day 2 的 Python AST 工具不适用。",
         )
     return ToolDecision(
         action=ToolAction.SKIP,
         tool_name=None,
         reason_code=ToolReasonCode.NON_PYTHON_TASK,
-        reason="当前任务没有可解析的 Python 代码，Day 1 静态工具不适用。",
+        reason="当前任务没有可解析的 Python 代码，Day 2 静态工具不适用。",
     )
 
 
@@ -144,8 +328,22 @@ def analyze_task(request: TaskCreateRequest) -> TaskAnalysis:
     concepts = _detect_concepts(text)
     has_code = language is not ProgrammingLanguage.UNKNOWN or "```" in text
 
-    domain = Domain(request.scenario.value)
-    artifact_type = ArtifactType.SOURCE_CODE if has_code else ArtifactType.NONE
+    framework = _detect_framework(text)
+    domain, classification_confidence, classification_reasons = _classify_domain(
+        text=text,
+        extracted=extracted,
+        language=language,
+        framework=framework,
+        concepts=concepts,
+    )
+    if has_code:
+        artifact_type = ArtifactType.SOURCE_CODE
+    elif task_type is TaskType.ENVIRONMENT_CONFIGURATION:
+        artifact_type = ArtifactType.CONFIGURATION
+    elif domain is Domain.GENERAL_TEXT:
+        artifact_type = ArtifactType.TEXT
+    else:
+        artifact_type = ArtifactType.NONE
     audience = (
         Audience.BEGINNER
         if any(token in text.lower() for token in ("初学", "新手", "beginner", "入门"))
@@ -160,12 +358,14 @@ def analyze_task(request: TaskCreateRequest) -> TaskAnalysis:
     fingerprint = TaskFingerprint(
         id=new_prefixed_ulid("fp"),
         domain=domain,
+        classification_confidence=classification_confidence,
+        classification_reasons=classification_reasons,
         task_type=task_type,
         artifact_type=artifact_type,
         audience=audience,
         project_key=None,
         language=language,
-        framework=_detect_framework(text),
+        framework=framework,
         concepts=concepts,
         tool_context=["python_ast_check"] if decision.action is ToolAction.CALL else [],
         current_constraints=request.current_constraints,
@@ -205,6 +405,6 @@ def build_public_plan(analysis: TaskAnalysis) -> PublicPlan:
     return PublicPlan(
         id=new_prefixed_ulid("plan"),
         goal=goals[analysis.goal_code],
-        memory_summary="Day 1 尚无长期记忆，本次不会注入历史偏好。",
+        memory_summary="Day 2 尚无长期记忆，本次不会注入历史偏好。",
         next_action=next_action,
     )

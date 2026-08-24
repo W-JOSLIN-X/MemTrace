@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 
-import { browserG0Api, G0ApiError, type G0Api } from './api'
+import {
+  browserG0Api,
+  G0ApiError,
+  newIdempotencyKey,
+  type G0Api,
+} from './api'
 import {
   browserEventSourceFactory,
   buildEventStreamUrl,
@@ -17,8 +22,10 @@ import {
 import { parseSseEvent } from './runtime'
 import type {
   G0EventType,
+  FeedbackCreateAccepted,
+  FeedbackCreateRequest,
+  MemoryJobResponse,
   ResponsePolicy,
-  Scenario,
   TaskCreateRequest,
   TaskId,
   TaskSnapshot,
@@ -27,7 +34,6 @@ import type {
 const DEFAULT_RETRY_DELAYS_MS = [250, 500, 1000, 2000] as const
 
 export interface SubmitTaskOptions {
-  scenario: Scenario
   memoryMode: 'on' | 'off'
   responsePolicy: ResponsePolicy
 }
@@ -36,28 +42,60 @@ export interface UseG0AgentOptions {
   api?: G0Api
   eventSourceFactory?: EventSourceFactory
   retryDelaysMs?: readonly number[]
+  idempotencyKeyFactory?: () => string
+  feedbackCatchupTimeoutMs?: number
+}
+
+export interface FeedbackSubmissionState {
+  phase: 'idle' | 'submitting' | 'recorded' | 'failed'
+  accepted: FeedbackCreateAccepted | null
+  job: MemoryJobResponse | null
+  catchup: 'event' | 'snapshot' | 'unconfirmed' | null
+  error: PublicUiError | null
+}
+
+const INITIAL_FEEDBACK_STATE: FeedbackSubmissionState = {
+  phase: 'idle',
+  accepted: null,
+  job: null,
+  catchup: null,
+  error: null,
 }
 
 export function useG0Agent({
   api = browserG0Api,
   eventSourceFactory = browserEventSourceFactory,
   retryDelaysMs = DEFAULT_RETRY_DELAYS_MS,
+  idempotencyKeyFactory = newIdempotencyKey,
+  feedbackCatchupTimeoutMs = 1_500,
 }: UseG0AgentOptions = {}) {
   const [state, reducerDispatch] = useReducer(
     g0Reducer,
     undefined,
     createInitialG0State,
   )
+  const [feedbackState, setFeedbackState] = useState<FeedbackSubmissionState>(
+    INITIAL_FEEDBACK_STATE,
+  )
   const stateRef = useRef(state)
   const generationRef = useRef(0)
   const connectionEpochRef = useRef(0)
   const connectionRef = useRef<EventStreamConnection | null>(null)
+  const feedbackConnectionRef = useRef<EventStreamConnection | null>(null)
+  const feedbackCatchupCancelRef = useRef<(() => void) | null>(null)
   const controllersRef = useRef(new Set<AbortController>())
   const timerResolversRef = useRef(
     new Map<ReturnType<typeof setTimeout>, () => void>(),
   )
   const recoveryInFlightRef = useRef<number | null>(null)
   const finalizingInFlightRef = useRef<number | null>(null)
+  const pendingTaskWriteRef = useRef<{ requestJson: string; key: string } | null>(
+    null,
+  )
+  const pendingFeedbackWriteRef = useRef<{
+    requestJson: string
+    key: string
+  } | null>(null)
 
   const commit = useCallback((action: G0Action) => {
     const next = g0Reducer(stateRef.current, action)
@@ -87,6 +125,10 @@ export function useG0Agent({
 
   const stopSession = useCallback(() => {
     closeConnection()
+    feedbackCatchupCancelRef.current?.()
+    feedbackCatchupCancelRef.current = null
+    feedbackConnectionRef.current?.close()
+    feedbackConnectionRef.current = null
     abortRequests()
     releaseTimers()
     recoveryInFlightRef.current = null
@@ -388,7 +430,6 @@ export function useG0Agent({
       commit({ type: 'submit_started' })
       const request: TaskCreateRequest = {
         task_text: trimmed,
-        scenario: options.scenario,
         memory_mode: options.memoryMode,
         current_constraints: {
           response_policy: options.responsePolicy,
@@ -397,12 +438,26 @@ export function useG0Agent({
           source: 'ui',
         },
       }
+      const requestJson = JSON.stringify(request)
+      if (pendingTaskWriteRef.current?.requestJson !== requestJson) {
+        pendingTaskWriteRef.current = {
+          requestJson,
+          key: idempotencyKeyFactory(),
+        }
+      }
+      const idempotencyKey = pendingTaskWriteRef.current.key
       const controller = new AbortController()
       controllersRef.current.add(controller)
       try {
-        const accepted = await api.createTask(request, controller.signal)
+        const accepted = await api.createTask(
+          request,
+          controller.signal,
+          idempotencyKey,
+        )
         if (generation !== generationRef.current) return
-        commit({ type: 'task_accepted', accepted })
+        pendingTaskWriteRef.current = null
+        setFeedbackState(INITIAL_FEEDBACK_STATE)
+        commit({ type: 'task_accepted', accepted, taskText: trimmed })
         connect(accepted.events_url, 0, 0, generation)
       } catch (error) {
         if (isAbortError(error) || generation !== generationRef.current) return
@@ -411,7 +466,223 @@ export function useG0Agent({
         controllersRef.current.delete(controller)
       }
     },
-    [api, commit, connect, stopSession],
+    [api, commit, connect, idempotencyKeyFactory, stopSession],
+  )
+
+  const resetOwner = useCallback(() => {
+    generationRef.current += 1
+    stopSession()
+    pendingTaskWriteRef.current = null
+    pendingFeedbackWriteRef.current = null
+    setFeedbackState(INITIAL_FEEDBACK_STATE)
+    commit({ type: 'owner_reset' })
+  }, [commit, stopSession])
+
+  const restoreTask = useCallback(
+    async (taskId: TaskId): Promise<TaskSnapshot | null> => {
+      const generation = generationRef.current + 1
+      generationRef.current = generation
+      stopSession()
+      pendingTaskWriteRef.current = null
+      pendingFeedbackWriteRef.current = null
+      setFeedbackState(INITIAL_FEEDBACK_STATE)
+      commit({ type: 'owner_reset' })
+      try {
+        const snapshot = await getSnapshot(taskId, generation)
+        if (!snapshot || generation !== generationRef.current) return null
+        const next = commit({ type: 'task_restored', snapshot })
+        if (!next.terminal && next.eventsUrl) {
+          connect(
+            next.eventsUrl,
+            next.lastPersistentEventSeq,
+            next.endOffset,
+            generation,
+          )
+        }
+        return snapshot
+      } catch (error) {
+        if (isAbortError(error) || generation !== generationRef.current) return null
+        commit({ type: 'submit_failed', error: toPublicError(error) })
+        return null
+      }
+    },
+    [commit, connect, getSnapshot, stopSession],
+  )
+
+  const catchUpFeedback = useCallback(
+    (
+      accepted: FeedbackCreateAccepted,
+      generation: number,
+    ): Promise<boolean> => {
+      const current = stateRef.current
+      if (!current.taskId || !current.runId || !current.eventsUrl) {
+        return Promise.resolve(false)
+      }
+      const expectedTaskId = current.taskId
+      const expectedRunId = current.runId
+      const url = buildEventStreamUrl(
+        current.eventsUrl,
+        current.lastPersistentEventSeq,
+        current.endOffset,
+      )
+
+      return new Promise<boolean>((resolve) => {
+        let finished = false
+        let connection: EventStreamConnection | null = null
+        let timeout: ReturnType<typeof setTimeout> | null = null
+
+        const finish = (found: boolean) => {
+          if (finished) return
+          finished = true
+          if (timeout !== null) clearTimeout(timeout)
+          connection?.close()
+          if (feedbackConnectionRef.current === connection) {
+            feedbackConnectionRef.current = null
+          }
+          feedbackCatchupCancelRef.current = null
+          resolve(found)
+        }
+
+        feedbackCatchupCancelRef.current = () => finish(false)
+        timeout = setTimeout(() => finish(false), feedbackCatchupTimeoutMs)
+        connection = eventSourceFactory(url, {
+          onOpen: () => undefined,
+          onEvent: (eventType, rawData, lastEventId) => {
+            if (generation !== generationRef.current) {
+              finish(false)
+              return
+            }
+            try {
+              const event = parseSseEvent(eventType, rawData, lastEventId)
+              if (event.task_id !== expectedTaskId || event.run_id !== expectedRunId) {
+                return
+              }
+              commit({ type: 'sse_event', event })
+              if (
+                event.event_type === 'feedback.recorded' &&
+                event.data.feedback_id === accepted.feedback_id &&
+                event.data.memory_job_id === accepted.memory_job_id
+              ) {
+                finish(true)
+              }
+            } catch {
+              finish(false)
+            }
+          },
+          onError: () => finish(false),
+        })
+        feedbackConnectionRef.current = connection
+        if (finished) connection.close()
+      })
+    },
+    [commit, eventSourceFactory, feedbackCatchupTimeoutMs],
+  )
+
+  const submitFeedback = useCallback(
+    async (
+      feedback: FeedbackCreateRequest,
+    ): Promise<FeedbackCreateAccepted | null> => {
+      const generation = generationRef.current
+      const current = stateRef.current
+      if (!current.taskId || !current.terminal || current.runStatus !== 'succeeded') {
+        setFeedbackState({
+          ...INITIAL_FEEDBACK_STATE,
+          phase: 'failed',
+          error: {
+            code: 'TASK_NOT_READY_FOR_FEEDBACK',
+            message: '任务尚未成功完成，无法提交反馈。',
+            retryable: false,
+          },
+        })
+        return null
+      }
+      if (!api.createFeedback) {
+        setFeedbackState({
+          ...INITIAL_FEEDBACK_STATE,
+          phase: 'failed',
+          error: {
+            code: 'CLIENT_API_UNAVAILABLE',
+            message: '当前客户端未配置反馈接口。',
+            retryable: false,
+          },
+        })
+        return null
+      }
+
+      const requestJson = `${current.taskId}:${JSON.stringify(feedback)}`
+      if (pendingFeedbackWriteRef.current?.requestJson !== requestJson) {
+        pendingFeedbackWriteRef.current = {
+          requestJson,
+          key: idempotencyKeyFactory(),
+        }
+      }
+      const idempotencyKey = pendingFeedbackWriteRef.current.key
+      setFeedbackState({ ...INITIAL_FEEDBACK_STATE, phase: 'submitting' })
+      const controller = new AbortController()
+      controllersRef.current.add(controller)
+      try {
+        const accepted = await api.createFeedback(
+          current.taskId,
+          feedback,
+          idempotencyKey,
+          controller.signal,
+        )
+        if (generation !== generationRef.current) return null
+        pendingFeedbackWriteRef.current = null
+
+        const caughtByEvent = await catchUpFeedback(accepted, generation)
+        if (generation !== generationRef.current) return null
+        let catchup: FeedbackSubmissionState['catchup'] = caughtByEvent
+          ? 'event'
+          : 'unconfirmed'
+        if (!caughtByEvent) {
+          try {
+            const snapshot = await getSnapshot(current.taskId, generation)
+            if (snapshot && generation === generationRef.current) {
+              commit({ type: 'snapshot_received', snapshot, mode: 'final' })
+              if (
+                snapshot.feedback_events.some(
+                  (item) => item.feedback_id === accepted.feedback_id,
+                )
+              ) {
+                catchup = 'snapshot'
+              }
+            }
+          } catch (error) {
+            if (isAbortError(error) || generation !== generationRef.current) return null
+          }
+        }
+
+        let job: MemoryJobResponse | null = null
+        if (api.getMemoryJob) {
+          try {
+            job = await api.getMemoryJob(accepted.memory_job_id, controller.signal)
+          } catch (error) {
+            if (isAbortError(error) || generation !== generationRef.current) return null
+          }
+        }
+        if (generation !== generationRef.current) return null
+        setFeedbackState({
+          phase: 'recorded',
+          accepted,
+          job,
+          catchup,
+          error: null,
+        })
+        return accepted
+      } catch (error) {
+        if (isAbortError(error) || generation !== generationRef.current) return null
+        setFeedbackState({
+          ...INITIAL_FEEDBACK_STATE,
+          phase: 'failed',
+          error: toPublicError(error),
+        })
+        return null
+      } finally {
+        controllersRef.current.delete(controller)
+      }
+    },
+    [api, catchUpFeedback, commit, getSnapshot, idempotencyKeyFactory],
   )
 
   const retryConnection = useCallback(() => {
@@ -432,7 +703,15 @@ export function useG0Agent({
     [stopSession],
   )
 
-  return { state, submitTask, retryConnection }
+  return {
+    state,
+    feedbackState,
+    submitTask,
+    restoreTask,
+    resetOwner,
+    submitFeedback,
+    retryConnection,
+  }
 }
 
 function isAbortError(error: unknown): boolean {

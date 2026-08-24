@@ -1,26 +1,28 @@
 # MemTrace（忆迹）
 
-MemTrace 是一个面向黑客松第四赛道的轻量 Agent 原型。Day 1 的目标是打通
-G0：任务提交、确定性任务指纹、公开计划、只读 Python AST 工具、Mock/真实
-Provider 流式回答，以及 React 对阶段和结果的实时展示。
+MemTrace 是一个面向黑客松第四赛道的轻量 Agent 原型。当前代码达到 Day 2 G1：
+在 Day 1 的任务指纹、公开计划、只读 Python AST 工具和流式回答之上，增加 SQLite
+持久化、Demo 会话与 owner 隔离、刷新/重启恢复、显式反馈、MemoryJob 占位和
+`feedback.recorded` 持久事件。
 
-当前 Day 1 明确不包含数据库持久化、用户登录、长期记忆、反馈提取和记忆中心
-业务。任务只保存在后端进程内；重启后旧任务返回 404，这是 G0 的预期行为。
+任务类别由服务端 `auto_rule_v1` 自动识别。客户端不提交 `scenario`，继续发送旧字段
+会收到 422；界面只读显示 domain、规则置信度和受控理由。Day 2 仍不实现长期记忆
+提取、候选卡、检索或“已学习”状态：反馈只被可靠记录，等待 Day 3 处理。
 
 ## 当前验收状态
 
-当前源码已在本机实际执行 build、up、health、React、SSE、restart 和 smoke。
-下表只描述本机证据；最终重复次数、镜像 ID、命令退出码和 task ID 仍以验证报告
-为准，第二台电脑不能由本机自证。
+Day 1 历史证据保留在 `docs/day1/VERIFICATION_REPORT.md`；Day 2 的实际命令、退出码、
+测试数量、容器和浏览器结果以 `docs/day2/VERIFICATION_REPORT.md` 为准。第二台电脑
+启动仍未验证，不能表述为“已完成多人环境复现”。
 
 | 项目 | 当前状态 |
 |---|---|
 | 前后端入口和 lock 文件 | 已存在 |
-| Fixture、Schema 与 live Mock smoke | 本机通过；smoke 8/8 |
+| Fixture、Schema 与 live Mock smoke | 包含自动分类、会话 Cookie 和幂等写入；以 Day 2 核验报告为准 |
 | Docker/Compose 静态配置 | 本机通过；这与实际镜像构建分别验证 |
 | Docker image build | 本机已实际构建 |
 | 单容器 API/SSE/React | 本机已验证；包含 SPA fallback 和 API 404 隔离 |
-| Docker restart/health/smoke | 本机已完成一次；最终重复门禁见验证报告 |
+| Docker cold start/migration/restart/persistence | 本机专属空卷与保留卷流程通过；最终证据见 Day 2 核验报告 |
 | 第二台电脑启动 | 未验证 |
 
 ## 目录
@@ -28,11 +30,12 @@ Provider 流式回答，以及 React 对阶段和结果的实时展示。
 ```text
 apps/api/        FastAPI 后端，入口 memtrace_api.main:app
 apps/web/        React/Vite 前端，生产构建输出 apps/web/dist
-contracts/       G0 REST 和 SSE 规范
+contracts/       G1 REST、自动分类和 SSE 规范
 fixtures/day1/   Day 1 确定性 QA 输入
+fixtures/day2/   24 条自动分类、反馈能力和持久事件标注
 scripts/day1/    Fixture 校验和全链路 smoke
-Dockerfile       Node 构建阶段 + Python 单进程运行阶段
-compose.yaml     单容器和持久卷
+Dockerfile       Node 构建 + Alembic migration + Python 单进程运行
+compose.yaml     单容器、SQLite 持久卷和必填 SESSION_SECRET
 ```
 
 ## 1. 安装前检查（Windows PowerShell）
@@ -77,6 +80,10 @@ MOCK_MODE=true
 LLM_API_KEY=
 ```
 
+同时必须在本地 `.env` 写入一个随机、至少 32 bytes 的 `SESSION_SECRET`。该值只能
+来自环境或本地被忽略的 `.env`，不得使用 README 示例值、提交到 Git 或出现在日志和
+截图中。`MOCK_MODE=true` 不需要模型平台登录，但 Demo 会话仍需要该本地签名密钥。
+
 真实模式只能把新生成的 Key 写入本地 `.env`，不能写进 README、源代码、fixture、
 命令参数、日志、截图或 Git。先前在聊天中出现过的 Key 已经暴露，应撤销后再生成，
 不能当成正式开发凭据。
@@ -88,6 +95,7 @@ LLM_API_KEY=
 ```powershell
 python -m venv .\apps\api\.venv
 .\apps\api\.venv\Scripts\python.exe -m pip install --require-hashes -r .\apps\api\requirements.lock
+.\apps\api\.venv\Scripts\python.exe -m alembic -c .\apps\api\alembic.ini upgrade head
 .\apps\api\.venv\Scripts\python.exe -m uvicorn memtrace_api.main:app `
   --app-dir .\apps\api\src `
   --reload `
@@ -102,8 +110,9 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
 Invoke-RestMethod http://127.0.0.1:8000/api/v1/ready
 ```
 
-Mock 模式下 `/ready` 应为 200 并明确返回 `provider_mode=mock`。真实模式缺少 Key
-时必须返回 503，不能伪装 ready。
+Mock 模式下 `/ready` 应为 200，并明确返回 `provider_mode=mock`、数据库连接通过、
+`migration_revision=pass`。空库、旧 Alembic revision、生产环境缺少
+`SESSION_SECRET`，或真实模式缺少模型 Key 时必须返回 503。
 
 ## 4. 启动前端
 
@@ -149,7 +158,7 @@ Fixture/Schema：
 该脚本依赖的 `jsonschema` 已写入后端 hash lock；不要临时安装未锁版本后声称
 环境可复现。
 
-## 6. Day 1 全链路 smoke
+## 6. Day 2 G1 全链路 smoke
 
 先以 Mock 模式启动 API，并保持 `MOCK_CHUNK_DELAY_MS=250`，让断线恢复测试有足够
 时间实际触发。然后在仓库根目录运行：
@@ -158,12 +167,13 @@ Fixture/Schema：
 powershell -ExecutionPolicy Bypass -File .\scripts\day1\smoke.ps1
 ```
 
-Smoke 检查 health、ready、三种 422、任务创建、SSE headers/顺序/正文、终态
-TaskSnapshot、Provider partial failure、未知任务 404，以及 `after_event_seq +
-after_offset` 双游标恢复。任何缺项都必须非零退出。详细规则见
-`docs/day1/SMOKE_SPEC.md`。
+Smoke 先建立 `blank_demo` Cookie 会话，再检查 health、ready、旧 `scenario` 422、
+自动分类、任务幂等创建、SSE headers/顺序/正文、终态 TaskSnapshot、Provider partial
+failure、未知任务 404，以及 `after_event_seq + after_offset` 双游标恢复。任何缺项都
+必须非零退出。Day 1 的原始规则仍见 `docs/day1/SMOKE_SPEC.md`，Day 2 增量证据见
+`docs/day2/VERIFICATION_REPORT.md`。
 
-### 真实 Provider 门禁
+### 真实 Provider 门禁（不属于 Day 2 MOCK 验收）
 
 真实测试不能复用 Mock fixture 的通过结果。用户在被 Git 忽略的 `.env` 中手工设为
 `MOCK_MODE=false` 并填入临时 `LLM_API_KEY`，重启 API 后连续执行两次：
@@ -208,8 +218,8 @@ Dockerfile 使用：
 1. 固定 digest 的 Node 22 builder 执行 `npm ci` 和 `npm run build`；
 2. 固定 digest 的 Python 3.11 runtime 按带 hash 的 `requirements.lock` 安装；
 3. React dist 复制到 `/app/static`；
-4. 非 root 用户启动一个 Uvicorn worker；
-5. `/api/v1/health` 作为容器 healthcheck。
+4. 非 root 用户先执行 `alembic upgrade head`，成功后才启动一个 Uvicorn worker；
+5. `/api/v1/ready` 作为容器 healthcheck，迁移未到唯一 head 时不得 healthy。
 
 本机开发解释器是 Python 3.11.4；固定的容器镜像当前提供 Python 3.11.16，二者
 属于同一 3.11 兼容系列。容器采用更新的安全补丁版本，不为追求字面一致而降级，
@@ -227,7 +237,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\day1\smoke.ps1
 ```
 
 根路径必须返回 React HTML，而不是 FastAPI 404。`docker compose ps` 必须显示
-healthy。随后验证重启：
+healthy。创建 task 和 feedback 后记录非敏感 ID，再验证重启及同一任务恢复：
 
 ```powershell
 docker compose restart
@@ -235,6 +245,9 @@ docker compose ps
 Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
 powershell -ExecutionPolicy Bypass -File .\scripts\day1\smoke.ps1
 ```
+
+只在同一 Demo 会话 Cookie 下恢复任务；换到另一个演示用户时，同一 task 的 REST 与
+SSE 都必须是 404。持久性验收还必须执行一次保留卷的 `docker compose down` / `up -d`。
 
 查看非敏感尾部日志：
 
@@ -255,10 +268,12 @@ docker compose down --volumes
 ```
 
 Compose 使用三个命名卷：`memtrace-data`、`memtrace-exports` 和
-`memtrace-eval-results`。Day 1 任务本身仍只在内存中，容器重启后消失；卷是为
-后续日期预留，不应把任务恢复误报为已实现。
+`memtrace-eval-results`。Day 2 的 task、run、event、feedback、MemoryJob 和
+idempotency 记录写入 `memtrace-data` 内的 SQLite；保留同一卷时，容器 restart 和
+compose down/up 后必须可恢复。进程中途终止的运行任务恢复为 `RUN_INTERRUPTED`，
+而不是伪装继续运行。
 
-Day 1 为减少两名初学者维护两套 Python lock 的风险，运行镜像暂时安装同一份
+当前为减少两名初学者维护两套 Python lock 的风险，运行镜像暂时安装同一份
 hash lock，其中也包含 pytest、Ruff 等开发依赖，因此镜像不是最小生产镜像。另一个
 已知边界是 Uvicorn 直连尚未设置整个 HTTP 请求体的全局字节上限；字段级契约已有
 上限，但公开部署前仍需在可信反向代理设置请求体限制。两项均不得被误报为已解决。
@@ -275,11 +290,11 @@ hash lock，其中也包含 pytest、Ruff 等开发依赖，因此镜像不是�
 |---|---|---|
 | `python` 不是 3.11 | `python --version`、`Get-Command python` | 修 PATH 后重建 `apps/api/.venv` |
 | `npm ci` 拒绝安装 | Node 版本、`package-lock.json` | 使用 Node 22.12+，不要删除 lock |
-| `/ready` 返回 503 | Mock 模式、数据目录、真实 Key | 先用 Mock；不要在代码中填 Key |
+| `/ready` 返回 503 | DB 连接、Alembic head、`SESSION_SECRET`、Provider | 先修迁移或环境；不要在代码中填密钥 |
 | SSE 一直等待 | API 日志、Mock delay、事件终态 | 不得改成一次性假流；修复 `stream.done` |
 | 双游标 smoke 说任务过早结束 | `MOCK_CHUNK_DELAY_MS` | 设为 250 或更高后重启 API |
 | 容器根路径 404 | `MEMTRACE_WEB_DIST`、静态挂载 | 后端实现 SPA fallback 后重建镜像 |
-| 容器 unhealthy | `docker compose logs app` | 先修 `/health`，不要提高 retries 掩盖错误 |
+| 容器 unhealthy | `docker compose logs app` | 先修 `/ready` 所报告的迁移/配置问题，不要提高 retries 掩盖错误 |
 | 真实 Provider 失败 | 余额、模型名、网络、限流 | 保留真实失败；Mock 必须显式标识 |
 
 ## 9. 验证报告必须记录
@@ -293,4 +308,4 @@ hash lock，其中也包含 pytest、Ruff 等开发依赖，因此镜像不是�
 - Docker cold start 和 restart 的 health 结果；
 - 第二台电脑尚未执行时明确写“未验证”。
 
-“我电脑上运行过一次”或“Dockerfile 已存在”都不等于 Day 1 完成。
+“我电脑上运行过一次”或“Dockerfile 已存在”都不等于 Day 2 完成。

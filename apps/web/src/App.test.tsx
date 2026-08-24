@@ -14,7 +14,7 @@ function renderApp(initialEntry = '/') {
 }
 
 describe('MemTrace application shell', () => {
-  it('renders the Day 1 chat shell without pretending the Agent is connected', () => {
+  it('renders the Day 2 chat shell without pretending the Agent is connected', () => {
     renderApp()
 
     expect(

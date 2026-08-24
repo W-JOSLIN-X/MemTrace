@@ -24,6 +24,9 @@ elseif ([System.IO.File]::Exists($defaultPython)) {
 else {
     'python'
 }
+$script:CookiePath = [System.IO.Path]::GetTempFileName()
+$script:RunNonce = [Guid]::NewGuid().ToString('N')
+$script:WriteSequence = 0
 
 function Assert-Condition {
     param(
@@ -89,15 +92,19 @@ function Invoke-CurlJson {
             '--request', $Method,
             '--max-time', [string]$TimeoutSeconds,
             '--output', $responsePath,
-            '--write-out', '%{http_code}'
+            '--write-out', '%{http_code}',
+            '--cookie', $script:CookiePath,
+            '--cookie-jar', $script:CookiePath
         )
 
         if ($Method -eq 'POST') {
+            $script:WriteSequence++
             $requestPath = [System.IO.Path]::GetTempFileName()
             $json = $Body | ConvertTo-Json -Depth 30 -Compress
             [System.IO.File]::WriteAllText($requestPath, $json, [System.Text.UTF8Encoding]::new($false))
             $arguments += @(
                 '--header', 'Content-Type: application/json',
+                '--header', "Idempotency-Key: smoke-$($script:RunNonce)-$($script:WriteSequence.ToString('D4'))",
                 '--data-binary', "@$requestPath"
             )
         }
@@ -142,6 +149,7 @@ function Invoke-SseCurl {
             '--dump-header', $headerPath,
             '--output', $outputPath,
             '--stderr', $errorPath,
+            '--cookie', $script:CookiePath,
             $Url
         )
         & curl.exe @arguments
@@ -332,7 +340,7 @@ $failureTrace = @(
 )
 
 try {
-    Write-Host '[1/8] Validate schemas and fixtures'
+    Write-Host '[1/9] Validate schemas and fixtures'
     & $script:PythonExe (Join-Path $script:ProjectRoot 'scripts\day1\validate_fixtures.py')
     Assert-Condition ($LASTEXITCODE -eq 0) 'fixture validator failed'
 
@@ -342,22 +350,26 @@ try {
     $noToolFixture = Get-Content -LiteralPath (Join-Path $fixtureRoot 'mock_sse_no_tool_success.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $failureFixture = Get-Content -LiteralPath (Join-Path $fixtureRoot 'mock_sse_failure.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 
-    Write-Host '[2/8] Health and readiness'
+    Write-Host '[2/9] Health and readiness'
     $health = Invoke-CurlJson -Method GET -Url "$script:BaseUrl/api/v1/health"
     Assert-Condition ($health.StatusCode -eq 200) "health returned $($health.StatusCode)"
     Assert-Condition ($health.Body.status -eq 'ok') 'health body is not ok'
     $ready = Invoke-CurlJson -Method GET -Url "$script:BaseUrl/api/v1/ready"
     Assert-Condition ($ready.StatusCode -eq 200) "ready returned $($ready.StatusCode)"
     Assert-Condition ($ready.Body.status -eq 'ready') 'ready body is not ready'
-    Assert-Condition ($ready.Body.provider_mode -eq 'mock') 'Day 1 smoke must run against visibly labelled Mock mode'
+    Assert-Condition ($ready.Body.provider_mode -eq 'mock') 'Day 2 smoke must run against visibly labelled Mock mode'
 
-    Write-Host '[3/8] Rejection paths and unified error envelope'
+    Write-Host '[3/9] Establish blank_demo session'
+    $demoSession = Invoke-CurlJson -Method POST -Url "$script:BaseUrl/api/v1/session/demo" -Body ([ordered]@{ demo_alias = 'blank_demo' })
+    Assert-Condition ($demoSession.StatusCode -eq 200) "session bootstrap returned $($demoSession.StatusCode)"
+    Assert-Condition ($demoSession.Body.demo_alias -eq 'blank_demo') 'session bootstrap returned the wrong alias'
+
+    Write-Host '[4/9] Rejection paths, manual scenario rejection, and unified error envelope'
     foreach ($caseId in @('empty_rejected', 'whitespace_rejected', 'overlong_rejected')) {
         $case = $demo.cases | Where-Object { $_.id -eq $caseId }
         if ($caseId -eq 'overlong_rejected') {
             $request = [ordered]@{
                 task_text = ([string]$case.input_builder.repeat * [int]$case.input_builder.count)
-                scenario = $case.request_template.scenario
                 memory_mode = $case.request_template.memory_mode
                 current_constraints = $case.request_template.current_constraints
             }
@@ -370,8 +382,21 @@ try {
         Assert-Condition ($response.Body.error.code -eq 'VALIDATION_ERROR') "$caseId did not use VALIDATION_ERROR"
         Assert-Condition ($response.Body.error.request_id -match '^req_[0-9A-HJKMNP-TV-Z]{26}$') "$caseId has an invalid request_id"
     }
+    $manualScenarioRequest = [ordered]@{
+        task_text = '解释 Python 列表越界'
+        scenario = 'programming_learning'
+        memory_mode = 'on'
+        current_constraints = [ordered]@{
+            response_policy = 'default'
+            urgency = 'normal'
+            memory_disabled = $false
+            source = 'ui'
+        }
+    }
+    $manualScenario = Invoke-CurlJson -Method POST -Url "$script:BaseUrl/api/v1/tasks" -Body $manualScenarioRequest
+    Assert-Condition ($manualScenario.StatusCode -eq 422) 'manual scenario was not rejected with 422'
 
-    Write-Host '[4/8] Python success: create, SSE, order, body, and snapshot'
+    Write-Host '[5/9] Python success: create, automatic classification, SSE, and snapshot'
     $created = Invoke-CurlJson -Method POST -Url "$script:BaseUrl/api/v1/tasks" -Body $pythonFixture.request
     Assert-Condition ($created.StatusCode -eq 202) "Python create returned $($created.StatusCode)"
     Assert-Condition ($created.Body.provider_mode -eq 'mock') 'created task is not labelled Mock'
@@ -386,8 +411,10 @@ try {
     Assert-Condition ($pythonSnapshotResponse.StatusCode -eq 200) 'Python snapshot did not return 200'
     Assert-TerminalSnapshot -Snapshot $pythonSnapshotResponse.Body -ExpectedStatus succeeded
     Assert-Condition ($pythonSnapshotResponse.Body.partial_output -eq $pythonChunks.Text) 'Python snapshot body differs from SSE body'
+    Assert-Condition ($pythonSnapshotResponse.Body.scenario -eq $pythonSnapshotResponse.Body.fingerprint.domain) 'snapshot scenario differs from server fingerprint domain'
+    Assert-Condition ($pythonSnapshotResponse.Body.fingerprint.classification_source -eq 'auto_rule_v1') 'classification source is not auto_rule_v1'
 
-    Write-Host '[5/8] Forced provider failure: partial output and terminal error'
+    Write-Host '[6/9] Forced provider failure: partial output and terminal error'
     $failedCreate = Invoke-CurlJson -Method POST -Url "$script:BaseUrl/api/v1/tasks" -Body $failureFixture.request
     Assert-Condition ($failedCreate.StatusCode -eq 202) "failure fixture create returned $($failedCreate.StatusCode)"
     $failureStream = Invoke-SseCurl -Url "$script:BaseUrl$($failedCreate.Body.events_url)"
@@ -399,12 +426,12 @@ try {
     Assert-Condition ($failedSnapshotResponse.Body.partial_output -eq $failureChunks.Text) 'failed snapshot did not retain partial SSE output'
     Assert-Condition ($failedSnapshotResponse.Body.error.code -eq 'PROVIDER_ERROR') 'forced failure did not expose PROVIDER_ERROR'
 
-    Write-Host '[6/8] Unknown task returns unified 404'
+    Write-Host '[7/9] Unknown task returns unified 404'
     $missing = Invoke-CurlJson -Method GET -Url "$script:BaseUrl/api/v1/tasks/task_01J00000000000000000000999"
     Assert-Condition ($missing.StatusCode -eq 404) "unknown task returned $($missing.StatusCode)"
     Assert-Condition ($missing.Body.error.code -eq 'TASK_NOT_FOUND') 'unknown task did not use TASK_NOT_FOUND'
 
-    Write-Host '[7/8] Forced disconnect and dual-cursor reconnect'
+    Write-Host '[8/9] Forced disconnect and dual-cursor reconnect'
     $reconnectCreate = Invoke-CurlJson -Method POST -Url "$script:BaseUrl/api/v1/tasks" -Body $noToolFixture.request
     Assert-Condition ($reconnectCreate.StatusCode -eq 202) 'reconnect task creation failed'
     $reconnectUrl = "$script:BaseUrl$($reconnectCreate.Body.events_url)"
@@ -417,6 +444,7 @@ try {
             '--silent', '--show-error', '--no-buffer',
             '--max-time', [string]$TimeoutSeconds,
             '--dump-header', $partialHeaders,
+            '--cookie', $script:CookiePath,
             $reconnectUrl
         )
         $process = Start-Process -FilePath 'curl.exe' -ArgumentList $arguments -RedirectStandardOutput $partialOut -RedirectStandardError $partialErr -WindowStyle Hidden -PassThru
@@ -480,8 +508,8 @@ try {
     Assert-Condition ($reconstructed -eq $finalReconnectSnapshotResponse.Body.partial_output) 'dual-cursor reconstruction differs from final snapshot'
     Assert-Condition ($finalReconnectSnapshotResponse.Body.partial_output -eq $noToolFixture.expectations.chunk_text) 'reconnect final output differs from no-tool fixture'
 
-    Write-Host '[8/8] Final result'
-    Write-Host 'PASS: Day 1 Mock health/ready/rejections/Python/failure/snapshot/SSE/dual-cursor smoke'
+    Write-Host '[9/9] Final result'
+    Write-Host 'PASS: Day 2 Mock session/auto-classification/rejections/Python/failure/snapshot/SSE/dual-cursor smoke'
     Write-Host "MOCK_PYTHON_TASK_ID=$($created.Body.task_id)"
     Write-Host "MOCK_FAILURE_TASK_ID=$($failedCreate.Body.task_id)"
     Write-Host "MOCK_RECONNECT_TASK_ID=$($reconnectCreate.Body.task_id)"
@@ -490,4 +518,7 @@ try {
 catch {
     Write-Error $_
     exit 1
+}
+finally {
+    Remove-TemporaryFile $script:CookiePath
 }

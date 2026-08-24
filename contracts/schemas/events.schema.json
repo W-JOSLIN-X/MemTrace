@@ -24,7 +24,8 @@
         "run.completed",
         "run.failed",
         "error",
-        "stream.done"
+        "stream.done",
+        "feedback.recorded"
       ]
     },
     "event_seq": {
@@ -90,6 +91,10 @@
     {
       "if": {"properties": {"event_type": {"const": "stream.done"}}, "required": ["event_type"]},
       "then": {"properties": {"event_seq": {"type": "integer", "minimum": 1}, "data": {"$ref": "#/$defs/StreamDonePayload"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "feedback.recorded"}}, "required": ["event_type"]},
+      "then": {"properties": {"event_seq": {"type": "integer", "minimum": 1}, "data": {"$ref": "#/$defs/FeedbackRecordedPayload"}}}
     }
   ],
   "$defs": {
@@ -134,6 +139,10 @@
       "type": "string",
       "enum": ["programming_learning", "software_development", "general_text", "other"]
     },
+    "ClassificationReasonCode": {
+      "type": "string",
+      "enum": ["code_present", "technical_context", "debugging_cue", "learning_cue", "explanation_intent", "development_action", "deployment_cue", "text_task", "ambiguous"]
+    },
     "TaskType": {
       "type": "string",
       "enum": ["debugging_guidance", "code_review", "code_explanation", "code_generation", "environment_configuration", "general_question", "other"]
@@ -148,7 +157,19 @@
     },
     "AsyncErrorCode": {
       "type": "string",
-      "enum": ["PROVIDER_TIMEOUT", "PROVIDER_ERROR", "TOOL_NOT_FOUND", "TOOL_INPUT_INVALID", "STREAM_INTERRUPTED"]
+      "enum": ["PROVIDER_TIMEOUT", "PROVIDER_ERROR", "TOOL_NOT_FOUND", "TOOL_INPUT_INVALID", "STREAM_INTERRUPTED", "RUN_INTERRUPTED"]
+    },
+    "FeedbackId": {
+      "type": "string",
+      "pattern": "^feedback_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "MemoryJobId": {
+      "type": "string",
+      "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "FeedbackType": {
+      "type": "string",
+      "enum": ["explicit_text", "edited_output", "rating", "accepted", "rejected", "composite"]
     },
     "SafeToolArgsSummary": {
       "type": "object",
@@ -191,18 +212,26 @@
       "properties": {
         "fingerprint_id": {"$ref": "#/$defs/FingerprintId"},
         "domain": {"$ref": "#/$defs/Domain"},
+        "classification_source": {"type": "string", "const": "auto_rule_v1"},
+        "classification_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "classification_reasons": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/ClassificationReasonCode"},
+          "maxItems": 5,
+          "uniqueItems": true
+        },
         "task_type": {"$ref": "#/$defs/TaskType"},
         "artifact_type": {"$ref": "#/$defs/ArtifactType"},
         "language": {"$ref": "#/$defs/ProgrammingLanguage"}
       },
-      "required": ["fingerprint_id", "domain", "task_type", "artifact_type", "language"],
+      "required": ["fingerprint_id", "domain", "classification_source", "classification_confidence", "classification_reasons", "task_type", "artifact_type", "language"],
       "additionalProperties": false
     },
     "MemoryRetrievalStartedPayload": {
       "type": "object",
       "properties": {
         "memory_count": {"type": "integer", "const": 0},
-        "summary": {"type": "string", "const": "no_long_term_memory_day1"}
+        "summary": {"type": "string", "const": "no_long_term_memory_day2"}
       },
       "required": ["memory_count", "summary"],
       "additionalProperties": false
@@ -213,7 +242,7 @@
       "properties": {
         "plan_id": {"$ref": "#/$defs/PlanId"},
         "goal_code": {"type": "string", "enum": ["analyze_code", "answer_question", "explain_concept", "other"]},
-        "memory_summary_code": {"type": "string", "const": "no_long_term_memory_day1"},
+        "memory_summary_code": {"type": "string", "const": "no_long_term_memory_day2"},
         "next_action_code": {"type": "string", "enum": ["python_ast_check", "generate_directly"]}
       },
       "required": ["plan_id", "goal_code", "memory_summary_code", "next_action_code"],
@@ -340,6 +369,17 @@
         "final_snapshot_required": {"type": "boolean", "const": true}
       },
       "required": ["status", "final_snapshot_required"],
+      "additionalProperties": false
+    },
+    "FeedbackRecordedPayload": {
+      "type": "object",
+      "description": "Metadata only. Feedback bodies are forbidden.",
+      "properties": {
+        "feedback_id": {"$ref": "#/$defs/FeedbackId"},
+        "memory_job_id": {"$ref": "#/$defs/MemoryJobId"},
+        "feedback_type": {"$ref": "#/$defs/FeedbackType"}
+      },
+      "required": ["feedback_id", "memory_job_id", "feedback_type"],
       "additionalProperties": false
     }
   }

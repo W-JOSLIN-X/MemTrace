@@ -1,0 +1,147 @@
+{
+  "contract_version": "1.1.0",
+  "document_role": "audit_manifest",
+  "normative_contracts": {
+    "api_bodies": "contracts/schemas/g0-api.schema.json",
+    "sse_data": "contracts/schemas/events.schema.json",
+    "openapi_export": "contracts/openapi.json"
+  },
+  "scope": {
+    "gate": "G1",
+    "storage": "sqlite_wal_persistence",
+    "identity": "demo_session_cookie",
+    "replay_durability": "sqlite_event_log",
+    "database": true,
+    "session_cookie": true,
+    "owner_isolation": true,
+    "idempotency_key": true,
+    "task_classification": "server-derived deterministic auto_rule_v1; clients sending scenario are rejected",
+    "restart_behavior": "terminal tasks, messages, and event metadata recover from SQLite; non-terminal runs marked failed with RUN_INTERRUPTED",
+    "session_idempotency_exception": "Session bootstrap (/api/v1/session/demo) and logout (/api/v1/session/logout) are explicit G1 exceptions to Idempotency-Key"
+  },
+  "id_format": {
+    "description": "entity prefix followed by a 26-character uppercase Crockford Base32 ULID",
+    "examples": [
+      "task_01J00000000000000000000000",
+      "run_01J00000000000000000000000",
+      "req_01J00000000000000000000000",
+      "msg_01J00000000000000000000000",
+      "fp_01J00000000000000000000000",
+      "plan_01J00000000000000000000000",
+      "tool_01J00000000000000000000000",
+      "toolres_01J00000000000000000000000",
+      "err_01J00000000000000000000000",
+      "feedback_01J00000000000000000000000",
+      "job_01J00000000000000000000000",
+      "sess_01J00000000000000000000000",
+      "usr_01J00000000000000000000000"
+    ]
+  },
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "success_status": 200,
+      "auth_required": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ready",
+      "success_status": 200,
+      "failure_status": 503,
+      "auth_required": false,
+      "rule": "checks provider configuration, non-empty production SESSION_SECRET, data-directory writability, database connectivity, and current Alembic revision equals the unique head"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/session/demo",
+      "success_status": 200,
+      "auth_required": false,
+      "rule": "accepts blank_demo or seeded_demo alias, revokes the exact valid token presented by the current cookie, then issues a signed HttpOnly cookie"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/session",
+      "success_status": 200,
+      "failure_status": 401,
+      "auth_required": true,
+      "rule": "returns the alias and expiry belonging to the exact authenticated token"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/session/logout",
+      "success_status": 204,
+      "auth_required": false,
+      "rule": "clears demo session cookie regardless of state"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tasks",
+      "success_status": 202,
+      "failure_status": 401,
+      "auth_required": true,
+      "headers": ["Idempotency-Key"],
+      "rule": "resolves durable idempotent replay before capacity admission; a new request reserves TaskStore capacity, analyzes exactly once, and commits one consistent server-derived classification"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tasks/{task_id}",
+      "success_status": 200,
+      "failure_status": 404,
+      "auth_required": true,
+      "rule": "returns owner-isolated TaskSnapshot with task_text, server-derived scenario, classification provenance, messages, and feedback_events"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tasks/{task_id}/events",
+      "success_status": 200,
+      "failure_status": 404,
+      "content_type": "text/event-stream",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tasks/{task_id}/feedback",
+      "success_status": 202,
+      "failure_status": 404,
+      "auth_required": true,
+      "headers": ["Idempotency-Key"],
+      "rule": "requires run_status=succeeded, atomically creates feedback_event, memory_job, and feedback.recorded"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memory-jobs/{job_id}",
+      "success_status": 200,
+      "failure_status": 404,
+      "auth_required": true
+    }
+  ],
+  "http_error_mapping": {
+    "401": "SESSION_REQUIRED when cookie is missing, expired, revoked, or tampered",
+    "404": "TASK_NOT_FOUND or job not found; all cross-owner access returns 404",
+    "409": "IDEMPOTENCY_CONFLICT when key matches different request hash, or TASK_NOT_READY_FOR_FEEDBACK when task is not in terminal success",
+    "422": "VALIDATION_ERROR or FEEDBACK_NO_CHANGES when edited_output matches original output",
+    "503": "PROVIDER_CONFIG_MISSING or readiness failure",
+    "500": "INTERNAL_ERROR with sanitized error envelope",
+    "async_after_202": "TOOL_NOT_FOUND, TOOL_INPUT_INVALID, PROVIDER_TIMEOUT, PROVIDER_ERROR, STREAM_INTERRUPTED, or RUN_INTERRUPTED"
+  },
+  "persistent_events": [
+    "task.created",
+    "task.stage",
+    "task.fingerprinted",
+    "agent.plan.published",
+    "tool.called",
+    "tool.result",
+    "run.metrics",
+    "run.completed",
+    "run.failed",
+    "error",
+    "stream.done",
+    "feedback.recorded"
+  ],
+  "persistent_event_sequence_rule": "SQLite allocates each task sequence with one UPDATE ... RETURNING statement; committed sequences are unique and contiguous",
+  "transient_events": [
+    "memory.retrieval.started",
+    "agent.chunk"
+  ]
+}

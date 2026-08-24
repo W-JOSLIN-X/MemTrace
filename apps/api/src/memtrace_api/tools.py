@@ -21,6 +21,9 @@ _PYTHON_FENCE = re.compile(
     r"```(?:python|py)[ \t]*\r?\n(?P<code>.*?)```",
     flags=re.IGNORECASE | re.DOTALL,
 )
+_WHOLE_TASK_CODE_CUE = re.compile(
+    r"[=()\[\]{}:]|\b(?:def|class|import|from|for|while|if|try|with|return|lambda|print)\b"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +67,11 @@ def extract_python(task_text: str) -> ExtractedPython | None:
 
     candidate = task_text.strip()
     if not candidate or len(candidate.encode("utf-8")) > MAX_TOOL_INPUT_BYTES:
+        return None
+    # A plain natural-language word can be a valid Python identifier. Requiring
+    # a code-shaped cue prevents such prompts from being misclassified and sent
+    # to the AST tool while preserving whole-snippet support.
+    if _WHOLE_TASK_CODE_CUE.search(candidate) is None:
         return None
     try:
         ast.parse(candidate)
