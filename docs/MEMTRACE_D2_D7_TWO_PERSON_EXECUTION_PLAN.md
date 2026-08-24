@@ -1,19 +1,24 @@
 # MemTrace Day 2–Day 7 双人执行与交付计划
 
-> 状态：自 2026-08-22 起作为 D2–D7 的双人执行入口。  
-> 成员 A：`zlbk-wxy`，后端、Agent 与记忆引擎主责。  
-> 成员 B：`W-JOSLIN-X`，前端、产品、评测与集成主责。  
-> D2 例外：成员 B 接管 PR #2 的剩余修复、自动分类、前端闭环、容器和整合；成员 A 负责最终复核与审批。
+> 状态：D2–D3 部分保留实际历史；自 2026-08-24 起，D4–D7 的协作与交付流程以根目录 `AGENTS.md` 和 `docs/OWNER_LED_COLLABORATION_WORKFLOW.md` 为准。
+>
+> 成员 A：`zlbk-wxy`，后端、Agent 与记忆引擎主责。
+>
+> 成员 B：`W-JOSLIN-X`，仓库所有者，前端、产品、评测、每日独立核验、整合与最终发布主责。
+>
+> D2/D3 的 PR、`integration/day2` 和同伴审批只说明当时如何交付，不再是 D4–D7 的必经流程。
 
 ## 1. 使用方法与真相源
 
 遇到描述不一致时，按下列优先级判断，不根据交接结论猜测：
 
 1. 用户当前明确要求，尤其是“任务类别由系统自动识别，用户不选择”；
-2. 可执行契约、OpenAPI、数据库约束和自动测试；
-3. 本文与 `docs/day2/AUTO_CLASSIFICATION_DECISION.md`；
-4. `Universal_Feedback_Memory_Agent_Project_Plan.md` 的已同步版本；
-5. `docs/day2/HANDOFF.md` 等历史交接材料。
+2. 根目录 `AGENTS.md`；
+3. `docs/OWNER_LED_COLLABORATION_WORKFLOW.md`；
+4. 可执行契约、OpenAPI、数据库约束和本轮实际测试；
+5. 本文与 `docs/day2/AUTO_CLASSIFICATION_DECISION.md`；
+6. `Universal_Feedback_Memory_Agent_Project_Plan.md` 的已同步版本；
+7. `docs/day2/HANDOFF.md`、旧 PR 和旧核验报告等历史材料。
 
 旧交接材料用于说明当时做过什么，不是“已经验收”的证明。每次交接都必须写明实际 head、命令、退出码、测试数量和仍未完成项。
 
@@ -52,20 +57,21 @@ D2 只完成可靠任务指纹、持久化、恢复、反馈采集和 pending Me
 - 后端契约测试、安全测试、指标日志；
 - 容器内迁移、持久卷、备份与恢复。
 
-### 成员 B：前端、产品、评测、集成
+### 成员 B：仓库所有者、前端、产品、评测、集成与发布
 
 - React 页面、状态机、EventSource 和恢复；
 - 编辑反馈、候选卡、使用凭证和记忆中心；
 - Mock fixtures、JSON Schema 交叉验证、黑盒 EvalRunner；
 - gold 标注、负例、Docker smoke、新设备验收；
 - README、演示脚本、录屏、错误和降级文案；
-- 分支整合、全栈回归和发布证据。
+- 下载并独立核验成员 A 的分支，修复阻断并完成当日整合；
+- 全栈回归、发布证据以及通过普通非强制 push 直接更新 `main`。
 
 ### 每日 70/30 交叉要求
 
 - A 至少用 30% 的评审时间确认 UI 没有伪造后端状态。
 - B 至少用 30% 的开发时间覆盖 API fixture、契约、失败路径和评测数据。
-- 共享 Schema、事件枚举、MemoryCard、Pack 和黄金路径必须两人批准。
+- 共享 Schema、事件枚举、MemoryCard、Pack 和黄金路径必须由 A 提供实现/变化证据，再由 B 做最终核验和冻结；不再要求另一人 PR 审批。
 - A 不通过聊天口头改字段；B 不从 UI 自行推测后端状态。
 
 ## 4. Day 2：任务记录、自动分类与反馈闭环
@@ -77,14 +83,14 @@ D2 只完成可靠任务指纹、持久化、恢复、反馈采集和 pending Me
 - 文档分支：`docs/day2-handoff`，核验时 head `451a452367110281da3d70dc1681a70c09fe3478`；
 - 新设计：用户不选择 `scenario`，分类必须服务端自动完成。
 
-### 成员 A
+### 成员 A（D2 历史职责）
 
 1. 保留并说明原 PR 中 SQLite/Alembic、DemoSession、owner 隔离、反馈、MemoryJob、event log 和幂等实现。
 2. 不再向旧分支追加与整合分支冲突的提交。
 3. 在成员 B 最后一次 push 后复核：自动分类只有一个来源、旧 `scenario` 被 422 拒绝、UI 没有虚假“已学习”。
-4. 审批 D2 整合 PR和最终 `integration/day2 → main` PR。
+4. D2 当时审批整合 PR 和最终 `integration/day2 → main` PR；该审批要求不延续到 D4–D7。
 
-### 成员 B
+### 成员 B（D2 历史职责）
 
 1. 保留 PR #1/#2 的完整提交祖先，建立绿色整合分支；不 squash、amend 或改写队友历史。
 2. 更新 Pydantic、JSON Schema、OpenAPI、TypeScript 类型、runtime parser、fixtures 和文档到 contract `1.1.0`。
@@ -273,33 +279,36 @@ D2 只完成可靠任务指纹、持久化、恢复、反馈采集和 pending Me
 
 任一门禁失败，当天不得开始下一层。保存实际 task_id、run_id、事件序号、截图、测试结果和 commit；不保存正文或密钥。
 
-## 11. Git、PR 和审批
+## 11. Git 与所有者中心交付
 
-### D2 特殊整合
+### D2/D3 历史说明
 
-1. `codex/day2-owner-integration` 同时保留 PR #1/#2 的提交祖先。
-2. 新整合 PR 以 `integration/day2` 为 base，先 Draft，最后一次 push 后由 `zlbk-wxy` 审批。
-3. 通过后用 merge commit 合入；不得 squash 队友历史。
-4. 干净 checkout 重跑 G1，再创建 `integration/day2 → main` PR。
-5. 最终 PR 同样由 `zlbk-wxy` 在最后 push 后审批，再以 merge commit 合入 main。
-6. 只有新整合 PR 合入后才把 PR #1/#2 标记为 superseded 并关闭。
+D2 和 D3 曾通过 PR #1–#6、`integration/day2`、替代 PR 和同伴审批进入 main。相关分支、commit 和报告继续保留为审计证据，但该路径自 D4 起退役，不得据此要求重新开 PR 或等待 `zlbk-wxy` 审批。
 
-### D3–D7 常规规则
+### D4–D7 当前规则
 
-- A 使用 `feat/a-dN-*`，B 使用 `feat/b-dN-*`；修复使用 `fix/*`，契约使用 `chore/contract-*`。
-- 共享契约先单独 PR，再实现后端和前端；每个 PR 一个目标。
-- main 永远可启动并通过当前黄金路径；禁止直接 push、force push、自批或临时关闭保护。
-- 共享分支不 rebase；合并使用 merge commit并保留作者。
-- 每晚记录 last-known-good commit，不滥用 release tag。
+1. A 从 B 指定的最新 `origin/main` 创建 `feat/a-dN-*`，只 commit/push 自己的功能分支；A 不得直接更新 `main`。
+2. A 完成后发送完整 base/head、commit、契约/迁移变化、命令/退出码/数量、已知限制和登录依赖，随后停止改变 head，除非 B 明确要求。
+3. B fetch 并独立审查，从精确最新 `origin/main` 建立 `codex/dayN-owner-integration`，以普通 `--no-ff` merge 引入 A 分支，保留其作者和提交祖先。
+4. B 先复现和修复 A 的问题，再在同一分支完成自己的当日任务；不 rebase、squash、amend 或改写 A 已交接历史。
+5. B 跑 G1 到当天 Gx 的完整门禁，记录 last-known-good 完整 SHA 和本轮证据。
+6. 推送前再次 fetch；若远端 main 已移动，先普通 merge 新 main、解决冲突并重跑受影响门禁。
+7. 只有 B 可使用普通 `git push origin HEAD:main` 直接交付；不得 force push、临时删除保护或把失败测试当成可绕过的审批问题。
+8. 日常流程不要求 PR，也不要求 A 审批 B 的最终 head。PR 仅在用户另行明确要求或平台不可避免时使用。
+9. `integration/day2` 不再是 D4–D7 的发布必经分支，不删除其历史。
+
+完整操作、GitHub 约束与 handoff 模板见 `docs/OWNER_LED_COLLABORATION_WORKFLOW.md`。
 
 ## 12. 每日节奏和阻塞协议
 
 | 时间 | 动作 |
 |---|---|
-| 09:00 | 昨日可运行 commit、今日 P0、风险、登录/外部依赖检查 |
-| 13:30 | 集成 1：接通当天最短纵向链路 |
-| 21:00 | 集成 2：全套自动测试、API smoke、手工黄金路径、交叉 review |
-| 21:45 | 记录失败案例、证据和 last-known-good commit |
+| 09:00 | B 核对最新 main、昨日可运行 commit、今日 P0、风险和登录；冻结给 A 的 Prompt |
+| A 开发期 | A 在独立分支开发、测试、push 并发送精确 handoff；不触碰 main |
+| 接管时 | B 下载并独立审查/测试 A 分支，修复问题后完成 B 的当日范围 |
+| 21:00 | B 跑完整自动测试、API smoke、Docker、浏览器和当天黄金路径 |
+| 交付前 | B fetch 防竞态；若 main 漂移则重新整合/测试；通过后普通直推 main |
+| 交付后 | 核对远端 main、记录失败案例、证据和 last-known-good commit |
 
 阻塞 30 分钟时写：
 
@@ -314,11 +323,11 @@ D2 只完成可靠任务指纹、持久化、恢复、反馈采集和 pending Me
 需要另一人的最小动作：
 ```
 
-阻塞 60 分钟时，两人共同处理不超过 20 分钟；仍无解则采用本文降级、更新风险登记，一人继续黄金路径，另一人不得无任务等待。
+阻塞 60 分钟时采用本文已有降级、更新风险登记并继续不依赖该阻塞的 P0。若需要新增权限、账号、真实 Provider、付费资源或扩大产品边界，暂停并由用户决定。
 
 ## 13. 测试和交接证据
 
-每次 PR handoff 必须包含：
+每次成员 A 分支 handoff 和成员 B 最终发布报告必须包含：
 
 - base/head 完整 commit；
 - 文件和公开契约变化；
@@ -328,7 +337,8 @@ D2 只完成可靠任务指纹、持久化、恢复、反馈采集和 pending Me
 - Chrome/Edge 验证项；
 - 已知限制和明确未实现功能；
 - 不含正文的 task/feedback/run ID；
-- 下一人只需执行的最小步骤。
+- 下一人只需执行的最小步骤；
+- 明确确认 A 没有 push main，B 最终是否已经把已验证 head 推到远端 main。
 
 不得只写“测试通过”“应该可用”或复制旧交接数字。
 
@@ -336,7 +346,7 @@ D2 只完成可靠任务指纹、持久化、恢复、反馈采集和 pending Me
 
 - 开始需要登录工具前先告知两人；执行中首次发现登录要求时立即暂停，不绕过登录寻找替代方案。
 - D2 默认 `MOCK_MODE=true`，不需要 Provider 登录或 API Key。
-- GitHub PR 审批必须由不是最后推送者的另一成员完成。
+- GitHub 日常交付不要求 PR 或同伴审批；平台规则必须做到只有 `W-JOSLIN-X` 可普通更新 main，`zlbk-wxy` 只能更新功能分支。
 - `SESSION_SECRET`、Provider key 只进入环境变量或 Secret，不进入 Git、日志、URL、截图或 Pack。
 - 日志和 event_log 只保存 ID、长度、状态、domain、规则分数和受控 reason code，不保存完整用户正文、编辑稿、代码或密钥。
 - owner_id 只能来自验证后的 session；不能从请求体接受。
@@ -351,6 +361,6 @@ D2 只完成可靠任务指纹、持久化、恢复、反馈采集和 pending Me
 3. 成功、失败、重试、刷新、重启和隔离路径有测试；
 4. Docker 与当天黄金路径实际通过；
 5. 文档记录真实 head、命令、数量、限制和证据；
-6. 另一人已在最后 push 后 review；
-7. 受保护分支按规则合入，工作区干净。
-
+6. B 已独立核验 A 的分支并记录实际证据；
+7. 远端 main 已由 B 普通非强制 push 到本轮已验证 head；
+8. 推送后远端 SHA 已核对，工作区干净。

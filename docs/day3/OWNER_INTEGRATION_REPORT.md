@@ -1,10 +1,10 @@
 # MemTrace Day 3 G2 Owner Integration 核验报告
 
-> 状态：PR #3 已经 `zlbk-wxy` 在最终 head 审批并以 merge commit 合入
-> `integration/day2`；Day 3 接管分支已经合入该最新基线，替代 Draft PR #5 已建立。
-> 最终代码在干净 detached checkout 通过 G1+G2 自动化、容器与 Chrome/Edge 门禁，当前仅等待
-> `zlbk-wxy` 对 PR #5 最终 head 的受保护审批和 merge。本文只记录本轮实际执行证据，
-> 不从旧交接报告推断结果。
+> 状态：Day 3 已完成历史流程。PR #5 的最终 head `f922af399f8163aa660da3db63bb176149ab82d0`
+> 已以 merge commit `2e2139eb3a9912198ac14db3ffbd9bc4ed0e4e67` 合入 `integration/day2`；
+> PR #6 随后以 merge commit `34681a4082f52da3a67e784f348111f9d0e38044` 合入 `main`。
+> 本文记录的是 D3 当时的实际核验证据，不是 D4 的当前测试结果。自 2026-08-24 起的 D4–D7
+> 交付改用 `docs/OWNER_LED_COLLABORATION_WORKFLOW.md`，不再要求 PR 或同伴审批。
 
 ## 1. 分支与来源
 
@@ -137,21 +137,24 @@ Chrome 与 Microsoft Edge 均针对 `68dba3e` 构建的最终容器，以隔离 
 两种浏览器各出现 1 条预期的首次 `GET /session` 401；Chrome 的跨 owner 探测另产生 1 条
 预期 404。没有其他 console warning/error，验收后两个隔离浏览器 session 均已关闭。
 
-## 9. GitHub 与合并状态
+## 9. GitHub 与最终合并结果
 
 2026-08-24 本轮在线核验：
 
 - `gh auth status`：活动账号 `W-JOSLIN-X`，认证有效；
 - PR #3：`MERGED / APPROVED`，approval author=`zlbk-wxy`，review commit=`a668f8d`，
   merge commit=`009ba872`；远端 `integration/day2` 已指向该 commit；
-- PR #4：仍为 Open，head=`de1dd2e`，待 PR #5 合入后再标记 superseded 并关闭；
-- PR #5：base=`integration/day2`，head=`codex/day3-owner-integration`，创建时为 Draft；
+- PR #4：协作者原始 head=`de1dd2e`；其提交历史已由替代 PR #5 保留并合入；
+- PR #5：最终 head=`f922af399f8163aa660da3db63bb176149ab82d0`，已于 2026-08-24 以
+  merge commit `2e2139eb3a9912198ac14db3ffbd9bc4ed0e4e67` 合入 `integration/day2`；
+- PR #6：以 `2e2139eb3a9912198ac14db3ffbd9bc4ed0e4e67` 为 head，已于 2026-08-24
+  以 merge commit `34681a4082f52da3a67e784f348111f9d0e38044` 合入 `main`；
+- 本报告更新前的远端 `integration/day2` 为 `2e2139e`，远端 `main` 为 `34681a4`；
 - 没有向协作者分支、`integration/day2` 或 `main` 直接推送，也没有删除远端分支。
 
-下一步是把本报告作为最后文档提交推送到 PR #5，转 Ready 并请求 `zlbk-wxy` 审批最终 head；
-审批后只能以 merge commit 合入 `integration/day2`。随后在新的干净 checkout 重跑 G1+G2，
-再创建 `integration/day2 → main` PR 并取得同样的最终 head 审批。在两个受保护 PR 真正合并
-前，不得报告“Day 3 已合入 main”。
+上述最后一条只描述 D3 当时遵循的历史流程。Day 3 已实际进入 main；D4 起按根目录
+`AGENTS.md` 和 `docs/OWNER_LED_COLLABORATION_WORKFLOW.md` 执行：成员 A 只 push 功能分支，
+成员 B 独立核验和收口后普通非强制直接 push main，不再经过 `integration/day2` 或强制同伴审批。
 
 ## 10. 本轮新增发现与修复
 

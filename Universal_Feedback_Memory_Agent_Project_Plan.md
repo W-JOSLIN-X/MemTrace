@@ -7,6 +7,8 @@
 > 本地赛题依据：大工黑客松 S2 赛题发布 PDF 第 5 页  
 > 第 8 至第 10 天：明确不在本文规划范围内，届时根据第 7 天实测结果另行规划
 
+> **协作流程更新（2026-08-24）：** Day 4–Day 7 采用所有者中心交付。成员 A `zlbk-wxy` 只 push 自己的功能分支；成员 B / 仓库所有者 `W-JOSLIN-X` 下载后独立测试、修复并完成当日整合，在完整门禁通过后普通非强制直接 push `main`。日常不再要求 PR、`integration/day2` 二次晋级或成员 A 审批。根目录 `AGENTS.md` 与 `docs/OWNER_LED_COLLABORATION_WORKFLOW.md` 优先于本文任何遗留的 PR/审批表述；D2/D3 的 PR 文字仅作历史记录。
+
 ---
 
 ## 1. 执行摘要
@@ -2569,7 +2571,7 @@ LLM-as-judge 只能作为辅助列，不替代人工 gold。
 - 不运行任意用户代码；
 - 不规划 Day 8 至 Day 10。
 
-### 22.2 两人长期分工
+### 22.2 两人长期分工与最终责任
 
 #### 成员 A：后端、Agent 与记忆引擎主责
 
@@ -2591,13 +2593,17 @@ LLM-as-judge 只能作为辅助列，不替代人工 gold。
 - Docker smoke.ps1 与新设备启动测试；
 - 演示脚本、录屏、README 用户部分；
 - UI 错误、空状态和可解释文案。
+- 每天下载、独立核验并普通 merge 成员 A 的功能分支；
+- 修复整合阻断、完成全栈门禁、记录发布证据并作为唯一日常发布者普通直推 `main`。
 
 #### 70/30 交叉职责
 
 - A 每天至少 30% 时间审查 UI 是否真实反映后端状态，不能让界面伪造“已记住”。
 - B 每天至少 30% 时间写 API/Schema 测试夹具、评测标注和失败案例，不能只做样式。
-- Shared contract、MemoryCard、事件枚举和黄金路径必须两人共同批准。
+- Shared contract、MemoryCard、事件枚举和黄金路径由 A 提供变化和测试证据，B 在本地独立核验后最终冻结；不再要求另一人 PR 审批。
 - A 不得口头改字段；B 不得在前端自行推测后端状态。
+
+成员 A 的交付终点是自己的 `feat/a-dN-*` 分支，绝不更新 main。成员 B 是仓库所有者、每日集成者和最终交付者；取消 PR/同伴审批不取消独立测试、历史保留、main 稳定和远端竞态检查。
 
 ### 22.3 P0、P1、P2
 
@@ -2647,58 +2653,47 @@ LLM-as-judge 只能作为辅助列，不替代人工 gold。
 
 ### 22.4 每日固定节奏
 
-建议现场可调整具体时刻，但两次集成不可取消：
+具体时间可调整，但责任链不能跳过：
 
-| 时间 | 动作 |
+| 阶段 | 动作 |
 |---|---|
-| 09:00–09:20 | Stand-up：昨天可运行 commit、今天 P0、风险、接口变化 |
-| 09:20–13:00 | 第一开发块，优先最小纵向链路 |
-| 13:30–14:15 | 集成 1：接通当天最短链路 |
-| 14:15–20:30 | 第二开发块、测试和修复 |
-| 21:00–21:45 | 集成 2：合 main、跑全部黄金路径 |
-| 21:45–22:15 | 更新风险、失败案例、last-known-good commit |
-
-每次集成：
-
-~~~text
-git fetch
-→ 各自 rebase 最新 main
-→ 后端 pytest
-→ 前端 test/build
-→ API smoke
-→ 手工黄金路径
-→ 另一人 review shared contract
-→ 只合通过的 PR
-→ 记录 last-known-good commit
-~~~
+| 当天开始 | B 核对最新 `origin/main`、实际代码/契约/测试、登录和风险，写给 A 的详细 Prompt |
+| A 开发 | A 从指定 main 开 `feat/a-dN-*`，完成范围内代码/测试并只 push 该分支 |
+| A 交接 | A 报告完整 base/head、提交、契约/迁移、命令/退出码/数量、限制和登录依赖，然后停止改变 head |
+| B 接管 | B fetch 并独立审查，从最新 main 建 `codex/dayN-owner-integration`，普通 merge A 分支并保留历史 |
+| B 收口 | B 先复现/修复 A 的阻断，再完成前端、产品、评测和整合任务 |
+| 完整门禁 | B 跑 G1 到当天 Gx、后端/前端/契约/迁移、Docker、双浏览器、隔离和隐私检查 |
+| 交付 | B 再 fetch 防止 main 漂移；必要时重新整合/测试，然后普通非强制 push 已验证 head 到 main |
+| 记录 | 核对远端 main，更新失败案例、实际证据和 last-known-good 完整 SHA |
 
 ### 22.5 Git 和合并规则
 
 分支：
 
 ~~~text
-main
-feat/a-task-stream
-feat/a-memory-retrieval
-feat/b-chat-timeline
-feat/b-memory-center
-fix/sse-reconnect
-test/retrieval-negative-cases
-chore/contract-memory-v1
+main                              # 只有 W-JOSLIN-X 日常交付
+feat/a-d4-memory-retrieval        # zlbk-wxy 的当天功能分支
+codex/day4-owner-integration      # W-JOSLIN-X 的本地/远端整合分支
+fix/<scope>
+test/<scope>
+chore/contract-<scope>
 ~~~
 
 规则：
 
-- main 永远可启动、可跑至少当天黄金路径；
-- 禁止直接 push main；
-- 一个 PR 一个目标，建议有效改动少于 400 行；自动生成 lock 文件例外；
-- commit 前缀：feat、fix、test、docs、chore；
-- 共享 Schema/API/Event 的改动必须先走 chore/contract PR；
-- Contract PR 同时改 Pydantic、JSON Schema、Mock 和 events.md；
-- 另一人必须 review 错误响应、兼容性和黄金路径；
+- main 永远可启动并通过当前递增黄金路径；
+- A 只 commit/push 自己的功能分支，禁止直接 push、merge 或 force-push main；
+- B 从精确最新 main 建整合分支，以普通 `--no-ff` merge 保留 A 的作者和祖先，不 rebase/squash/amend 已交接历史；
+- B 独立核验、修复并完成当日工作，完整门禁通过后可普通直接 push main，无需 PR 或 A 审批；
+- B 推送前必须再次 fetch；远端 main 漂移时先重新整合并重跑受影响门禁，永远不 force push；
+- commit 前缀：feat、fix、test、docs、chore；每个 commit 保持单一可解释目标；
+- 共享 Schema/API/Event 先在分支写 change note，并同时改 Pydantic、JSON Schema、实际 OpenAPI、TypeScript parser、Mock/fixture 和测试；不再强制 contract PR；
 - 发现 API 不兼容时，不在聊天里口头约定，必须更新 contract；
-- .env、data、数据库、模型缓存和用户材料进 .gitignore；
-- 每晚保存 tag 或文本记录 last-known-good，不滥用 release tag。
+- `.env`、data、数据库、模型缓存和用户材料进 `.gitignore`；
+- `integration/day2` 和 PR #1–#6 只保留为 D2/D3 历史，不再是 D4–D7 发布必经路径；
+- 每晚记录 last-known-good 完整 commit，不滥用 release tag。
+
+完整操作和 handoff 模板以 `docs/OWNER_LED_COLLABORATION_WORKFLOW.md` 为准。
 
 ### 22.6 API 契约冻结
 
@@ -2714,9 +2709,9 @@ chore/contract-memory-v1
 
 1. 提交 change note：原因、旧字段、新字段、是否破坏；
 2. 先改 Schema 和 Mock；
-3. 两人 review；
-4. A 改真实后端，B 改前端；
-5. contract test 通过才合并。
+3. A 在功能分支说明兼容影响并提供测试证据；
+4. B 下载后独立核验，必要时修正契约，再完成前端和整合；
+5. contract test 与当天完整门禁通过后，B 才能把已验证 head 普通推到 main；不要求 PR 或 A 审批。
 
 Day 5 18:00 后除兼容性 P0 bug 外不再加字段、表、接口或页面。
 
@@ -3407,14 +3402,15 @@ python -m pip install fastapi uvicorn pydantic-settings sqlalchemy alembic opena
 
 一个功能只有同时满足以下条件才算完成：
 
-- 代码已合 main；
+- 代码已由仓库所有者普通非强制 push 到远端 main，并核对 SHA；
 - happy path 与至少一个 error path 测试通过；
 - 有 Mock fixture；
 - UI 不伪造后端状态；
 - owner 隔离存在；
 - 关键事件可追溯；
 - README/contract 已更新；
-- 黄金路径没有回归。
+- 黄金路径没有回归；
+- 成员 B 已独立核验成员 A 分支，完整记录本轮命令、退出码、数量、限制和 last-known-good commit。
 
 “我电脑上能跑一次”不算完成。
 
@@ -3673,7 +3669,7 @@ docker compose logs --tail 100 memtrace
 | SSE 断线、乱序或重复 | 中/高 | UI 卡死或重复卡片 | event_log、event_id、Last-Event-ID | 改用任务/job 轮询，事件不丢 | A/B |
 | SQLite 锁或数据损坏 | 中/高 | database locked、重启丢数据 | 单 worker、短事务、WAL、备份恢复演练 | 恢复 golden-demo.sqlite | A |
 | 可选 BGE 下载或 CPU 过慢 | 中/低 | Day 1 smoke 失败 | 预缓存、测镜像/冷启动/内存 | 不启用，TF-IDF 继续 P0 | A |
-| 前后端契约漂移 | 中/高 | Mock 能跑、真实接口失败 | OpenAPI/Event contract PR | 冻结 v1，适配前端，不临时改字段 | 两人 |
+| 前后端契约漂移 | 中/高 | Mock 能跑、真实接口失败 | OpenAPI/Event change note + B 独立核验 | 冻结 v1，适配前端，不临时改字段 | 两人 |
 | 导入包含恶意规则 | 中/高 | content 含越权/泄密指令 | Schema、字符/长度、危险模式、预览 | 拒绝或 quarantine；永不自动 active | A |
 | 跨用户数据泄漏 | 低/致命 | 猜 ID 能访问其他数据 | repository 强制 owner_id、安全测试 | 停止提交，修复后全量回归 | A |
 | 评测只有漂亮数字无证据 | 中/高 | 无 raw run/failure_id | Gold 双标、保存逐题输出 | 不展示该指标；标 N/A | B |
