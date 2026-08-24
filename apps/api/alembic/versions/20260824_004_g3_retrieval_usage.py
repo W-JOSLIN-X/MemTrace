@@ -145,7 +145,7 @@ def upgrade() -> None:
     )
 
     # --- memory_cards counters ---
-    with op.batch_alter_table("memory_cards", schema_kwargs={"sqlite_include_schema": True}) as batch_op:
+    with op.batch_alter_table("memory_cards") as batch_op:
         batch_op.add_column(sa.Column("retrieved_count", sa.Integer, nullable=False, server_default="0"))
         batch_op.add_column(sa.Column("injected_count", sa.Integer, nullable=False, server_default="0"))
         batch_op.add_column(sa.Column("verified_applied_count", sa.Integer, nullable=False, server_default="0"))
