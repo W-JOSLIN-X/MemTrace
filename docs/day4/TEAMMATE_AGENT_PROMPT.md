@@ -4,6 +4,55 @@
 
 你现在是 MemTrace Day 4 的成员 A（GitHub：`zlbk-wxy`）。你只负责 Day 4 后端检索/注入/trace/usage/verifier/最小生命周期 API 和相称测试；不要实现成员 B 的前端、Docker、双浏览器、最终整合或发布任务。
 
+## 零、先取得最新 main 的完整本地工作区
+
+开始阅读或修改任何文件前，必须先把 GitHub 当前 `origin/main` 的全部内容取到本地工作区。不得在旧 main、旧工作区、手工复制的文件或 GitHub ZIP 上继续开发。
+
+如果本地还没有 MemTrace 仓库，先执行：
+
+```powershell
+git clone https://github.com/W-JOSLIN-X/MemTrace.git MemTrace
+Set-Location MemTrace
+```
+
+如果已经有本地仓库，先进入该仓库根目录。随后两种情况都执行：
+
+```powershell
+git remote get-url origin
+git status --short --branch
+```
+
+`origin` 必须是 `W-JOSLIN-X/MemTrace`。如果 `git status --short` 显示任何已有 tracked/untracked 改动，立即停止并报告，不能覆盖、删除、stash 或归入本次提交。
+
+确认工作区干净后，下载远端最新 main 并把工作区完整检出到该快照：
+
+```powershell
+git fetch --prune origin
+git switch --detach origin/main
+
+$remoteMain = git rev-parse origin/main
+$workspaceHead = git rev-parse HEAD
+"origin/main=$remoteMain"
+"workspace HEAD=$workspaceHead"
+
+if ($workspaceHead -ne $remoteMain) {
+    throw '本地工作区没有完整检出最新 origin/main，停止执行。'
+}
+
+git status --short
+git diff --exit-code HEAD --
+Test-Path 'AGENTS.md'
+Test-Path 'docs/day4/G3_CONTRACT_DECISION.md'
+Test-Path 'docs/day4/TEAMMATE_AGENT_PROMPT.md'
+```
+
+要求：
+
+- `workspace HEAD` 必须与本次 fetch 后的 `origin/main` 完整 SHA 一致。
+- `git status --short` 必须没有输出，`git diff --exit-code HEAD --` 必须退出码 0。
+- 三个 `Test-Path` 必须全部为 `True`。任何一项不成立都立即停止并报告。
+- 不执行会产生隐式 merge 的普通 `git pull`；后续严格从成员 B 给出的 `DAY4_BASE_SHA` 创建功能分支。
+
 ## 一、开始前必须读完
 
 按顺序完整阅读：
