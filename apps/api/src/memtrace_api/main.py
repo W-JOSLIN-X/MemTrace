@@ -51,7 +51,14 @@ from memtrace_api.logging_config import configure_logging
 from memtrace_api.logic import analyze_task
 from memtrace_api.middleware import RequestIdMiddleware
 from memtrace_api.orchestrator import AgentOrchestrator
-from memtrace_api.providers import DeepSeekProvider, MockProvider, StreamingProvider
+from memtrace_api.retrieval import RetrievalContext, execute_retrieval
+from memtrace_api.retrieval_executor import (
+    RetrievalContext as ExecutorContext,
+    compile_prompt_section,
+    escape_xml,
+    estimate_tokens,
+)
+from memtrace_api.verifier import verify_exact_substring
 from memtrace_api.readiness import (
     DatabaseRevisionError,
     ensure_database_current,
