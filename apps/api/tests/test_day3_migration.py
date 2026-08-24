@@ -88,7 +88,7 @@ def test_fresh_empty_database_upgrades_to_head() -> None:
         "memory_relations",
     } <= tables
     with Session(engine) as session:
-        assert ensure_database_current(session) == "003_g2_job_retryable"
+        assert ensure_database_current(session) == "004_g3_retrieval_usage"
     engine.dispose()
 
 
@@ -272,7 +272,7 @@ def test_day2_revision_upgrades_to_retryable_head() -> None:
     _run_alembic(db_url, "upgrade", "head")
     engine = create_engine(db_url)
     with Session(engine) as session:
-        assert ensure_database_current(session) == "003_g2_job_retryable"
+        assert ensure_database_current(session) == "004_g3_retrieval_usage"
     engine.dispose()
 
 
