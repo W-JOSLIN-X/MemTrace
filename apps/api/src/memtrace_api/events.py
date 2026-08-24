@@ -75,7 +75,6 @@ PERSISTENT_EVENT_TYPES = frozenset(
         EventType.TASK_CREATED,
         EventType.TASK_STAGE,
         EventType.TASK_FINGERPRINTED,
-        EventType.MEMORY_RETRIEVAL_STARTED,
         EventType.MEMORY_RETRIEVAL_COMPLETED,
         EventType.AGENT_PLAN_PUBLISHED,
         EventType.TOOL_CALLED,
@@ -128,7 +127,7 @@ class TaskFingerprintedPayload(ContractModel):
 
 
 class MemoryRetrievalStartedPayload(ContractModel):
-    retrieval_mode: str
+    retrieval_mode: str = "tfidf"
 
 
 class AgentPlanPublishedPayload(ContractModel):

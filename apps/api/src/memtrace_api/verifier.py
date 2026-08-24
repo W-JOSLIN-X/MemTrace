@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 
-def verify_exact_substring(output: str, rule: str, avoid: str | None = None) -> tuple[str, str | None]:
+def verify_exact_substring(
+    output: str, rule: str, avoid: str | None = None
+) -> tuple[str, str | None]:
     """Return (status, excerpt).
 
     Priority: avoid > rule.

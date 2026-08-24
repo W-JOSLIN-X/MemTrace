@@ -841,7 +841,9 @@ class RetrievalRepository:
         self.user_ctx = user_ctx
         self.session = session
 
-    def save_trace(self, trace: RetrievalTraceModel, decisions: list[RetrievalDecisionModel]) -> None:
+    def save_trace(
+        self, trace: RetrievalTraceModel, decisions: list[RetrievalDecisionModel]
+    ) -> None:
         self.session.add(trace)
         for d in decisions:
             self.session.add(d)
@@ -870,10 +872,12 @@ class RetrievalRepository:
     def list_decisions(self, trace_id: str) -> list[RetrievalDecisionModel]:
         return list(
             self.session.execute(
-                select(RetrievalDecisionModel).where(
-                    RetrievalDecisionModel.retrieval_trace_id == trace_id
-                ).order_by(RetrievalDecisionModel.id.asc())
-            ).scalars().all()
+                select(RetrievalDecisionModel)
+                .where(RetrievalDecisionModel.retrieval_trace_id == trace_id)
+                .order_by(RetrievalDecisionModel.id.asc())
+            )
+            .scalars()
+            .all()
         )
 
 
@@ -889,17 +893,23 @@ class MemoryUsageRepository:
     def list_by_run(self, task_id: str, run_id: str) -> list[MemoryUsageModel]:
         return list(
             self.session.execute(
-                select(MemoryUsageModel).where(
+                select(MemoryUsageModel)
+                .where(
                     and_(
                         MemoryUsageModel.task_id == task_id,
                         MemoryUsageModel.run_id == run_id,
                         MemoryUsageModel.owner_id == self.user_ctx.user_id,
                     )
-                ).order_by(MemoryUsageModel.rank.asc(), MemoryUsageModel.id.asc())
-            ).scalars().all()
+                )
+                .order_by(MemoryUsageModel.rank.asc(), MemoryUsageModel.id.asc())
+            )
+            .scalars()
+            .all()
         )
 
-    def list_by_memory(self, memory_id: str, cursor: str | None = None, limit: int = 50) -> list[MemoryUsageModel]:
+    def list_by_memory(
+        self, memory_id: str, cursor: str | None = None, limit: int = 50
+    ) -> list[MemoryUsageModel]:
         q = select(MemoryUsageModel).where(
             and_(
                 MemoryUsageModel.memory_id == memory_id,
@@ -938,8 +948,9 @@ class MemoryUsageRepository:
         row.updated_at = utc_now()
         return row
 
-    def update_verification(self, usage_id: str, status: str, method: str | None,
-                            excerpt: str | None) -> MemoryUsageModel | None:
+    def update_verification(
+        self, usage_id: str, status: str, method: str | None, excerpt: str | None
+    ) -> MemoryUsageModel | None:
         row = self.session.execute(
             select(MemoryUsageModel).where(
                 and_(

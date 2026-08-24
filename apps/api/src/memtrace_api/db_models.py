@@ -704,8 +704,12 @@ class RetrievalTraceModel(Base):
     provider_prompt_tokens_actual: Mapped[int | None] = mapped_column(Integer, nullable=True)
     prompt_section_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     reason_codes_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
 
     __table_args__ = (
         UniqueConstraint("owner_id", "run_id", name="uq_retrieval_trace_owner_run"),
@@ -717,10 +721,21 @@ class RetrievalDecisionModel(Base):
     __tablename__ = "retrieval_decisions"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    owner_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    retrieval_trace_id: Mapped[str] = mapped_column(String(64), ForeignKey("retrieval_traces.id", ondelete="CASCADE"), nullable=False, index=True)
-    memory_id: Mapped[str] = mapped_column(String(64), ForeignKey("memory_cards.id", ondelete="CASCADE"), nullable=False, index=True)
-    memory_version_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("memory_versions.id", ondelete="SET NULL"), nullable=True)
+    owner_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    retrieval_trace_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("retrieval_traces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    memory_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("memory_cards.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    memory_version_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("memory_versions.id", ondelete="SET NULL"), nullable=True
+    )
     memory_status: Mapped[str] = mapped_column(String(32), nullable=False)
     retrieved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     selected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -733,10 +748,14 @@ class RetrievalDecisionModel(Base):
     recency: Mapped[float | None] = mapped_column(Float, nullable=True)
     final_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     reason_codes_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
 
     __table_args__ = (
-        UniqueConstraint("retrieval_trace_id", "memory_id", name="uq_retrieval_decision_trace_memory"),
+        UniqueConstraint(
+            "retrieval_trace_id", "memory_id", name="uq_retrieval_decision_trace_memory"
+        ),
         Index("ix_retrieval_decisions_trace", "retrieval_trace_id"),
     )
 
@@ -745,12 +764,27 @@ class MemoryUsageModel(Base):
     __tablename__ = "memory_usages"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    owner_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    retrieval_trace_id: Mapped[str] = mapped_column(String(64), ForeignKey("retrieval_traces.id", ondelete="CASCADE"), nullable=False, index=True)
-    task_id: Mapped[str] = mapped_column(String(64), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
-    run_id: Mapped[str] = mapped_column(String(64), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True)
-    memory_id: Mapped[str] = mapped_column(String(64), ForeignKey("memory_cards.id", ondelete="CASCADE"), nullable=False, index=True)
-    memory_version_id: Mapped[str] = mapped_column(String(64), ForeignKey("memory_versions.id", ondelete="CASCADE"), nullable=False)
+    owner_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    retrieval_trace_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("retrieval_traces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    task_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    run_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    memory_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("memory_cards.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    memory_version_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("memory_versions.id", ondelete="CASCADE"), nullable=False
+    )
     rank: Mapped[int] = mapped_column(Integer, nullable=False)
     retrieved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     selected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -760,11 +794,21 @@ class MemoryUsageModel(Base):
     verification_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
     evidence_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
     user_effect: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
 
     __table_args__ = (
-        UniqueConstraint("owner_id", "run_id", "memory_id", "memory_version_id", name="uq_memory_usage_owner_run_memory_version"),
+        UniqueConstraint(
+            "owner_id",
+            "run_id",
+            "memory_id",
+            "memory_version_id",
+            name="uq_memory_usage_owner_run_memory_version",
+        ),
         Index("ix_memory_usages_trace", "retrieval_trace_id"),
         Index("ix_memory_usages_memory", "memory_id"),
     )
@@ -774,10 +818,22 @@ class MemoryVerificationJobModel(Base):
     __tablename__ = "memory_verification_jobs"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    owner_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    memory_usage_id: Mapped[str] = mapped_column(String(64), ForeignKey("memory_usages.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    owner_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    memory_usage_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("memory_usages.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )

@@ -661,6 +661,7 @@ class ResolveAction(StrEnum):
     EDIT_ACCEPT = "edit_accept"
     REJECT = "reject"
     ONE_SHOT = "one_shot"
+    EDIT = "edit"
 
 
 class RejectionReason(StrEnum):
@@ -801,7 +802,7 @@ class ResolveRequest(ContractModel):
 
     @model_validator(mode="after")
     def patch_only_for_edit_accept(self) -> ResolveRequest:
-        if self.action is ResolveAction.EDIT_ACCEPT:
+        if self.action == ResolveAction.EDIT_ACCEPT:
             if self.patch is None:
                 raise ValueError("edit_accept requires a patch")
         elif self.patch is not None:
@@ -967,31 +968,6 @@ class MemoryUsageResponse(ContractModel):
     created_at: datetime
 
 
-class MemoryCardPatch(ContractModel):
-    title: TrimmedTitle | None = None
-    rule: TrimmedRule | None = None
-    avoid: Annotated[str, StringConstraints(max_length=400)] | None = None
-    scope: MemoryScope | None = None
-    exceptions: Annotated[list[AllowedException], Field(max_length=8)] | None = None
-
-    @model_validator(mode="after")
-    def at_least_one_field(self) -> MemoryCardPatch:
-        if all(
-            value is None
-            for value in (self.title, self.rule, self.avoid, self.scope, self.exceptions)
-        ):
-            raise ValueError("edit patch must modify at least one allowed field")
-        return self
-
-
-class ResolveAction(StrEnum):
-    ACCEPT = "accept"
-    EDIT_ACCEPT = "edit_accept"
-    REJECT = "reject"
-    ONE_SHOT = "one_shot"
-    EDIT = "edit"
-
-
 class MemoryCardListResponse(ContractModel):
     request_id: RequestId
     items: Annotated[list[MemoryCard], Field(max_length=100)] = Field(default_factory=list)
@@ -1000,7 +976,9 @@ class MemoryCardListResponse(ContractModel):
 
 class MemoryVersionListResponse(ContractModel):
     request_id: RequestId
-    items: Annotated[list[MemoryVersionProjection], Field(max_length=100)] = Field(default_factory=list)
+    items: Annotated[list[MemoryVersionProjection], Field(max_length=100)] = Field(
+        default_factory=list
+    )
     next_cursor: str | None = None
 
 

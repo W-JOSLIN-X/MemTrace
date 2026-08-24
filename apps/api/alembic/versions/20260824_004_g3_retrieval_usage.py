@@ -21,10 +21,28 @@ def upgrade() -> None:
     op.create_table(
         "retrieval_traces",
         sa.Column("id", sa.String(64), primary_key=True),
-        sa.Column("owner_id", sa.String(64), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True),
+        sa.Column(
+            "owner_id",
+            sa.String(64),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
         sa.Column("request_id", sa.String(64), nullable=False),
-        sa.Column("task_id", sa.String(64), sa.ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True),
-        sa.Column("run_id", sa.String(64), sa.ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True),
+        sa.Column(
+            "task_id",
+            sa.String(64),
+            sa.ForeignKey("tasks.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+        sa.Column(
+            "run_id",
+            sa.String(64),
+            sa.ForeignKey("agent_runs.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
         sa.Column("retrieval_mode", sa.String(32), nullable=False),
         sa.Column("algorithm_version", sa.String(64), nullable=False),
         sa.Column("threshold", sa.Float, nullable=False),
@@ -40,11 +58,19 @@ def upgrade() -> None:
         sa.Column("provider_prompt_tokens_actual", sa.Integer, nullable=True),
         sa.Column("prompt_section_hash", sa.String(64), nullable=True),
         sa.Column("reason_codes_json", sa.Text, nullable=False, default="[]"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.CheckConstraint("retrieval_mode IN ('tfidf', 'tfidf_degraded')", name="chk_retrieval_trace_mode"),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.CheckConstraint(
+            "retrieval_mode IN ('tfidf', 'tfidf_degraded')", name="chk_retrieval_trace_mode"
+        ),
         sa.CheckConstraint("retrieval_ms >= 0", name="chk_retrieval_trace_ms"),
-        sa.CheckConstraint("threshold >= 0 AND threshold <= 1", name="chk_retrieval_trace_threshold"),
+        sa.CheckConstraint(
+            "threshold >= 0 AND threshold <= 1", name="chk_retrieval_trace_threshold"
+        ),
         sa.CheckConstraint("top_k > 0", name="chk_retrieval_trace_top_k"),
         sa.UniqueConstraint("owner_id", "run_id", name="uq_retrieval_trace_owner_run"),
     )
@@ -55,10 +81,33 @@ def upgrade() -> None:
     op.create_table(
         "retrieval_decisions",
         sa.Column("id", sa.String(64), primary_key=True),
-        sa.Column("owner_id", sa.String(64), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True),
-        sa.Column("retrieval_trace_id", sa.String(64), sa.ForeignKey("retrieval_traces.id", ondelete="CASCADE"), nullable=False, index=True),
-        sa.Column("memory_id", sa.String(64), sa.ForeignKey("memory_cards.id", ondelete="CASCADE"), nullable=False, index=True),
-        sa.Column("memory_version_id", sa.String(64), sa.ForeignKey("memory_versions.id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "owner_id",
+            sa.String(64),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+        sa.Column(
+            "retrieval_trace_id",
+            sa.String(64),
+            sa.ForeignKey("retrieval_traces.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+        sa.Column(
+            "memory_id",
+            sa.String(64),
+            sa.ForeignKey("memory_cards.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+        sa.Column(
+            "memory_version_id",
+            sa.String(64),
+            sa.ForeignKey("memory_versions.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("memory_status", sa.String(32), nullable=False),
         sa.Column("retrieved", sa.Boolean, nullable=False, default=False),
         sa.Column("selected", sa.Boolean, nullable=False, default=False),
@@ -71,14 +120,18 @@ def upgrade() -> None:
         sa.Column("recency", sa.Float, nullable=True),
         sa.Column("final_score", sa.Float, nullable=True),
         sa.Column("reason_codes_json", sa.Text, nullable=False, default="[]"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.CheckConstraint(
             "memory_status IN ('candidate', 'active', 'rejected', 'conflicted', "
             "'paused', 'superseded', 'merged', 'archived', 'deleted')",
             name="chk_retrieval_decision_memory_status",
         ),
         sa.CheckConstraint("rank IS NULL OR rank >= 1", name="chk_retrieval_decision_rank"),
-        sa.UniqueConstraint("retrieval_trace_id", "memory_id", name="uq_retrieval_decision_trace_memory"),
+        sa.UniqueConstraint(
+            "retrieval_trace_id", "memory_id", name="uq_retrieval_decision_trace_memory"
+        ),
     )
     op.create_index("ix_retrieval_decisions_trace", "retrieval_decisions", ["retrieval_trace_id"])
     op.create_index("ix_retrieval_decisions_memory", "retrieval_decisions", ["memory_id"])
@@ -87,12 +140,47 @@ def upgrade() -> None:
     op.create_table(
         "memory_usages",
         sa.Column("id", sa.String(64), primary_key=True),
-        sa.Column("owner_id", sa.String(64), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True),
-        sa.Column("retrieval_trace_id", sa.String(64), sa.ForeignKey("retrieval_traces.id", ondelete="CASCADE"), nullable=False, index=True),
-        sa.Column("task_id", sa.String(64), sa.ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True),
-        sa.Column("run_id", sa.String(64), sa.ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True),
-        sa.Column("memory_id", sa.String(64), sa.ForeignKey("memory_cards.id", ondelete="CASCADE"), nullable=False, index=True),
-        sa.Column("memory_version_id", sa.String(64), sa.ForeignKey("memory_versions.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "owner_id",
+            sa.String(64),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+        sa.Column(
+            "retrieval_trace_id",
+            sa.String(64),
+            sa.ForeignKey("retrieval_traces.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+        sa.Column(
+            "task_id",
+            sa.String(64),
+            sa.ForeignKey("tasks.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+        sa.Column(
+            "run_id",
+            sa.String(64),
+            sa.ForeignKey("agent_runs.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+        sa.Column(
+            "memory_id",
+            sa.String(64),
+            sa.ForeignKey("memory_cards.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+        sa.Column(
+            "memory_version_id",
+            sa.String(64),
+            sa.ForeignKey("memory_versions.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("rank", sa.Integer, nullable=False),
         sa.Column("retrieved", sa.Boolean, nullable=False, default=True),
         sa.Column("selected", sa.Boolean, nullable=False, default=True),
@@ -102,8 +190,12 @@ def upgrade() -> None:
         sa.Column("verification_method", sa.String(32), nullable=True),
         sa.Column("evidence_excerpt", sa.Text, nullable=True),
         sa.Column("user_effect", sa.String(32), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.CheckConstraint(
             "verification_status IN ('pending', 'applied', 'violated', 'not_observable', 'unknown')",
             name="chk_memory_usage_verification_status",
@@ -118,7 +210,10 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint("rank >= 1", name="chk_memory_usage_rank"),
         sa.UniqueConstraint(
-            "owner_id", "run_id", "memory_id", "memory_version_id",
+            "owner_id",
+            "run_id",
+            "memory_id",
+            "memory_version_id",
             name="uq_memory_usage_owner_run_memory_version",
         ),
     )
@@ -130,13 +225,30 @@ def upgrade() -> None:
     op.create_table(
         "memory_verification_jobs",
         sa.Column("id", sa.String(64), primary_key=True),
-        sa.Column("owner_id", sa.String(64), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True),
-        sa.Column("memory_usage_id", sa.String(64), sa.ForeignKey("memory_usages.id", ondelete="CASCADE"), nullable=False, unique=True, index=True),
+        sa.Column(
+            "owner_id",
+            sa.String(64),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+        sa.Column(
+            "memory_usage_id",
+            sa.String(64),
+            sa.ForeignKey("memory_usages.id", ondelete="CASCADE"),
+            nullable=False,
+            unique=True,
+            index=True,
+        ),
         sa.Column("status", sa.String(32), nullable=False, default="pending"),
         sa.Column("attempt", sa.Integer, nullable=False, default=0),
         sa.Column("error_code", sa.String(64), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.CheckConstraint(
             "status IN ('pending', 'running', 'completed', 'failed')",
             name="chk_verification_job_status",
@@ -146,12 +258,24 @@ def upgrade() -> None:
 
     # --- memory_cards counters ---
     with op.batch_alter_table("memory_cards") as batch_op:
-        batch_op.add_column(sa.Column("retrieved_count", sa.Integer, nullable=False, server_default="0"))
-        batch_op.add_column(sa.Column("injected_count", sa.Integer, nullable=False, server_default="0"))
-        batch_op.add_column(sa.Column("verified_applied_count", sa.Integer, nullable=False, server_default="0"))
-        batch_op.add_column(sa.Column("helpful_count", sa.Integer, nullable=False, server_default="0"))
-        batch_op.add_column(sa.Column("harmful_count", sa.Integer, nullable=False, server_default="0"))
-        batch_op.add_column(sa.Column("stale_count", sa.Integer, nullable=False, server_default="0"))
+        batch_op.add_column(
+            sa.Column("retrieved_count", sa.Integer, nullable=False, server_default="0")
+        )
+        batch_op.add_column(
+            sa.Column("injected_count", sa.Integer, nullable=False, server_default="0")
+        )
+        batch_op.add_column(
+            sa.Column("verified_applied_count", sa.Integer, nullable=False, server_default="0")
+        )
+        batch_op.add_column(
+            sa.Column("helpful_count", sa.Integer, nullable=False, server_default="0")
+        )
+        batch_op.add_column(
+            sa.Column("harmful_count", sa.Integer, nullable=False, server_default="0")
+        )
+        batch_op.add_column(
+            sa.Column("stale_count", sa.Integer, nullable=False, server_default="0")
+        )
         batch_op.add_column(sa.Column("last_used_at", sa.DateTime(timezone=True), nullable=True))
 
     # --- memory_versions created_by_action extended ---

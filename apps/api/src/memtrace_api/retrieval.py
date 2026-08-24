@@ -58,7 +58,7 @@ def generate_ngrams(text: str) -> list[str]:
     grams = []
     for n in range(NGRAM_MIN, min(NGRAM_MAX, len(text)) + 1):
         for i in range(len(text) - n + 1):
-            grams.append(text[i:i + n])
+            grams.append(text[i : i + n])
     return grams
 
 
@@ -87,7 +87,7 @@ def compute_tfidf_vectors(docs: list[str]):
     tfidf = []
     for raw in raw_vectors:
         weighted = {t: raw.get(t, 0) * idf.get(t, 1) for t in all_terms}
-        norm = math.sqrt(sum(v ** 2 for v in weighted.values()))
+        norm = math.sqrt(sum(v**2 for v in weighted.values()))
         if norm == 0:
             tfidf.append({})
         else:
@@ -187,23 +187,47 @@ def check_hard_filters(card, fingerprint: TaskFingerprint, eff_mode: str, cc: Cu
         return False, [RetrievalReasonCode.EXPIRED]
 
     cs = json.loads(card.scope_json) if isinstance(card.scope_json, str) else card.scope_json
-    exc = json.loads(card.exceptions_json) if isinstance(card.exceptions_json, str) else (card.exceptions_json or [])
+    exc = (
+        json.loads(card.exceptions_json)
+        if isinstance(card.exceptions_json, str)
+        else (card.exceptions_json or [])
+    )
 
     d = cs.get("domain")
-    if d is not None and str(d).lower() not in ("", "null", "any") and str(d) != fingerprint.domain.value:
+    if (
+        d is not None
+        and str(d).lower() not in ("", "null", "any")
+        and str(d) != fingerprint.domain.value
+    ):
         return False, [RetrievalReasonCode.SCOPE_DOMAIN_MISMATCH]
     tt = cs.get("task_type")
-    if tt is not None and str(tt).lower() not in ("", "null") and str(tt) != fingerprint.task_type.value:
+    if (
+        tt is not None
+        and str(tt).lower() not in ("", "null")
+        and str(tt) != fingerprint.task_type.value
+    ):
         return False, [RetrievalReasonCode.SCOPE_TASK_TYPE_MISMATCH]
     art = cs.get("artifact_type")
-    if art is not None and str(art).lower() not in ("", "null") and str(art) != fingerprint.artifact_type.value:
+    if (
+        art is not None
+        and str(art).lower() not in ("", "null")
+        and str(art) != fingerprint.artifact_type.value
+    ):
         return False, [RetrievalReasonCode.SCOPE_ARTIFACT_MISMATCH]
     aud = cs.get("audience")
-    if aud is not None and str(aud).lower() not in ("", "null") and str(aud) != fingerprint.audience.value:
+    if (
+        aud is not None
+        and str(aud).lower() not in ("", "null")
+        and str(aud) != fingerprint.audience.value
+    ):
         return False, [RetrievalReasonCode.SCOPE_AUDIENCE_MISMATCH]
     pk = cs.get("project_key")
     fp_pk = fingerprint.project_key
-    if pk is not None and str(pk).strip() and (fp_pk is None or not str(fp_pk).strip() or str(pk) != str(fp_pk)):
+    if (
+        pk is not None
+        and str(pk).strip()
+        and (fp_pk is None or not str(fp_pk).strip() or str(pk) != str(fp_pk))
+    ):
         return False, [RetrievalReasonCode.SCOPE_PROJECT_MISMATCH]
 
     if cc.response_policy.value == "direct_fix" and "response_policy:direct_fix" in exc:
@@ -217,7 +241,14 @@ def check_hard_filters(card, fingerprint: TaskFingerprint, eff_mode: str, cc: Cu
 def build_memory_document(card) -> str:
     cs = json.loads(card.scope_json) if isinstance(card.scope_json, str) else card.scope_json
     concepts = cs.get("concepts") or []
-    return "\n".join([str(card.title), str(card.rule), str(card.trigger_text or ""), " ".join(str(c) for c in concepts)])
+    return "\n".join(
+        [
+            str(card.title),
+            str(card.rule),
+            str(card.trigger_text or ""),
+            " ".join(str(c) for c in concepts),
+        ]
+    )
 
 
 @dataclass
@@ -263,9 +294,15 @@ def to_response(result, trace_id, task_id, run_id, retrieval_ms) -> RetrievalTra
             injected=d.injected,
             rank=d.rank,
             scope_match=safe_round(d.scope_match) if d.scope_match is not None else None,
-            semantic_similarity=safe_round(d.semantic_similarity) if d.semantic_similarity is not None else None,
-            provenance_confidence=safe_round(d.provenance_confidence) if d.provenance_confidence is not None else None,
-            verified_effect=safe_round(d.verified_effect) if d.verified_effect is not None else None,
+            semantic_similarity=safe_round(d.semantic_similarity)
+            if d.semantic_similarity is not None
+            else None,
+            provenance_confidence=safe_round(d.provenance_confidence)
+            if d.provenance_confidence is not None
+            else None,
+            verified_effect=safe_round(d.verified_effect)
+            if d.verified_effect is not None
+            else None,
             recency=safe_round(d.recency) if d.recency is not None else None,
             final_score=safe_round(d.final_score) if d.final_score is not None else None,
             reason_codes=d.reason_codes,

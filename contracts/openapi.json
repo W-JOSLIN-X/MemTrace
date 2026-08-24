@@ -1346,7 +1346,9 @@
           "TASK_NOT_READY_FOR_FEEDBACK",
           "MEMORY_NOT_FOUND",
           "MEMORY_ALREADY_RESOLVED",
-          "MEMORY_JOB_NOT_RETRYABLE"
+          "MEMORY_JOB_NOT_RETRYABLE",
+          "MEMORY_STATE_CONFLICT",
+          "MEMORY_VERSION_CONFLICT"
         ],
         "title": "ErrorCode"
       },
@@ -2644,7 +2646,8 @@
           "accept",
           "edit_accept",
           "reject",
-          "one_shot"
+          "one_shot",
+          "edit"
         ],
         "title": "ResolveAction"
       },

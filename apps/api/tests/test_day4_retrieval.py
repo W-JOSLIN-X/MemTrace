@@ -82,7 +82,7 @@ class TestTfIdf:
         tfidf = compute_tfidf_vectors(docs)
         # Both vectors should be L2 normalized
         for v in tfidf:
-            norm = math.sqrt(sum(x ** 2 for x in v.values()))
+            norm = math.sqrt(sum(x**2 for x in v.values()))
             assert abs(norm - 1.0) < 1e-9 if norm > 0 else True
 
     def test_idf_rare_term_higher(self):
@@ -131,6 +131,7 @@ class TestTfIdf:
 
     def test_deterministic_100_runs(self):
         import random
+
         text = "python debugging tips for beginners"
         results = []
         for _ in range(100):
@@ -219,8 +220,16 @@ class TestScopeMatch:
             framework = None
             concepts = []
 
-        cs = {"domain": "programming_learning", "task_type": None, "artifact_type": None,
-              "audience": None, "project_key": None, "language": None, "framework": None, "concepts": []}
+        cs = {
+            "domain": "programming_learning",
+            "task_type": None,
+            "artifact_type": None,
+            "audience": None,
+            "project_key": None,
+            "language": None,
+            "framework": None,
+            "concepts": [],
+        }
         score = compute_scope_match(cs, FakeFP())
         assert score > 0
 
@@ -238,8 +247,16 @@ class TestScopeMatch:
             framework = None
             concepts = []
 
-        cs = {"domain": None, "task_type": None, "artifact_type": None,
-              "audience": None, "project_key": None, "language": None, "framework": None, "concepts": []}
+        cs = {
+            "domain": None,
+            "task_type": None,
+            "artifact_type": None,
+            "audience": None,
+            "project_key": None,
+            "language": None,
+            "framework": None,
+            "concepts": [],
+        }
         score = compute_scope_match(cs, FakeFP())
         assert score == 0.0
 
@@ -256,8 +273,16 @@ class TestScopeMatch:
             framework = None
             concepts = []
 
-        cs = {"domain": "any", "task_type": None, "artifact_type": None,
-              "audience": None, "project_key": None, "language": None, "framework": None, "concepts": []}
+        cs = {
+            "domain": "any",
+            "task_type": None,
+            "artifact_type": None,
+            "audience": None,
+            "project_key": None,
+            "language": None,
+            "framework": None,
+            "concepts": [],
+        }
         score = compute_scope_match(cs, FakeFP())
         assert score == pytest.approx(0.125)  # 0.25 * 0.5
 
@@ -265,40 +290,48 @@ class TestScopeMatch:
 class TestVerifiedEffect:
     def test_baseline(self):
         from memtrace_api.retrieval import compute_verified_effect
+
         assert compute_verified_effect(0, 0, 0) == pytest.approx(0.5)
 
     def test_all_helpful(self):
         from memtrace_api.retrieval import compute_verified_effect
+
         assert compute_verified_effect(5, 0, 0) == pytest.approx(6 / 7)
 
     def test_all_harmful(self):
         from memtrace_api.retrieval import compute_verified_effect
+
         assert compute_verified_effect(0, 5, 0) == pytest.approx(1 / 7)
 
     def test_never_zero(self):
         from memtrace_api.retrieval import compute_verified_effect
+
         assert compute_verified_effect(0, 0, 0) > 0.0
 
 
 class TestRecency:
     def test_explicit_feedback_full(self):
         from memtrace_api.retrieval import compute_recency
+
         assert compute_recency("explicit_feedback", None) == 1.0
 
     def test_rating_full(self):
         from memtrace_api.retrieval import compute_recency
+
         assert compute_recency("rating", None) == 1.0
 
     def test_outcome_fresh(self):
         from datetime import timedelta
         from memtrace_api.retrieval import compute_recency
-        now = __import__('datetime').datetime.now(__import__('datetime').UTC)
+
+        now = __import__("datetime").datetime.now(__import__("datetime").UTC)
         assert compute_recency("outcome", now) == pytest.approx(1.0, abs=0.01)
 
     def test_outcome_old(self):
         from datetime import timedelta
         from memtrace_api.retrieval import compute_recency
-        old = __import__('datetime').datetime.now(__import__('datetime').UTC) - timedelta(days=180)
+
+        old = __import__("datetime").datetime.now(__import__("datetime").UTC) - timedelta(days=180)
         assert compute_recency("outcome", old) == pytest.approx(0.0, abs=0.01)
 
 
@@ -314,7 +347,7 @@ class TestLongestCommonSubstring:
         s = "use avoid me please"
         # avoid has 9 chars match, rule has 12 chars match
         a = "please avoid me"  # contains "avoid me" = 9 chars
-        r = "use avoid me"      # contains "avoid me" = 9 chars
+        r = "use avoid me"  # contains "avoid me" = 9 chars
         # they're the same substring length, just check they match
         avoid_score = longest_common_substring_len(s, a, 12)
         assert avoid_score >= 5

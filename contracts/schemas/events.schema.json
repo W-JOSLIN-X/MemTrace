@@ -16,6 +16,7 @@
         "task.stage",
         "task.fingerprinted",
         "memory.retrieval.started",
+        "memory.retrieval.completed",
         "agent.plan.published",
         "tool.called",
         "tool.result",
@@ -29,7 +30,10 @@
         "memory.extraction.stage",
         "memory.candidate.created",
         "memory.admission.resolved",
-        "memory.job.failed"
+        "memory.job.failed",
+        "memory.injected",
+        "memory.usage.verified",
+        "memory.usage.feedback.recorded"
       ]
     },
     "event_seq": {
@@ -115,6 +119,22 @@
     {
       "if": {"properties": {"event_type": {"const": "memory.job.failed"}}, "required": ["event_type"]},
       "then": {"properties": {"event_seq": {"type": "integer", "minimum": 1}, "data": {"$ref": "#/$defs/MemoryJobFailedPayload"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "memory.retrieval.completed"}}, "required": ["event_type"]},
+      "then": {"properties": {"event_seq": {"type": "integer", "minimum": 1}, "data": {"$ref": "#/$defs/MemoryRetrievalCompletedPayload"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "memory.injected"}}, "required": ["event_type"]},
+      "then": {"properties": {"event_seq": {"type": "integer", "minimum": 1}, "data": {"$ref": "#/$defs/MemoryInjectedPayload"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "memory.usage.verified"}}, "required": ["event_type"]},
+      "then": {"properties": {"event_seq": {"type": "integer", "minimum": 1}, "data": {"$ref": "#/$defs/MemoryUsageVerifiedPayload"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "memory.usage.feedback.recorded"}}, "required": ["event_type"]},
+      "then": {"properties": {"event_seq": {"type": "integer", "minimum": 1}, "data": {"$ref": "#/$defs/MemoryUsageFeedbackRecordedPayload"}}}
     }
   ],
   "$defs": {
@@ -249,11 +269,16 @@
     },
     "MemoryRetrievalStartedPayload": {
       "type": "object",
+      "description": "Transient retrieval start notification. G3 uses retrieval_mode; G2 used memory_count+summary.",
       "properties": {
-        "memory_count": {"type": "integer", "const": 0},
-        "summary": {"type": "string", "const": "no_long_term_memory_day2"}
+        "retrieval_mode": {"type": "string", "enum": ["tfidf", "tfidf_degraded"]},
+        "memory_count": {"type": "integer"},
+        "summary": {"type": "string"}
       },
-      "required": ["memory_count", "summary"],
+      "anyOf": [
+        {"required": ["retrieval_mode"]},
+        {"required": ["memory_count", "summary"]}
+      ],
       "additionalProperties": false
     },
     "AgentPlanPublishedPayload": {
@@ -477,6 +502,75 @@
       },
       "required": ["memory_job_id", "stage", "error_code", "retryable"],
       "additionalProperties": false
+    },
+    "MemoryRetrievalCompletedPayload": {
+      "type": "object",
+      "description": "Retrieval completed: counts, threshold, timing, and token estimates.",
+      "properties": {
+        "trace_id": {"$ref": "#/$defs/RetrievalTraceId"},
+        "mode": {"type": "string", "enum": ["tfidf", "tfidf_degraded"]},
+        "algorithm_version": {"type": "string", "const": "char_tfidf_v1"},
+        "candidate_count": {"type": "integer", "minimum": 0},
+        "retrieved_count": {"type": "integer", "minimum": 0},
+        "selected_count": {"type": "integer", "minimum": 0},
+        "injected_count": {"type": "integer", "minimum": 0},
+        "threshold": {"type": "number", "minimum": 0, "maximum": 1},
+        "top_k": {"type": "integer", "minimum": 1},
+        "retrieval_ms": {"type": "integer", "minimum": 0},
+        "memory_chars": {"type": "integer", "minimum": 0},
+        "estimated_tokens": {"type": "integer", "minimum": 0},
+        "prompt_section_hash": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+      },
+      "required": ["trace_id", "mode", "algorithm_version", "candidate_count", "retrieved_count", "selected_count", "injected_count", "threshold", "top_k", "retrieval_ms", "memory_chars", "estimated_tokens", "prompt_section_hash"],
+      "additionalProperties": false
+    },
+    "MemoryInjectedPayload": {
+      "type": "object",
+      "description": "One injected memory receipt per selected card.",
+      "properties": {
+        "usage_id": {"$ref": "#/$defs/UsageId"},
+        "trace_id": {"$ref": "#/$defs/RetrievalTraceId"},
+        "memory_id": {"$ref": "#/$defs/MemoryId"},
+        "memory_version_id": {"$ref": "#/$defs/MemoryVersionId"},
+        "rank": {"type": "integer", "minimum": 1},
+        "estimated_tokens": {"type": "integer", "minimum": 0},
+        "prompt_section_hash": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+      },
+      "required": ["usage_id", "trace_id", "memory_id", "memory_version_id", "rank", "estimated_tokens", "prompt_section_hash"],
+      "additionalProperties": false
+    },
+    "MemoryUsageVerifiedPayload": {
+      "type": "object",
+      "description": "Verification result for an injected memory receipt.",
+      "properties": {
+        "usage_id": {"$ref": "#/$defs/UsageId"},
+        "memory_id": {"$ref": "#/$defs/MemoryId"},
+        "memory_version_id": {"$ref": "#/$defs/MemoryVersionId"},
+        "verification_status": {"type": "string", "enum": ["pending", "applied", "violated", "not_observable", "unknown"]},
+        "verification_method": {"type": "string", "enum": ["exact_substring", "structured_provider"]},
+        "evidence_present": {"type": "boolean"}
+      },
+      "required": ["usage_id", "memory_id", "memory_version_id", "verification_status", "verification_method", "evidence_present"],
+      "additionalProperties": false
+    },
+    "MemoryUsageFeedbackRecordedPayload": {
+      "type": "object",
+      "description": "User feedback on a memory usage receipt.",
+      "properties": {
+        "usage_id": {"$ref": "#/$defs/UsageId"},
+        "memory_id": {"$ref": "#/$defs/MemoryId"},
+        "user_effect": {"type": "string", "enum": ["helpful", "harmful", "stale"]}
+      },
+      "required": ["usage_id", "memory_id", "user_effect"],
+      "additionalProperties": false
+    },
+    "RetrievalTraceId": {
+      "type": "string",
+      "pattern": "^trace_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "UsageId": {
+      "type": "string",
+      "pattern": "^usage_[0-9A-HJKMNP-TV-Z]{26}$"
     }
   }
 }

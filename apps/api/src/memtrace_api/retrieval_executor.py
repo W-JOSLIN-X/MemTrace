@@ -39,8 +39,9 @@ def estimate_tokens(text: str) -> int:
     return math.ceil(len(text.encode("utf-8")) / 3)
 
 
-def compile_memory_block(mem_id: str, ver_id: str, score: float,
-                         when: str, do: str, avoid: str, exc: str) -> str:
+def compile_memory_block(
+    mem_id: str, ver_id: str, score: float, when: str, do: str, avoid: str, exc: str
+) -> str:
     return (
         f'<MEMORY id="{mem_id}" version="{ver_id}" score="{safe_round(score):.6f}">\n'
         f"<WHEN>{escape_xml(when)}</WHEN>\n"
@@ -94,8 +95,17 @@ def _reason_code_str(name: str) -> RetrievalReasonCode:
 
 class RetrievalContext:
     """Context needed to execute retrieval for one run."""
-    def __init__(self, task_id, run_id, request_id, semantic_query,
-                 effective_memory_mode, current_constraints, active_conflict_ids=None):
+
+    def __init__(
+        self,
+        task_id,
+        run_id,
+        request_id,
+        semantic_query,
+        effective_memory_mode,
+        current_constraints,
+        active_conflict_ids=None,
+    ):
         self.task_id = task_id
         self.run_id = run_id
         self.request_id = request_id
@@ -121,15 +131,28 @@ def execute_retrieval(cards, ctx: RetrievalContext, trace_id: str) -> RetrievalR
     # Hard filter each card
     passed = []
     for card in cards:
-        ok, reasons = check_hard_filters(card, None, ctx.effective_memory_mode, ctx.current_constraints)
+        ok, reasons = check_hard_filters(
+            card, None, ctx.effective_memory_mode, ctx.current_constraints
+        )
         if not ok:
-            result.decisions.append(RetrievalDecision(
-                memory_id=card.id, memory_version_id=card.current_version_id,
-                memory_status=card.status, retrieved=False, selected=False, injected=False,
-                rank=None, scope_match=None, semantic_similarity=None,
-                provenance_confidence=None, verified_effect=None, recency=None, final_score=None,
-                reason_codes=[_reason_code_str(r) for r in reasons],
-            ))
+            result.decisions.append(
+                RetrievalDecision(
+                    memory_id=card.id,
+                    memory_version_id=card.current_version_id,
+                    memory_status=card.status,
+                    retrieved=False,
+                    selected=False,
+                    injected=False,
+                    rank=None,
+                    scope_match=None,
+                    semantic_similarity=None,
+                    provenance_confidence=None,
+                    verified_effect=None,
+                    recency=None,
+                    final_score=None,
+                    reason_codes=[_reason_code_str(r) for r in reasons],
+                )
+            )
         else:
             passed.append(card)
 
@@ -143,13 +166,24 @@ def execute_retrieval(cards, ctx: RetrievalContext, trace_id: str) -> RetrievalR
 
     if not q_vec:
         for card in passed:
-            result.decisions.append(RetrievalDecision(
-                memory_id=card.id, memory_version_id=card.current_version_id,
-                memory_status=card.status, retrieved=True, selected=False, injected=False,
-                rank=None, scope_match=None, semantic_similarity=0.0,
-                provenance_confidence=None, verified_effect=None, recency=None, final_score=0.0,
-                reason_codes=[RetrievalReasonCode.EMPTY_VECTOR],
-            ))
+            result.decisions.append(
+                RetrievalDecision(
+                    memory_id=card.id,
+                    memory_version_id=card.current_version_id,
+                    memory_status=card.status,
+                    retrieved=True,
+                    selected=False,
+                    injected=False,
+                    rank=None,
+                    scope_match=None,
+                    semantic_similarity=0.0,
+                    provenance_confidence=None,
+                    verified_effect=None,
+                    recency=None,
+                    final_score=0.0,
+                    reason_codes=[RetrievalReasonCode.EMPTY_VECTOR],
+                )
+            )
         return result
 
     mem_docs = [build_memory_document(c) for c in passed]
@@ -159,7 +193,9 @@ def execute_retrieval(cards, ctx: RetrievalContext, trace_id: str) -> RetrievalR
     scored = []
     for i, card in enumerate(passed):
         sim = cosine_similarity(q_vec, mem_vecs[i])
-        cs_dict = json.loads(card.scope_json) if isinstance(card.scope_json, str) else card.scope_json
+        cs_dict = (
+            json.loads(card.scope_json) if isinstance(card.scope_json, str) else card.scope_json
+        )
         scope = compute_scope_match(cs_dict, None)
         prov = min(card.source_trust, card.rule_confidence or 0, card.scope_confidence or 0)
         ve = compute_verified_effect(card.helpful_count, card.harmful_count, card.stale_count)
@@ -179,28 +215,55 @@ def execute_retrieval(cards, ctx: RetrievalContext, trace_id: str) -> RetrievalR
     selected_ids = {c.id for c, *_ in selected}
     for card, sim, scope, prov, ve, rec, final in scored:
         is_sel = card.id in selected_ids
-        rank = next((j+1 for j, (s, *_) in enumerate(selected) if s.id == card.id), None)
-        reasons = [RetrievalReasonCode.SELECTED_ABOVE_THRESHOLD] if is_sel else [RetrievalReasonCode.BELOW_THRESHOLD]
-        result.decisions.append(RetrievalDecision(
-            memory_id=card.id, memory_version_id=card.current_version_id,
-            memory_status=card.status, retrieved=True, selected=is_sel, injected=False,
-            rank=rank, scope_match=safe_round(scope), semantic_similarity=safe_round(sim),
-            provenance_confidence=safe_round(prov), verified_effect=safe_round(ve),
-            recency=safe_round(rec), final_score=safe_round(final),
-            reason_codes=reasons,
-        ))
+        rank = next((j + 1 for j, (s, *_) in enumerate(selected) if s.id == card.id), None)
+        reasons = (
+            [RetrievalReasonCode.SELECTED_ABOVE_THRESHOLD]
+            if is_sel
+            else [RetrievalReasonCode.BELOW_THRESHOLD]
+        )
+        result.decisions.append(
+            RetrievalDecision(
+                memory_id=card.id,
+                memory_version_id=card.current_version_id,
+                memory_status=card.status,
+                retrieved=True,
+                selected=is_sel,
+                injected=False,
+                rank=rank,
+                scope_match=safe_round(scope),
+                semantic_similarity=safe_round(sim),
+                provenance_confidence=safe_round(prov),
+                verified_effect=safe_round(ve),
+                recency=safe_round(rec),
+                final_score=safe_round(final),
+                reason_codes=reasons,
+            )
+        )
 
     # Prompt budget
     if selected:
         block_texts = []
         for card, sim, scope, prov, ve, rec, final in selected:
-            cs_dict = json.loads(card.scope_json) if isinstance(card.scope_json, str) else card.scope_json
-            exc_list = json.loads(card.exceptions_json) if isinstance(card.exceptions_json, str) else (card.exceptions_json or [])
+            cs_dict = (
+                json.loads(card.scope_json) if isinstance(card.scope_json, str) else card.scope_json
+            )
+            exc_list = (
+                json.loads(card.exceptions_json)
+                if isinstance(card.exceptions_json, str)
+                else (card.exceptions_json or [])
+            )
             when = card.trigger_text or _scope_summary(cs_dict)
-            block_texts.append(compile_memory_block(
-                card.id, card.current_version_id, final,
-                when, card.rule, card.avoid, ", ".join(exc_list),
-            ))
+            block_texts.append(
+                compile_memory_block(
+                    card.id,
+                    card.current_version_id,
+                    final,
+                    when,
+                    card.rule,
+                    card.avoid,
+                    ", ".join(exc_list),
+                )
+            )
 
         section, tokens, h = compile_prompt_section(block_texts)
         if tokens <= 300:
