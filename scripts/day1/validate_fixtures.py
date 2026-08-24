@@ -156,7 +156,7 @@ def validate_day3_learning_events(api_schema: dict[str, Any]) -> None:
     fixture = load_json(DAY3_FIXTURE_ROOT / "learning_events.json")
     scan_forbidden(fixture, "learning_events")
     assert fixture["contract_version"] == "1.2.0"
-    assert fixture["review_status"] == "member_a_initial_labeling"
+    assert fixture["review_status"] == "member_b_approved_2026-08-24"
     entries = fixture["entries"]
     assert len(entries) >= 24, (
         f"Day 3 learning events need >=24 entries, got {len(entries)}"

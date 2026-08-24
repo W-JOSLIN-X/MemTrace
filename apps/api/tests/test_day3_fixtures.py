@@ -8,6 +8,8 @@ compares expectations, not spelling drift.
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 
 import jsonschema
 import pytest
@@ -53,6 +55,17 @@ def test_fixture_declares_contract_and_review_status(fixture: dict) -> None:
     assert fixture["contract_version"] == "1.2.0"
     assert fixture["review_status"] == "member_b_approved_2026-08-24"
     assert len(fixture["entries"]) >= 24
+
+
+def test_repository_fixture_validator_accepts_member_b_reviewed_fixture() -> None:
+    result = subprocess.run(
+        [sys.executable, str(PROJECT_ROOT / "scripts" / "day1" / "validate_fixtures.py")],
+        cwd=PROJECT_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_entry_ids_are_unique(fixture: dict) -> None:
