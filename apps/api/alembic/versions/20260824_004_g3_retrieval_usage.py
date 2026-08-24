@@ -155,7 +155,7 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column("last_used_at", sa.DateTime(timezone=True), nullable=True))
 
     # --- memory_versions created_by_action extended ---
-    with op.batch_alter_table("memory_versions", schema_kwargs={"sqlite_include_schema": True}) as batch_op:
+    with op.batch_alter_table("memory_versions") as batch_op:
         batch_op.alter_column(
             "created_by_action",
             existing_type=sa.String(32),
