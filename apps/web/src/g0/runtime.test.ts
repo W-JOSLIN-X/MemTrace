@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest'
 import {
   ContractError,
   parseErrorResponse,
+  parseMemoryDetailResponse,
+  parseMemoryListResponse,
+  parseResolveRequest,
+  parseResolveResponse,
   parseSseEvent,
   parseTaskSnapshot,
 } from './runtime'
@@ -18,6 +22,10 @@ import {
   TASK_ID,
   makeSnapshot,
 } from '../test/g0Fixtures'
+import {
+  makeMemoryDetail,
+  makeResolveResponse,
+} from '../test/day3Fixtures'
 
 describe('G0 runtime contract parser', () => {
   it('requires a persistent wire id equal to data.event_seq', () => {
@@ -89,8 +97,11 @@ describe('G0 runtime contract parser', () => {
     const snapshot = makeSnapshot({
       fingerprint: {
         id: 'fp_01J00000000000000000000000',
-        schema_version: '1.0',
+        schema_version: '1.1',
         domain: 'programming_learning',
+        classification_source: 'auto_rule_v1',
+        classification_confidence: 0.95,
+        classification_reasons: ['code_present', 'debugging_cue'],
         task_type: 'debugging_guidance',
         artifact_type: 'source_code',
         audience: 'beginner',
@@ -167,5 +178,111 @@ describe('G0 runtime contract parser', () => {
         },
       }),
     ).toBeNull()
+  })
+
+  it('accepts G1 TaskSnapshot fields and rejects unknown extra fields', () => {
+    const validSnapshot = makeSnapshot({
+      task_text: 'sample task text',
+      scenario: 'programming_learning',
+      messages: [
+        {
+          message_id: 'msg_01J00000000000000000000001',
+          run_id: RUN_ID,
+          role: 'user',
+          content: 'sample task text',
+          created_at: AT,
+        },
+      ],
+      feedback_events: [
+        {
+          feedback_id: 'feedback_01J00000000000000000000001',
+          run_id: RUN_ID,
+          feedback_type: 'rating',
+          explicit_text: null,
+          edited_output: null,
+          rating: 4,
+          accepted: null,
+          memory_job_id: 'job_01J00000000000000000000001',
+          created_at: AT,
+        },
+      ],
+    })
+    const parsed = parseTaskSnapshot(validSnapshot)
+    expect(parsed.task_text).toBe('sample task text')
+    expect(parsed.messages?.length).toBe(1)
+    expect(parsed.feedback_events?.length).toBe(1)
+
+    const withExtra = {
+      ...validSnapshot,
+      unexpected_field: 'forbidden',
+    }
+    expect(() => parseTaskSnapshot(withExtra)).toThrow(ContractError)
+  })
+
+  it('parses feedback.recorded SSE event correctly', () => {
+    const raw = JSON.stringify({
+      event_version: '1.0',
+      event_type: 'feedback.recorded',
+      event_seq: 14,
+      task_id: TASK_ID,
+      run_id: RUN_ID,
+      at: AT,
+      data: {
+        feedback_id: 'feedback_01J00000000000000000000001',
+        memory_job_id: 'job_01J00000000000000000000001',
+        feedback_type: 'composite',
+      },
+    })
+    const event = parseSseEvent('feedback.recorded', raw, '14')
+    expect(event.event_type).toBe('feedback.recorded')
+    expect(event.event_seq).toBe(14)
+  })
+
+  it('strictly parses Day 3 cards, evidence, lists, and resolve responses', () => {
+    const detail = makeMemoryDetail()
+    expect(parseMemoryDetailResponse(detail)).toEqual(detail)
+    expect(
+      parseMemoryListResponse({
+        request_id: REQUEST_ID,
+        items: [detail.card],
+        next_cursor: detail.card.memory_id,
+      }).items,
+    ).toEqual([detail.card])
+    expect(parseResolveResponse(makeResolveResponse()).card.status).toBe('active')
+
+    const missingNullable = {
+      ...detail.card,
+    } as Record<string, unknown>
+    delete missingNullable.current_version_id
+    expect(() =>
+      parseMemoryListResponse({
+        request_id: REQUEST_ID,
+        items: [missingNullable],
+        next_cursor: null,
+      }),
+    ).toThrow(ContractError)
+  })
+
+  it('normalizes missing and null resolve patches and allows clearing avoid', () => {
+    expect(parseResolveRequest({ action: 'accept' })).toEqual({
+      action: 'accept',
+      patch: null,
+    })
+    expect(parseResolveRequest({ action: 'accept', patch: null })).toEqual({
+      action: 'accept',
+      patch: null,
+    })
+    expect(
+      parseResolveRequest({
+        action: 'edit_accept',
+        patch: { avoid: '' },
+      }),
+    ).toEqual({ action: 'edit_accept', patch: { avoid: '' } })
+    expect(() =>
+      parseResolveRequest({ action: 'edit_accept', patch: null }),
+    ).toThrow(ContractError)
+    expect(() =>
+      parseResolveRequest({ action: 'reject', patch: { avoid: '' } }),
+    ).toThrow(ContractError)
   })
 })

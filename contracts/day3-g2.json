@@ -1,0 +1,132 @@
+{
+  "contract_version": "1.2.0",
+  "document_role": "audit_manifest",
+  "gate": "G2",
+  "normative_contracts": {
+    "api_bodies": "contracts/schemas/g0-api.schema.json",
+    "sse_data": "contracts/schemas/events.schema.json",
+    "openapi_export": "contracts/openapi.json"
+  },
+  "compatibility": {
+    "from_g1_version": "1.1.0",
+    "bump": "minor",
+    "breaking_changes": [
+      "MemoryJobResponse gains feedback_id, candidate_ids, disposition, error_code, and retryable; the old error field is removed and the stage enum expands to the G2 stages"
+    ],
+    "non_breaking_changes": [
+      "new REST bodies for resolve, memory list, and memory detail",
+      "four new persistent SSE events",
+      "new memory error codes and memory job error codes"
+    ]
+  },
+  "scope": {
+    "gate": "G2",
+    "pipeline": "feedback/edit-diff -> MemoryJob -> durability + category -> 0..3 candidate MemoryCards -> real evidence -> resolve (accept/edit_accept/reject/one_shot)",
+    "candidate_only": true,
+    "no_active_without_confirmation": true,
+    "one_shot_pollution_prohibited": true,
+    "provider_mode": "MOCK_MODE=true deterministic baseline; real provider unverified without LLM_API_KEY"
+  },
+  "id_format": {
+    "new_entity_prefixes": {
+      "memory": "mem",
+      "memory_version": "memver",
+      "evidence": "evidence"
+    },
+    "rule": "each prefix is followed by a 26-character uppercase Crockford Base32 ULID"
+  },
+  "memory_job_state_machine": {
+    "status": "pending -> running -> completed | failed; failed -> pending only via explicit retry",
+    "stages": {
+      "boundary": ["queued", "done", "failed"],
+      "counted_five": ["diffing", "classifying_durability", "extracting", "validating", "admitting"]
+    },
+    "job_retry_rule": "only the owner's failed job is retryable; same idempotency key + body replays, different body returns 409, pending/running/completed are not re-enqueued"
+  },
+  "category_to_kind_mapping": {
+    "preference": {"kind": "preference"},
+    "rule": {"kind": "constraint_or_procedure", "rule": "must/forbid maps to constraint; reusable steps map to procedure; the server decides"},
+    "experience": {"kind": "experience"},
+    "one_shot": {"kind": null, "rule": "no long-term card; episode disposition saved"},
+    "no_memory": {"kind": null, "rule": "no card when evidence is missing or not reusable"}
+  },
+  "memory_card_admission_invariants": {
+    "before_confirm": "status=candidate, version=0, current_version_id=null, rule_confidence=null, scope_confidence=null",
+    "explicit_durable_effect": "save_preselected=true only; never sets status=active",
+    "after_accept_or_edit_accept": "immutable v1 created, confidence set to user-confirmed value, status=active atomically",
+    "reject_or_one_shot": "no version created; status=rejected"
+  },
+  "resolve_actions": ["accept", "edit_accept", "reject", "one_shot"],
+  "read_api": {
+    "list": "GET /api/v1/memories?status=candidate|active|rejected&cursor=...",
+    "detail": "GET /api/v1/memories/{memory_id}",
+    "owner_isolation": "list/detail/job/candidate/resolve all 404 for cross-owner or missing",
+    "no_body_in_events": "event_log and SSE never carry feedback, rule, diff, evidence, or model body text"
+  },
+  "new_endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/v1/memory-jobs/{job_id}/retry",
+      "success_status": 202,
+      "headers": ["Idempotency-Key"],
+      "rule": "only the owner's failed job; same key+body replays, different body 409"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memory-candidates/{memory_id}/resolve",
+      "success_status": 200,
+      "headers": ["Idempotency-Key"],
+      "rule": "accept/edit_accept/reject/one_shot; re-runs admission guard for accept/edit_accept"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memories",
+      "success_status": 200,
+      "rule": "owner-isolated candidate/active/rejected list with cursor pagination"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memories/{memory_id}",
+      "success_status": 200,
+      "rule": "owner-isolated card projection, evidence drawer data, and version metadata"
+    }
+  ],
+  "new_persistent_events": [
+    "memory.extraction.stage",
+    "memory.candidate.created",
+    "memory.admission.resolved",
+    "memory.job.failed"
+  ],
+  "event_payload_rules": {
+    "memory.extraction.stage": "memory_job_id, stage",
+    "memory.candidate.created": "memory_job_id, memory_id, evidence_id, ordinal",
+    "memory.admission.resolved": "memory_id, old_status, new_status, memory_version_id?, disposition",
+    "memory.job.failed": "memory_job_id, stage, error_code, retryable"
+  },
+  "new_http_error_codes": {
+    "MEMORY_NOT_FOUND": "single 404 for missing or cross-owner memory candidate, job retry, or detail",
+    "MEMORY_ALREADY_RESOLVED": "409 when an already-resolved card is resolved again with a new idempotency key",
+    "MEMORY_JOB_NOT_RETRYABLE": "409 when a pending/running/completed job is retried"
+  },
+  "new_job_error_codes": [
+    "MEMORY_JOB_INTERRUPTED",
+    "MEMORY_JSON_INVALID",
+    "MEMORY_SCHEMA_INVALID",
+    "MEMORY_REPAIR_FAILED",
+    "MEMORY_PROVIDER_ERROR",
+    "MEMORY_PROVIDER_TIMEOUT",
+    "MEMORY_EVIDENCE_NOT_FOUND",
+    "MEMORY_NO_REUSABLE_CONTENT",
+    "MEMORY_SCOPE_TOO_BROAD"
+  ],
+  "http_error_mapping": {
+    "401": "SESSION_REQUIRED when cookie is missing, expired, revoked, or tampered",
+    "404": "MEMORY_NOT_FOUND for memory candidate/job/detail; TASK_NOT_FOUND for tasks; all cross-owner access 404",
+    "409": "MEMORY_ALREADY_RESOLVED, MEMORY_JOB_NOT_RETRYABLE, IDEMPOTENCY_CONFLICT, TASK_NOT_READY_FOR_FEEDBACK",
+    "422": "VALIDATION_ERROR or FEEDBACK_NO_CHANGES; resolve requests rejecting kind/owner/status or carrying a patch on a non-edit action",
+    "503": "PROVIDER_CONFIG_MISSING or readiness failure",
+    "500": "INTERNAL_ERROR with sanitized error envelope"
+  },
+  "mock_examples": "contracts/examples/day3-g2.json",
+  "frontend_contract_note": "frontend types, parser, and Mock fixtures must derive from these schemas; neither side invents a second spelling"
+}

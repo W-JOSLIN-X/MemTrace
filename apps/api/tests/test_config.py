@@ -98,3 +98,17 @@ def test_formatter_redacts_exception_message() -> None:
     rendered = RedactingFormatter("%(message)s", secrets=[secret]).format(record)
     assert secret not in rendered
     assert "[REDACTED]" in rendered
+
+
+def test_session_secret_and_database_url_configuration() -> None:
+    settings = Settings(
+        _env_file=None,
+        session_secret="0123456789abcdef0123456789abcdef",
+        memtrace_database_url="sqlite:///data/custom.sqlite3",
+        cookie_secure=True,
+    )
+    assert settings.session_secret is not None
+    assert settings.session_secret.get_secret_value() == "0123456789abcdef0123456789abcdef"
+    assert "0123456789abcdef0123456789abcdef" not in repr(settings)
+    assert settings.cookie_secure is True
+    assert (PROJECT_ROOT / "data" / "custom.sqlite3").as_posix() in settings.memtrace_database_url

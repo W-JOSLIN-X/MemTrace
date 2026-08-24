@@ -55,10 +55,8 @@ def build_document() -> dict[str, object]:
 
 
 def main() -> None:
-    OUTPUT_PATH.write_text(
-        json.dumps(build_document(), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    with OUTPUT_PATH.open("w", encoding="utf-8", newline="\n") as output:
+        output.write(json.dumps(build_document(), ensure_ascii=False, indent=2) + "\n")
     print(OUTPUT_PATH)
 
 

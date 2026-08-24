@@ -11,11 +11,22 @@ from pydantic import Field, StringConstraints, model_validator
 from memtrace_api.schemas import (
     ArtifactType,
     AsyncErrorCode,
+    ClassificationReasonCode,
     CodeSource,
     ContractModel,
+    Disposition,
     Domain,
     ErrorId,
+    EvidenceId,
+    FeedbackId,
+    FeedbackType,
     FingerprintId,
+    MemoryCardStatus,
+    MemoryId,
+    MemoryJobErrorCode,
+    MemoryJobId,
+    MemoryJobStage,
+    MemoryVersionId,
     MessageId,
     PlanId,
     ProgrammingLanguage,
@@ -43,6 +54,11 @@ class EventType(StrEnum):
     RUN_FAILED = "run.failed"
     ERROR = "error"
     STREAM_DONE = "stream.done"
+    FEEDBACK_RECORDED = "feedback.recorded"
+    MEMORY_EXTRACTION_STAGE = "memory.extraction.stage"
+    MEMORY_CANDIDATE_CREATED = "memory.candidate.created"
+    MEMORY_ADMISSION_RESOLVED = "memory.admission.resolved"
+    MEMORY_JOB_FAILED = "memory.job.failed"
 
 
 PERSISTENT_EVENT_TYPES = frozenset(
@@ -58,6 +74,11 @@ PERSISTENT_EVENT_TYPES = frozenset(
         EventType.RUN_FAILED,
         EventType.ERROR,
         EventType.STREAM_DONE,
+        EventType.FEEDBACK_RECORDED,
+        EventType.MEMORY_EXTRACTION_STAGE,
+        EventType.MEMORY_CANDIDATE_CREATED,
+        EventType.MEMORY_ADMISSION_RESOLVED,
+        EventType.MEMORY_JOB_FAILED,
     }
 )
 
@@ -84,6 +105,9 @@ class TaskStagePayload(ContractModel):
 class TaskFingerprintedPayload(ContractModel):
     fingerprint_id: FingerprintId
     domain: Domain
+    classification_source: Literal["auto_rule_v1"] = "auto_rule_v1"
+    classification_confidence: float = Field(ge=0, le=1)
+    classification_reasons: Annotated[list[ClassificationReasonCode], Field(max_length=5)]
     task_type: TaskType
     artifact_type: ArtifactType
     language: ProgrammingLanguage
@@ -91,13 +115,13 @@ class TaskFingerprintedPayload(ContractModel):
 
 class MemoryRetrievalStartedPayload(ContractModel):
     memory_count: Literal[0] = 0
-    summary: Literal["no_long_term_memory_day1"] = "no_long_term_memory_day1"
+    summary: Literal["no_long_term_memory_day2"] = "no_long_term_memory_day2"
 
 
 class AgentPlanPublishedPayload(ContractModel):
     plan_id: PlanId
     goal_code: Literal["analyze_code", "answer_question", "explain_concept", "other"]
-    memory_summary_code: Literal["no_long_term_memory_day1"] = "no_long_term_memory_day1"
+    memory_summary_code: Literal["no_long_term_memory_day2"] = "no_long_term_memory_day2"
     next_action_code: Literal["python_ast_check", "generate_directly"]
 
 
@@ -188,6 +212,39 @@ class StreamDonePayload(ContractModel):
     final_snapshot_required: Literal[True] = True
 
 
+class FeedbackRecordedPayload(ContractModel):
+    feedback_id: FeedbackId
+    memory_job_id: MemoryJobId
+    feedback_type: FeedbackType
+
+
+class MemoryExtractionStagePayload(ContractModel):
+    memory_job_id: MemoryJobId
+    stage: MemoryJobStage
+
+
+class MemoryCandidateCreatedPayload(ContractModel):
+    memory_job_id: MemoryJobId
+    memory_id: MemoryId
+    evidence_id: EvidenceId
+    ordinal: int = Field(ge=0, le=2)
+
+
+class MemoryAdmissionResolvedPayload(ContractModel):
+    memory_id: MemoryId
+    old_status: MemoryCardStatus
+    new_status: MemoryCardStatus
+    memory_version_id: MemoryVersionId | None = None
+    disposition: Disposition
+
+
+class MemoryJobFailedPayload(ContractModel):
+    memory_job_id: MemoryJobId
+    stage: MemoryJobStage
+    error_code: MemoryJobErrorCode
+    retryable: bool
+
+
 EventPayload: TypeAlias = (
     TaskCreatedPayload
     | TaskStagePayload
@@ -202,6 +259,11 @@ EventPayload: TypeAlias = (
     | RunFailedPayload
     | ErrorPayload
     | StreamDonePayload
+    | FeedbackRecordedPayload
+    | MemoryExtractionStagePayload
+    | MemoryCandidateCreatedPayload
+    | MemoryAdmissionResolvedPayload
+    | MemoryJobFailedPayload
 )
 
 PAYLOAD_TYPES: dict[EventType, type[ContractModel]] = {
@@ -218,6 +280,11 @@ PAYLOAD_TYPES: dict[EventType, type[ContractModel]] = {
     EventType.RUN_FAILED: RunFailedPayload,
     EventType.ERROR: ErrorPayload,
     EventType.STREAM_DONE: StreamDonePayload,
+    EventType.FEEDBACK_RECORDED: FeedbackRecordedPayload,
+    EventType.MEMORY_EXTRACTION_STAGE: MemoryExtractionStagePayload,
+    EventType.MEMORY_CANDIDATE_CREATED: MemoryCandidateCreatedPayload,
+    EventType.MEMORY_ADMISSION_RESOLVED: MemoryAdmissionResolvedPayload,
+    EventType.MEMORY_JOB_FAILED: MemoryJobFailedPayload,
 }
 
 

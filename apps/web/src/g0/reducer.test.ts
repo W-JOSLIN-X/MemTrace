@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
 import { createInitialG0State, g0Reducer, mergeChunk } from './reducer'
-import type { AgentChunkEvent, TaskCreatedEvent, TaskStageEvent } from './types'
+import type {
+  AgentChunkEvent,
+  MemoryAdmissionResolvedEvent,
+  MemoryCandidateCreatedEvent,
+  MemoryExtractionStageEvent,
+  MemoryJobFailedEvent,
+  TaskCreatedEvent,
+  TaskStageEvent,
+} from './types'
 import {
   AT,
   RUN_ID,
@@ -11,11 +19,17 @@ import {
   makeAccepted,
   makeSnapshot,
 } from '../test/g0Fixtures'
+import {
+  EVIDENCE_ID,
+  MEMORY_ID,
+  MEMORY_JOB_ID,
+} from '../test/day3Fixtures'
 
 function acceptedState() {
   return g0Reducer(createInitialG0State(), {
     type: 'task_accepted',
     accepted: makeAccepted(),
+    taskText: '解释列表越界',
   })
 }
 
@@ -174,5 +188,71 @@ describe('G0 reducer idempotency and byte offsets', () => {
     expect(enriched.terminal).toBe(false)
     expect(enriched.lastPersistentEventSeq).toBe(4)
     expect(enriched.output).toBe('你好')
+  })
+
+  it('reduces all four Day 3 persistent events into recoverable state', () => {
+    const stage: MemoryExtractionStageEvent = {
+      event_version: '1.0',
+      event_type: 'memory.extraction.stage',
+      event_seq: 1,
+      task_id: TASK_ID,
+      run_id: RUN_ID,
+      at: AT,
+      data: { memory_job_id: MEMORY_JOB_ID, stage: 'extracting' },
+    }
+    const candidate: MemoryCandidateCreatedEvent = {
+      event_version: '1.0',
+      event_type: 'memory.candidate.created',
+      event_seq: 2,
+      task_id: TASK_ID,
+      run_id: RUN_ID,
+      at: AT,
+      data: {
+        memory_job_id: MEMORY_JOB_ID,
+        memory_id: MEMORY_ID,
+        evidence_id: EVIDENCE_ID,
+        ordinal: 0,
+      },
+    }
+    const resolved: MemoryAdmissionResolvedEvent = {
+      event_version: '1.0',
+      event_type: 'memory.admission.resolved',
+      event_seq: 3,
+      task_id: TASK_ID,
+      run_id: RUN_ID,
+      at: AT,
+      data: {
+        memory_id: MEMORY_ID,
+        old_status: 'candidate',
+        new_status: 'rejected',
+        memory_version_id: null,
+        disposition: 'episode_only',
+      },
+    }
+    const failed: MemoryJobFailedEvent = {
+      event_version: '1.0',
+      event_type: 'memory.job.failed',
+      event_seq: 4,
+      task_id: TASK_ID,
+      run_id: RUN_ID,
+      at: AT,
+      data: {
+        memory_job_id: MEMORY_JOB_ID,
+        stage: 'failed',
+        error_code: 'MEMORY_PROVIDER_ERROR',
+        retryable: true,
+      },
+    }
+
+    const state = [stage, candidate, resolved, failed].reduce(
+      (current, event) => g0Reducer(current, { type: 'sse_event', event }),
+      acceptedState(),
+    )
+    expect(state.memoryJobStages[MEMORY_JOB_ID]).toBe('failed')
+    expect(state.memoryCandidateIds[MEMORY_JOB_ID]).toEqual([MEMORY_ID])
+    expect(state.memoryEvidenceIds[MEMORY_ID]).toEqual([EVIDENCE_ID])
+    expect(state.memoryDispositions[MEMORY_ID]).toBe('episode_only')
+    expect(state.memoryJobFailures[MEMORY_JOB_ID]?.retryable).toBe(true)
+    expect(state.lastPersistentEventSeq).toBe(4)
   })
 })

@@ -31,6 +31,20 @@ class ErrorCode(StrEnum):
     TOOL_INPUT_INVALID = "TOOL_INPUT_INVALID"
     STREAM_INTERRUPTED = "STREAM_INTERRUPTED"
     INTERNAL_ERROR = "INTERNAL_ERROR"
+    # Day 2 G1 additions. These are REST-level codes; async run failures still
+    # use AsyncErrorCode above. SESSION_REQUIRED is the single 401 for any
+    # missing, expired, revoked, or tampered demo-session cookie so that the
+    # response never leaks whether a session ever existed.
+    SESSION_REQUIRED = "SESSION_REQUIRED"
+    IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
+    FEEDBACK_NO_CHANGES = "FEEDBACK_NO_CHANGES"
+    TASK_NOT_READY_FOR_FEEDBACK = "TASK_NOT_READY_FOR_FEEDBACK"
+    # Day 3 G2 memory admission errors. MEMORY_NOT_FOUND is the single 404 for a
+    # missing or cross-owner memory candidate, job retry, or detail; it never
+    # leaks object existence.
+    MEMORY_NOT_FOUND = "MEMORY_NOT_FOUND"
+    MEMORY_ALREADY_RESOLVED = "MEMORY_ALREADY_RESOLVED"
+    MEMORY_JOB_NOT_RETRYABLE = "MEMORY_JOB_NOT_RETRYABLE"
 
 
 class ValidationFieldError(ContractModel):
@@ -44,7 +58,16 @@ class ErrorDetails(ContractModel):
     task_id: str | None = None
     run_id: str | None = None
     provider_status: int | None = Field(default=None, ge=400, le=599)
-    check: Literal["provider_configuration", "data_directory"] | None = None
+    check: (
+        Literal[
+            "provider_configuration",
+            "data_directory",
+            "database_connection",
+            "migration_revision",
+            "session_secret",
+        ]
+        | None
+    ) = None
     http_status: int | None = Field(default=None, ge=400, le=599)
 
 

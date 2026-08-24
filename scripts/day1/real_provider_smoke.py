@@ -1,10 +1,11 @@
-"""Run a content-redacted G0 Provider smoke against an already-running API."""
+"""Run a content-redacted G1 Provider smoke against an already-running API."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -86,11 +87,17 @@ def run_smoke(
             "ready provider mode does not match the requested gate",
         )
 
+        session_response = client.post(
+            urljoin(normalized_base, "api/v1/session/demo"),
+            json={"demo_alias": "blank_demo"},
+        )
+        require(session_response.status_code == 200, "demo session did not return 200")
+
         create_response = client.post(
             urljoin(normalized_base, "api/v1/tasks"),
+            headers={"Idempotency-Key": f"real-provider-smoke-{uuid.uuid4().hex}"},
             json={
                 "task_text": SAFE_TASK_TEXT,
-                "scenario": "programming_learning",
                 "memory_mode": "on",
                 "current_constraints": {
                     "response_policy": "default",
@@ -278,7 +285,7 @@ def run_smoke(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Validate one G0 Provider stream without printing task or answer content."
+        description="Validate one G1 Provider stream without printing task or answer content."
     )
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--expected-mode", choices=("mock", "real"), default="real")

@@ -2,8 +2,15 @@ import {
   G0_EVENT_TYPES,
   type ErrorCode,
   type ErrorResponse,
+  type DemoSessionResponse,
+  type FeedbackCreateAccepted,
   type G0EventType,
   type G0SseEvent,
+  type MemoryDetailResponse,
+  type MemoryJobResponse,
+  type MemoryListResponse,
+  type ResolveRequest,
+  type ResolveResponse,
   type TaskCreateAccepted,
   type TaskSnapshot,
 } from './types'
@@ -17,6 +24,11 @@ const planIdPattern = /^plan_[0-9A-HJKMNP-TV-Z]{26}$/
 const toolCallIdPattern = /^tool_[0-9A-HJKMNP-TV-Z]{26}$/
 const toolResultIdPattern = /^toolres_[0-9A-HJKMNP-TV-Z]{26}$/
 const errorIdPattern = /^err_[0-9A-HJKMNP-TV-Z]{26}$/
+const feedbackIdPattern = /^feedback_[0-9A-HJKMNP-TV-Z]{26}$/
+const memoryJobIdPattern = /^job_[0-9A-HJKMNP-TV-Z]{26}$/
+const memoryIdPattern = /^mem_[0-9A-HJKMNP-TV-Z]{26}$/
+const memoryVersionIdPattern = /^memver_[0-9A-HJKMNP-TV-Z]{26}$/
+const evidenceIdPattern = /^evidence_[0-9A-HJKMNP-TV-Z]{26}$/
 const textEncoder = new TextEncoder()
 
 export class ContractError extends Error {
@@ -100,12 +112,547 @@ export function parseTaskCreateAccepted(value: unknown): TaskCreateAccepted {
   return body as unknown as TaskCreateAccepted
 }
 
+export function parseDemoSessionResponse(value: unknown): DemoSessionResponse {
+  const body = record(value, 'DemoSessionResponse')
+  exactKeys(body, ['request_id', 'demo_alias', 'expires_at'])
+  patternString(body.request_id, requestIdPattern, 'request_id')
+  enumValue(body.demo_alias, ['blank_demo', 'seeded_demo'] as const, 'demo_alias')
+  timestamp(body.expires_at, 'expires_at')
+  return body as unknown as DemoSessionResponse
+}
+
+export function parseFeedbackCreateAccepted(
+  value: unknown,
+): FeedbackCreateAccepted {
+  const body = record(value, 'FeedbackCreateAccepted')
+  exactKeys(body, [
+    'request_id',
+    'feedback_id',
+    'memory_job_id',
+    'feedback_type',
+    'job_status',
+  ])
+  patternString(body.request_id, requestIdPattern, 'request_id')
+  patternString(body.feedback_id, feedbackIdPattern, 'feedback_id')
+  patternString(body.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+  enumValue(
+    body.feedback_type,
+    [
+      'explicit_text',
+      'edited_output',
+      'rating',
+      'accepted',
+      'rejected',
+      'composite',
+    ] as const,
+    'feedback_type',
+  )
+  constant(body.job_status, 'pending', 'job_status')
+  return body as unknown as FeedbackCreateAccepted
+}
+
+export function parseMemoryJobResponse(value: unknown): MemoryJobResponse {
+  const body = record(value, 'MemoryJobResponse')
+  exactKeys(body, [
+    'request_id',
+    'memory_job_id',
+    'feedback_id',
+    'job_type',
+    'status',
+    'stage',
+    'attempt',
+    'candidate_ids',
+    'disposition',
+    'error_code',
+    'retryable',
+    'created_at',
+    'updated_at',
+  ])
+  patternString(body.request_id, requestIdPattern, 'request_id')
+  patternString(body.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+  patternString(body.feedback_id, feedbackIdPattern, 'feedback_id')
+  constant(body.job_type, 'extract_feedback', 'job_type')
+  enumValue(
+    body.status,
+    ['pending', 'running', 'completed', 'failed'] as const,
+    'status',
+  )
+  enumValue(
+    body.stage,
+    [
+      'queued',
+      'diffing',
+      'classifying_durability',
+      'extracting',
+      'validating',
+      'admitting',
+      'done',
+      'failed',
+    ] as const,
+    'stage',
+  )
+  nonNegativeInteger(body.attempt, 'attempt')
+  const candidateIds = arrayValue(body.candidate_ids, 'candidate_ids')
+  if (candidateIds.length > 3) throw new ContractError('candidate_ids exceeds 3')
+  candidateIds.forEach((id) => patternString(id, memoryIdPattern, 'candidate_id'))
+  if (body.disposition !== null) {
+    enumValue(
+      body.disposition,
+      [
+        'candidate_created',
+        'episode_only',
+        'reinforce_usage_only',
+        'no_memory',
+        'failed',
+      ] as const,
+      'disposition',
+    )
+  }
+  if (body.error_code !== null) {
+    enumValue(
+      body.error_code,
+      [
+        'MEMORY_JOB_INTERRUPTED',
+        'MEMORY_JSON_INVALID',
+        'MEMORY_SCHEMA_INVALID',
+        'MEMORY_REPAIR_FAILED',
+        'MEMORY_PROVIDER_ERROR',
+        'MEMORY_PROVIDER_TIMEOUT',
+        'MEMORY_EVIDENCE_NOT_FOUND',
+        'MEMORY_NO_REUSABLE_CONTENT',
+        'MEMORY_SCOPE_TOO_BROAD',
+      ] as const,
+      'error_code',
+    )
+  }
+  booleanValue(body.retryable, 'retryable')
+  timestamp(body.created_at, 'created_at')
+  timestamp(body.updated_at, 'updated_at')
+  return body as unknown as MemoryJobResponse
+}
+
+export function parseResolveRequest(value: unknown): ResolveRequest {
+  const body = record(value, 'ResolveRequest')
+  const actual = Object.keys(body)
+  if (
+    !actual.includes('action') ||
+    actual.some((key) => key !== 'action' && key !== 'patch')
+  ) {
+    throw new ContractError('ResolveRequest has invalid keys')
+  }
+  const action = enumValue(
+    body.action,
+    ['accept', 'edit_accept', 'reject', 'one_shot'] as const,
+    'action',
+  )
+  const patch = actual.includes('patch') ? body.patch : null
+  if (action === 'edit_accept') {
+    if (patch === null || patch === undefined) {
+      throw new ContractError('edit_accept requires patch')
+    }
+    validateMemoryCardPatch(patch)
+  } else if (patch !== null && patch !== undefined) {
+    throw new ContractError('only edit_accept may carry patch')
+  }
+  return {
+    action,
+    patch: patch === undefined ? null : (patch as ResolveRequest['patch']),
+  }
+}
+
+export function parseResolveResponse(value: unknown): ResolveResponse {
+  const body = record(value, 'ResolveResponse')
+  exactKeys(body, [
+    'request_id',
+    'memory_id',
+    'action',
+    'old_status',
+    'new_status',
+    'disposition',
+    'memory_version_id',
+    'card',
+  ])
+  patternString(body.request_id, requestIdPattern, 'request_id')
+  patternString(body.memory_id, memoryIdPattern, 'memory_id')
+  enumValue(
+    body.action,
+    ['accept', 'edit_accept', 'reject', 'one_shot'] as const,
+    'action',
+  )
+  validateMemoryCardStatus(body.old_status, 'old_status')
+  validateMemoryCardStatus(body.new_status, 'new_status')
+  validateDisposition(body.disposition, 'disposition')
+  nullablePattern(
+    body.memory_version_id,
+    memoryVersionIdPattern,
+    'memory_version_id',
+  )
+  validateMemoryCard(body.card)
+  const card = body.card as Record<string, unknown>
+  if (card.memory_id !== body.memory_id || card.status !== body.new_status) {
+    throw new ContractError('ResolveResponse card does not match resolution')
+  }
+  return body as unknown as ResolveResponse
+}
+
+export function parseMemoryListResponse(value: unknown): MemoryListResponse {
+  const body = record(value, 'MemoryListResponse')
+  exactKeys(body, ['request_id', 'items', 'next_cursor'])
+  patternString(body.request_id, requestIdPattern, 'request_id')
+  const items = arrayValue(body.items, 'items')
+  if (items.length > 100) throw new ContractError('items exceeds 100')
+  items.forEach(validateMemoryCard)
+  if (body.next_cursor !== null) {
+    patternString(body.next_cursor, memoryIdPattern, 'next_cursor')
+  }
+  return body as unknown as MemoryListResponse
+}
+
+export function parseMemoryDetailResponse(
+  value: unknown,
+): MemoryDetailResponse {
+  const body = record(value, 'MemoryDetailResponse')
+  exactKeys(body, ['request_id', 'card', 'evidence', 'versions'])
+  patternString(body.request_id, requestIdPattern, 'request_id')
+  validateMemoryCard(body.card)
+  arrayValue(body.evidence, 'evidence').forEach(validateMemoryEvidence)
+  arrayValue(body.versions, 'versions').forEach(validateMemoryVersion)
+  return body as unknown as MemoryDetailResponse
+}
+
+function validateMemoryCard(value: unknown): void {
+  const body = record(value, 'MemoryCard')
+  exactKeys(body, [
+    'memory_id',
+    'schema_version',
+    'kind',
+    'title',
+    'rule',
+    'avoid',
+    'trigger_text',
+    'scope',
+    'exceptions',
+    'status',
+    'rejection_reason',
+    'source_type',
+    'save_preselected',
+    'source_trust',
+    'rule_confidence',
+    'scope_confidence',
+    'evidence_count',
+    'version',
+    'current_version_id',
+    'created_at',
+    'updated_at',
+  ])
+  patternString(body.memory_id, memoryIdPattern, 'memory_id')
+  constant(body.schema_version, '1.0', 'schema_version')
+  enumValue(
+    body.kind,
+    [
+      'preference',
+      'constraint',
+      'procedure',
+      'experience',
+      'environment',
+      'learning_checkpoint',
+    ] as const,
+    'kind',
+  )
+  validateSizedString(body.title, 4, 40, 'title')
+  validateSizedString(body.rule, 20, 300, 'rule')
+  boundedString(body.avoid, 400, 'avoid')
+  boundedString(body.trigger_text, 240, 'trigger_text')
+  validateMemoryScope(body.scope)
+  validateExceptions(body.exceptions)
+  const status = validateMemoryCardStatus(body.status, 'status')
+  const rejectionReason =
+    body.rejection_reason === null
+      ? null
+      : enumValue(
+          body.rejection_reason,
+          ['user_rejected', 'episode_only'] as const,
+          'rejection_reason',
+        )
+  enumValue(
+    body.source_type,
+    [
+      'explicit_feedback',
+      'explicit_correction',
+      'edit_diff',
+      'accept',
+      'reject',
+      'rating',
+      'outcome',
+      'import',
+    ] as const,
+    'source_type',
+  )
+  booleanValue(body.save_preselected, 'save_preselected')
+  validateUnitInterval(body.source_trust, 'source_trust', false)
+  validateUnitInterval(body.rule_confidence, 'rule_confidence', true)
+  validateUnitInterval(body.scope_confidence, 'scope_confidence', true)
+  nonNegativeInteger(body.evidence_count, 'evidence_count')
+  const version = nonNegativeInteger(body.version, 'version')
+  nullablePattern(
+    body.current_version_id,
+    memoryVersionIdPattern,
+    'current_version_id',
+  )
+  timestamp(body.created_at, 'created_at')
+  timestamp(body.updated_at, 'updated_at')
+  if (
+    status === 'candidate' &&
+    (rejectionReason !== null || version !== 0 || body.current_version_id !== null ||
+      body.rule_confidence !== null || body.scope_confidence !== null)
+  ) {
+    throw new ContractError('candidate card violates admission invariants')
+  }
+  if (
+    status === 'active' &&
+    (rejectionReason !== null || version < 1 || body.current_version_id === null ||
+      body.rule_confidence === null || body.scope_confidence === null)
+  ) {
+    throw new ContractError('active card violates admission invariants')
+  }
+  if (status === 'rejected' && rejectionReason === null) {
+    throw new ContractError('rejected card requires rejection_reason')
+  }
+}
+
+function validateMemoryCardPatch(value: unknown): void {
+  const body = record(value, 'MemoryCardPatch')
+  const allowed = ['title', 'rule', 'avoid', 'scope', 'exceptions']
+  const keys = Object.keys(body)
+  if (keys.length === 0 || keys.some((key) => !allowed.includes(key))) {
+    throw new ContractError('MemoryCardPatch has invalid keys')
+  }
+  if (keys.every((key) => body[key] === null)) {
+    throw new ContractError('MemoryCardPatch must modify a field')
+  }
+  if (body.title !== undefined && body.title !== null) {
+    validateSizedString(body.title, 4, 40, 'patch.title')
+  }
+  if (body.rule !== undefined && body.rule !== null) {
+    validateSizedString(body.rule, 20, 300, 'patch.rule')
+  }
+  if (body.avoid !== undefined && body.avoid !== null) {
+    boundedString(body.avoid, 400, 'patch.avoid')
+  }
+  if (body.scope !== undefined && body.scope !== null) {
+    validateMemoryScope(body.scope)
+  }
+  if (body.exceptions !== undefined && body.exceptions !== null) {
+    validateExceptions(body.exceptions)
+  }
+}
+
+function validateMemoryScope(value: unknown): void {
+  const body = record(value, 'MemoryScope')
+  exactKeys(body, [
+    'level',
+    'domain',
+    'task_type',
+    'artifact_type',
+    'audience',
+    'project_key',
+  ])
+  enumValue(
+    body.level,
+    ['session', 'task_family', 'project', 'global'] as const,
+    'scope.level',
+  )
+  enumValue(
+    body.domain,
+    [
+      'programming_learning',
+      'software_development',
+      'general_text',
+      'other',
+      'any',
+    ] as const,
+    'scope.domain',
+  )
+  if (body.task_type !== null) {
+    enumValue(
+      body.task_type,
+      [
+        'debugging_guidance',
+        'code_review',
+        'code_explanation',
+        'code_generation',
+        'environment_configuration',
+        'general_question',
+        'other',
+      ] as const,
+      'scope.task_type',
+    )
+  }
+  if (body.artifact_type !== null) {
+    enumValue(
+      body.artifact_type,
+      ['source_code', 'configuration', 'text', 'none', 'other'] as const,
+      'scope.artifact_type',
+    )
+  }
+  if (body.audience !== null) {
+    enumValue(
+      body.audience,
+      ['beginner', 'intermediate', 'advanced', 'unknown'] as const,
+      'scope.audience',
+    )
+  }
+  nullableBoundedString(body.project_key, 128, 'scope.project_key')
+}
+
+function validateExceptions(value: unknown): void {
+  const entries = arrayValue(value, 'exceptions')
+  if (entries.length > 8) throw new ContractError('exceptions exceeds 8')
+  entries.forEach((entry) =>
+    enumValue(
+      entry,
+      ['response_policy:direct_fix', 'urgency:urgent'] as const,
+      'exception',
+    ),
+  )
+  if (new Set(entries).size !== entries.length) {
+    throw new ContractError('exceptions contains duplicates')
+  }
+}
+
+function validateMemoryEvidence(value: unknown): void {
+  const body = record(value, 'MemoryEvidenceProjection')
+  exactKeys(body, [
+    'evidence_id',
+    'source_type',
+    'feedback_id',
+    'task_id',
+    'run_id',
+    'evidence_quote',
+    'diff_summary',
+    'normalized_edit_cost',
+    'created_at',
+  ])
+  patternString(body.evidence_id, evidenceIdPattern, 'evidence_id')
+  enumValue(
+    body.source_type,
+    [
+      'explicit_feedback',
+      'explicit_correction',
+      'edit_diff',
+      'accept',
+      'reject',
+      'rating',
+      'outcome',
+      'import',
+    ] as const,
+    'source_type',
+  )
+  nullablePattern(body.feedback_id, feedbackIdPattern, 'feedback_id')
+  nullablePattern(body.task_id, taskIdPattern, 'task_id')
+  nullablePattern(body.run_id, runIdPattern, 'run_id')
+  nonEmptyBoundedString(body.evidence_quote, 2_000, 'evidence_quote')
+  nullableBoundedString(body.diff_summary, 2_000, 'diff_summary')
+  validateUnitInterval(
+    body.normalized_edit_cost,
+    'normalized_edit_cost',
+    true,
+  )
+  timestamp(body.created_at, 'created_at')
+}
+
+function validateMemoryVersion(value: unknown): void {
+  const body = record(value, 'MemoryVersionProjection')
+  exactKeys(body, [
+    'memory_version_id',
+    'version',
+    'title',
+    'rule',
+    'avoid',
+    'trigger_text',
+    'scope',
+    'exceptions',
+    'created_by_action',
+    'created_at',
+  ])
+  patternString(body.memory_version_id, memoryVersionIdPattern, 'memory_version_id')
+  positiveInteger(body.version, 'version')
+  validateSizedString(body.title, 4, 40, 'title')
+  validateSizedString(body.rule, 20, 300, 'rule')
+  boundedString(body.avoid, 400, 'avoid')
+  boundedString(body.trigger_text, 240, 'trigger_text')
+  validateMemoryScope(body.scope)
+  validateExceptions(body.exceptions)
+  enumValue(
+    body.created_by_action,
+    ['accept', 'edit_accept', 'reject', 'one_shot'] as const,
+    'created_by_action',
+  )
+  timestamp(body.created_at, 'created_at')
+}
+
+function validateMemoryCardStatus(value: unknown, label: string) {
+  return enumValue(
+    value,
+    [
+      'candidate',
+      'active',
+      'rejected',
+      'conflicted',
+      'paused',
+      'superseded',
+      'merged',
+      'archived',
+      'deleted',
+    ] as const,
+    label,
+  )
+}
+
+function validateDisposition(value: unknown, label: string) {
+  return enumValue(
+    value,
+    [
+      'candidate_created',
+      'episode_only',
+      'reinforce_usage_only',
+      'no_memory',
+      'failed',
+    ] as const,
+    label,
+  )
+}
+
+function validateSizedString(
+  value: unknown,
+  min: number,
+  max: number,
+  label: string,
+): void {
+  const result = boundedString(value, max, label)
+  if ([...result].length < min) {
+    throw new ContractError(`${label} is too short`)
+  }
+}
+
+function validateUnitInterval(
+  value: unknown,
+  label: string,
+  nullable: boolean,
+): void {
+  if (nullable && value === null) return
+  const result = nonNegativeNumber(value, label)
+  if (result > 1) throw new ContractError(`${label} exceeds 1`)
+}
+
 export function parseTaskSnapshot(value: unknown): TaskSnapshot {
   const body = record(value, 'TaskSnapshot')
   exactKeys(body, [
     'request_id',
     'task_id',
     'run_id',
+    'task_text',
+    'scenario',
     'task_status',
     'run_status',
     'provider_mode',
@@ -117,7 +664,9 @@ export function parseTaskSnapshot(value: unknown): TaskSnapshot {
     'partial_output',
     'end_offset',
     'offset_unit',
+    'messages',
     'final_message',
+    'feedback_events',
     'error',
     'terminal',
     'last_persistent_event_seq',
@@ -126,6 +675,17 @@ export function parseTaskSnapshot(value: unknown): TaskSnapshot {
   patternString(body.request_id, requestIdPattern, 'request_id')
   patternString(body.task_id, taskIdPattern, 'task_id')
   patternString(body.run_id, runIdPattern, 'run_id')
+  nonEmptyBoundedString(body.task_text, 20000, 'task_text')
+  enumValue(
+    body.scenario,
+    [
+      'programming_learning',
+      'software_development',
+      'general_text',
+      'other',
+    ] as const,
+    'scenario',
+  )
   constant(body.task_status, 'active', 'task_status')
   const runStatus = enumValue(
     body.run_status,
@@ -161,7 +721,11 @@ export function parseTaskSnapshot(value: unknown): TaskSnapshot {
   if (utf8ByteLength(partialOutput) !== endOffset) {
     throw new ContractError('partial_output does not match UTF-8 end_offset')
   }
+  const messages = arrayValue(body.messages, 'messages')
+  messages.forEach(validateTaskMessageRecord)
   validateMessage(body.final_message)
+  const feedbackEvents = arrayValue(body.feedback_events, 'feedback_events')
+  feedbackEvents.forEach(validateFeedbackEventRecord)
   validateRunError(body.error)
   const terminal = booleanValue(body.terminal, 'terminal')
   nonNegativeInteger(
@@ -206,6 +770,13 @@ export function parseErrorResponse(value: unknown): ErrorResponse | null {
         'TOOL_INPUT_INVALID',
         'STREAM_INTERRUPTED',
         'INTERNAL_ERROR',
+        'SESSION_REQUIRED',
+        'IDEMPOTENCY_CONFLICT',
+        'FEEDBACK_NO_CHANGES',
+        'TASK_NOT_READY_FOR_FEEDBACK',
+        'MEMORY_NOT_FOUND',
+        'MEMORY_ALREADY_RESOLVED',
+        'MEMORY_JOB_NOT_RETRYABLE',
       ] satisfies readonly ErrorCode[],
       'error.code',
     )
@@ -262,6 +833,9 @@ function validateEventPayload(
       exactKeys(data, [
         'fingerprint_id',
         'domain',
+        'classification_source',
+        'classification_confidence',
+        'classification_reasons',
         'task_type',
         'artifact_type',
         'language',
@@ -276,6 +850,15 @@ function validateEventPayload(
           'other',
         ] as const,
         'domain',
+      )
+      constant(data.classification_source, 'auto_rule_v1', 'classification_source')
+      validateClassificationConfidence(
+        data.classification_confidence,
+        'classification_confidence',
+      )
+      validateClassificationReasons(
+        data.classification_reasons,
+        'classification_reasons',
       )
       enumValue(
         data.task_type,
@@ -300,7 +883,7 @@ function validateEventPayload(
     case 'memory.retrieval.started':
       exactKeys(data, ['memory_count', 'summary'])
       constant(data.memory_count, 0, 'memory_count')
-      constant(data.summary, 'no_long_term_memory_day1', 'summary')
+      constant(data.summary, 'no_long_term_memory_day2', 'summary')
       return
     case 'agent.plan.published':
       exactKeys(data, [
@@ -317,7 +900,7 @@ function validateEventPayload(
       )
       constant(
         data.memory_summary_code,
-        'no_long_term_memory_day1',
+        'no_long_term_memory_day2',
         'memory_summary_code',
       )
       enumValue(
@@ -441,6 +1024,134 @@ function validateEventPayload(
       enumValue(data.status, ['succeeded', 'failed'] as const, 'status')
       constant(data.final_snapshot_required, true, 'final_snapshot_required')
       return
+    case 'feedback.recorded':
+      exactKeys(data, ['feedback_id', 'memory_job_id', 'feedback_type'])
+      patternString(data.feedback_id, feedbackIdPattern, 'feedback_id')
+      patternString(data.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+      enumValue(
+        data.feedback_type,
+        [
+          'explicit_text',
+          'edited_output',
+          'rating',
+          'accepted',
+          'rejected',
+          'composite',
+        ] as const,
+        'feedback_type',
+      )
+      return
+    case 'memory.extraction.stage':
+      exactKeys(data, ['memory_job_id', 'stage'])
+      patternString(data.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+      enumValue(
+        data.stage,
+        [
+          'queued',
+          'diffing',
+          'classifying_durability',
+          'extracting',
+          'validating',
+          'admitting',
+          'done',
+          'failed',
+        ] as const,
+        'stage',
+      )
+      return
+    case 'memory.candidate.created':
+      exactKeys(data, ['memory_job_id', 'memory_id', 'evidence_id', 'ordinal'])
+      patternString(data.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+      patternString(data.memory_id, memoryIdPattern, 'memory_id')
+      patternString(data.evidence_id, evidenceIdPattern, 'evidence_id')
+      boundedInteger(data.ordinal, 0, 2, 'ordinal')
+      return
+    case 'memory.admission.resolved':
+      exactKeys(data, [
+        'memory_id',
+        'old_status',
+        'new_status',
+        'memory_version_id',
+        'disposition',
+      ])
+      patternString(data.memory_id, memoryIdPattern, 'memory_id')
+      enumValue(
+        data.old_status,
+        [
+          'candidate',
+          'active',
+          'rejected',
+          'conflicted',
+          'paused',
+          'superseded',
+          'merged',
+          'archived',
+          'deleted',
+        ] as const,
+        'old_status',
+      )
+      enumValue(
+        data.new_status,
+        [
+          'candidate',
+          'active',
+          'rejected',
+          'conflicted',
+          'paused',
+          'superseded',
+          'merged',
+          'archived',
+          'deleted',
+        ] as const,
+        'new_status',
+      )
+      nullablePattern(data.memory_version_id, memoryVersionIdPattern, 'memory_version_id')
+      enumValue(
+        data.disposition,
+        [
+          'candidate_created',
+          'episode_only',
+          'reinforce_usage_only',
+          'no_memory',
+          'failed',
+        ] as const,
+        'disposition',
+      )
+      return
+    case 'memory.job.failed':
+      exactKeys(data, ['memory_job_id', 'stage', 'error_code', 'retryable'])
+      patternString(data.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+      enumValue(
+        data.stage,
+        [
+          'queued',
+          'diffing',
+          'classifying_durability',
+          'extracting',
+          'validating',
+          'admitting',
+          'done',
+          'failed',
+        ] as const,
+        'stage',
+      )
+      enumValue(
+        data.error_code,
+        [
+          'MEMORY_JOB_INTERRUPTED',
+          'MEMORY_JSON_INVALID',
+          'MEMORY_SCHEMA_INVALID',
+          'MEMORY_REPAIR_FAILED',
+          'MEMORY_PROVIDER_ERROR',
+          'MEMORY_PROVIDER_TIMEOUT',
+          'MEMORY_EVIDENCE_NOT_FOUND',
+          'MEMORY_NO_REUSABLE_CONTENT',
+          'MEMORY_SCOPE_TOO_BROAD',
+        ] as const,
+        'error_code',
+      )
+      booleanValue(data.retryable, 'retryable')
+      return
   }
 }
 
@@ -451,6 +1162,9 @@ function validateFingerprint(value: unknown): void {
     'id',
     'schema_version',
     'domain',
+    'classification_source',
+    'classification_confidence',
+    'classification_reasons',
     'task_type',
     'artifact_type',
     'audience',
@@ -463,11 +1177,24 @@ function validateFingerprint(value: unknown): void {
     'semantic_query',
   ])
   patternString(data.id, fingerprintIdPattern, 'fingerprint.id')
-  constant(data.schema_version, '1.0', 'fingerprint.schema_version')
+  constant(data.schema_version, '1.1', 'fingerprint.schema_version')
   enumValue(
     data.domain,
     ['programming_learning', 'software_development', 'general_text', 'other'] as const,
     'fingerprint.domain',
+  )
+  constant(
+    data.classification_source,
+    'auto_rule_v1',
+    'fingerprint.classification_source',
+  )
+  validateClassificationConfidence(
+    data.classification_confidence,
+    'fingerprint.classification_confidence',
+  )
+  validateClassificationReasons(
+    data.classification_reasons,
+    'fingerprint.classification_reasons',
   )
   enumValue(
     data.task_type,
@@ -516,6 +1243,36 @@ function validateFingerprint(value: unknown): void {
     'fingerprint.semantic_query',
   )
   if (semanticQuery.length === 0) throw new ContractError('semantic_query is empty')
+}
+
+function validateClassificationConfidence(value: unknown, label: string): void {
+  const confidence = nonNegativeNumber(value, label)
+  if (confidence > 1) throw new ContractError(`${label} exceeds 1`)
+}
+
+function validateClassificationReasons(value: unknown, label: string): void {
+  const reasons = arrayValue(value, label)
+  if (reasons.length > 5) throw new ContractError(`${label} exceeds 5 entries`)
+  reasons.forEach((reason) =>
+    enumValue(
+      reason,
+      [
+        'code_present',
+        'technical_context',
+        'debugging_cue',
+        'learning_cue',
+        'explanation_intent',
+        'development_action',
+        'deployment_cue',
+        'text_task',
+        'ambiguous',
+      ] as const,
+      label,
+    ),
+  )
+  if (new Set(reasons).size !== reasons.length) {
+    throw new ContractError(`${label} contains duplicates`)
+  }
 }
 
 function validatePublicPlan(value: unknown): void {
@@ -604,6 +1361,61 @@ function validateAstResult(value: unknown): void {
   nullablePositiveInteger(error.column, 'syntax_error.column')
   nullablePositiveInteger(error.end_line, 'syntax_error.end_line')
   nullablePositiveInteger(error.end_column, 'syntax_error.end_column')
+}
+
+function validateTaskMessageRecord(value: unknown): void {
+  const data = record(value, 'message record')
+  exactKeys(data, ['message_id', 'run_id', 'role', 'content', 'created_at'])
+  patternString(data.message_id, messageIdPattern, 'message_id')
+  if (data.run_id !== null) {
+    patternString(data.run_id, runIdPattern, 'run_id')
+  }
+  enumValue(data.role, ['user', 'assistant'] as const, 'role')
+  boundedString(data.content, 262144, 'content')
+  timestamp(data.created_at, 'created_at')
+}
+
+function validateFeedbackEventRecord(value: unknown): void {
+  const data = record(value, 'feedback event record')
+  exactKeys(data, [
+    'feedback_id',
+    'run_id',
+    'feedback_type',
+    'explicit_text',
+    'edited_output',
+    'rating',
+    'accepted',
+    'memory_job_id',
+    'created_at',
+  ])
+  patternString(data.feedback_id, feedbackIdPattern, 'feedback_id')
+  patternString(data.run_id, runIdPattern, 'run_id')
+  enumValue(
+    data.feedback_type,
+    [
+      'explicit_text',
+      'edited_output',
+      'rating',
+      'accepted',
+      'rejected',
+      'composite',
+    ] as const,
+    'feedback_type',
+  )
+  if (data.explicit_text !== null) {
+    nonEmptyBoundedString(data.explicit_text, 4000, 'explicit_text')
+  }
+  if (data.edited_output !== null) {
+    nonEmptyBoundedString(data.edited_output, 100000, 'edited_output')
+  }
+  if (data.rating !== null) {
+    boundedInteger(data.rating, 1, 5, 'rating')
+  }
+  if (data.accepted !== null) {
+    booleanValue(data.accepted, 'accepted')
+  }
+  patternString(data.memory_job_id, memoryJobIdPattern, 'memory_job_id')
+  timestamp(data.created_at, 'created_at')
 }
 
 function validateMessage(value: unknown): void {

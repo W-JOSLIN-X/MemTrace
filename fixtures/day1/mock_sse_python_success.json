@@ -5,7 +5,6 @@
   "provider_evidence_label": "MockProvider fixture",
   "request": {
     "task_text": "请检查下面的 Python 代码并说明语法是否有效：\n```python\ndef add(a, b):\n    return a + b\n```",
-    "scenario": "programming_learning",
     "memory_mode": "on",
     "current_constraints": {
       "response_policy": "guided_hint",
@@ -51,6 +50,9 @@
       "data": {
         "fingerprint_id": "fp_01J00000000000000000000001",
         "domain": "programming_learning",
+        "classification_source": "auto_rule_v1",
+        "classification_confidence": 0.78,
+        "classification_reasons": ["code_present", "explanation_intent"],
         "task_type": "code_explanation",
         "artifact_type": "source_code",
         "language": "python"
@@ -72,7 +74,7 @@
       "task_id": "task_01J00000000000000000000001",
       "run_id": "run_01J00000000000000000000001",
       "at": "2026-08-21T00:00:05Z",
-      "data": {"memory_count": 0, "summary": "no_long_term_memory_day1"}
+      "data": {"memory_count": 0, "summary": "no_long_term_memory_day2"}
     },
     {
       "event_version": "1.0",
@@ -93,7 +95,7 @@
       "data": {
         "plan_id": "plan_01J00000000000000000000001",
         "goal_code": "analyze_code",
-        "memory_summary_code": "no_long_term_memory_day1",
+        "memory_summary_code": "no_long_term_memory_day2",
         "next_action_code": "python_ast_check"
       }
     },
@@ -178,7 +180,7 @@
       "task_id": "task_01J00000000000000000000001",
       "run_id": "run_01J00000000000000000000001",
       "at": "2026-08-21T00:00:15Z",
-      "data": {"provider": "mock", "model": "fixture-g0", "provider_mode": "mock", "first_token_ms": 10.0, "total_ms": 25.0, "prompt_tokens": 42, "output_tokens": 18, "token_source": "mock"}
+      "data": {"provider": "mock", "model": "fixture-g1", "provider_mode": "mock", "first_token_ms": 10.0, "total_ms": 25.0, "prompt_tokens": 42, "output_tokens": 18, "token_source": "mock"}
     },
     {
       "event_version": "1.0",
@@ -203,29 +205,34 @@
     "request_id": "req_01J00000000000000000000002",
     "task_id": "task_01J00000000000000000000001",
     "run_id": "run_01J00000000000000000000001",
+    "task_text": "请检查下面的 Python 代码并说明语法是否有效：\n```python\ndef add(a, b):\n    return a + b\n```",
+    "scenario": "programming_learning",
     "task_status": "active",
     "run_status": "succeeded",
     "provider_mode": "mock",
     "effective_memory_mode": "on",
     "fingerprint": {
       "id": "fp_01J00000000000000000000001",
-      "schema_version": "1.0",
+      "schema_version": "1.1",
       "domain": "programming_learning",
+      "classification_source": "auto_rule_v1",
+      "classification_confidence": 0.78,
+      "classification_reasons": ["code_present", "explanation_intent"],
       "task_type": "code_explanation",
       "artifact_type": "source_code",
-      "audience": "beginner",
+      "audience": "unknown",
       "project_key": null,
       "language": "python",
       "framework": null,
       "concepts": ["syntax", "function"],
       "tool_context": ["python_ast_check"],
       "current_constraints": {"response_policy": "guided_hint", "urgency": "normal", "memory_disabled": false, "source": "ui"},
-      "semantic_query": "检查 Python 函数语法并解释函数返回行为"
+      "semantic_query": "domain:programming_learning task_type:code_explanation language:python concept:syntax concept:function"
     },
     "public_plan": {
       "id": "plan_01J00000000000000000000001",
       "goal": "检查给出的 Python 代码是否满足语法规则。",
-      "memory_summary": "Day 1 尚无长期记忆，本次不注入记忆。",
+      "memory_summary": "Day 2 尚无长期记忆，本次不注入记忆。",
       "next_action": "先运行只读 AST 语法检查，再生成简短解释。"
     },
     "tool_decision": {"action": "call", "tool_name": "python_ast_check", "reason_code": "python_code_detected", "reason": "检测到显式标注的 Python 代码块。"},
@@ -244,6 +251,8 @@
     "partial_output": "语法检查通过。函数会返回两个参数之和。✅",
     "end_offset": 60,
     "offset_unit": "utf8_bytes",
+    "messages": [],
+    "feedback_events": [],
     "final_message": {"id": "msg_01J00000000000000000000001", "role": "assistant", "content": "语法检查通过。函数会返回两个参数之和。✅", "created_at": "2026-08-21T00:00:16Z"},
     "error": null,
     "terminal": true,

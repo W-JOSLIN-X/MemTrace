@@ -112,11 +112,13 @@ describe('G0 Chat experience', () => {
     expect(createTask).toHaveBeenCalledWith(
       expect.objectContaining({
         task_text: '解释列表越界',
-        scenario: 'programming_learning',
         memory_mode: 'on',
       }),
       expect.any(AbortSignal),
+      expect.stringMatching(/^memtrace-[A-Za-z0-9-]+$/),
     )
+    expect(createTask.mock.calls[0]?.[0]).not.toHaveProperty('scenario')
+    expect(screen.queryByText(/使用场景|选择场景/)).not.toBeInTheDocument()
     expect(connections[0]?.url).toBe(
       `/api/v1/tasks/${TASK_ID}/events?after_event_seq=0&after_offset=0`,
     )
@@ -155,7 +157,7 @@ describe('G0 Chat experience', () => {
         selector: 'span[aria-live="polite"]',
       }),
     ).toBeInTheDocument()
-    expect(screen.getByText('你好，世界')).toBeInTheDocument()
+    expect(screen.getByLabelText('原始输出')).toHaveTextContent('你好，世界')
     expect(screen.getByText('Python 语法结构有效')).toBeInTheDocument()
     expect(screen.getByText('15')).toBeInTheDocument()
     expect(screen.getByLabelText('Provider 模式：Mock')).toBeInTheDocument()
@@ -229,7 +231,7 @@ describe('G0 Chat experience', () => {
         public_plan: {
           id: PLAN_ID,
           goal: '回答非 Python 问题',
-          memory_summary: 'Day 1 尚无长期记忆',
+          memory_summary: 'Day 2 尚无长期记忆',
           next_action: '不调用 AST，直接生成回答',
         },
         tool_decision: {
@@ -307,7 +309,7 @@ describe('G0 Chat experience', () => {
         selector: 'span[aria-live="polite"]',
       }),
     ).toBeInTheDocument()
-    expect(screen.getByText('你好，世界')).toBeInTheDocument()
+    expect(screen.getByLabelText('原始输出')).toHaveTextContent('你好，世界')
     expect(screen.getByText('mock-deterministic')).toBeInTheDocument()
     expect(recovered.closed).toBe(true)
   })
@@ -552,6 +554,9 @@ function fingerprinted(eventSeq: number): TaskFingerprintedEvent {
   return envelope('task.fingerprinted', eventSeq, {
     fingerprint_id: FINGERPRINT_ID,
     domain: 'programming_learning',
+    classification_source: 'auto_rule_v1',
+    classification_confidence: 0.95,
+    classification_reasons: ['code_present', 'debugging_cue'],
     task_type: 'debugging_guidance',
     artifact_type: 'source_code',
     language: 'python',
@@ -561,7 +566,7 @@ function fingerprinted(eventSeq: number): TaskFingerprintedEvent {
 function memoryStarted(): MemoryRetrievalStartedEvent {
   return envelope('memory.retrieval.started', null, {
     memory_count: 0,
-    summary: 'no_long_term_memory_day1',
+    summary: 'no_long_term_memory_day2',
   })
 }
 
@@ -569,7 +574,7 @@ function planPublished(eventSeq: number): AgentPlanPublishedEvent {
   return envelope('agent.plan.published', eventSeq, {
     plan_id: PLAN_ID,
     goal_code: 'analyze_code',
-    memory_summary_code: 'no_long_term_memory_day1',
+    memory_summary_code: 'no_long_term_memory_day2',
     next_action_code: 'python_ast_check',
   })
 }
@@ -690,8 +695,11 @@ function makeTerminalSnapshot() {
     run_status: 'succeeded',
     fingerprint: {
       id: FINGERPRINT_ID,
-      schema_version: '1.0',
+      schema_version: '1.1',
       domain: 'programming_learning',
+      classification_source: 'auto_rule_v1',
+      classification_confidence: 0.95,
+      classification_reasons: ['code_present', 'debugging_cue'],
       task_type: 'debugging_guidance',
       artifact_type: 'source_code',
       audience: 'beginner',
@@ -711,7 +719,7 @@ function makeTerminalSnapshot() {
     public_plan: {
       id: PLAN_ID,
       goal: '检查语法并解释问题',
-      memory_summary: 'Day 1 尚无长期记忆',
+      memory_summary: 'Day 2 尚无长期记忆',
       next_action: '运行 Python AST 静态检查后生成回答',
     },
     tool_decision: {

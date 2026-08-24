@@ -1,0 +1,271 @@
+{
+  "fixture_version": "1.0",
+  "contract_version": "1.1.0",
+  "classification_source": "auto_rule_v1",
+  "default_request": {
+    "memory_mode": "on",
+    "current_constraints": {
+      "response_policy": "default",
+      "urgency": "normal",
+      "memory_disabled": false,
+      "source": "ui"
+    }
+  },
+  "persistent_event_profiles": {
+    "success_no_tool": [
+      "task.created",
+      "task.stage:fingerprinting",
+      "task.fingerprinted",
+      "task.stage:retrieving",
+      "task.stage:planning",
+      "agent.plan.published",
+      "task.stage:generating",
+      "run.metrics",
+      "run.completed",
+      "stream.done"
+    ],
+    "success_python_tool": [
+      "task.created",
+      "task.stage:fingerprinting",
+      "task.fingerprinted",
+      "task.stage:retrieving",
+      "task.stage:planning",
+      "agent.plan.published",
+      "task.stage:tool_running",
+      "tool.called",
+      "tool.result",
+      "task.stage:generating",
+      "run.metrics",
+      "run.completed",
+      "stream.done"
+    ],
+    "post_feedback": [
+      "feedback.recorded"
+    ]
+  },
+  "feedback_capabilities_after_success": [
+    "explicit_text",
+    "edited_output",
+    "rating_1_to_5",
+    "accepted",
+    "rejected"
+  ],
+  "entries": [
+    {
+      "id": "d2-001-zh-python-learning",
+      "task_text": "我是 Python 初学者，请解释递归原理并给一个直观例子。",
+      "expected_domain": "programming_learning",
+      "expected_task_type": "code_explanation",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-002-zh-python-debug",
+      "task_text": "Python 报错 IndexError，请指导我调试列表越界。",
+      "expected_domain": "programming_learning",
+      "expected_task_type": "debugging_guidance",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-003-python-fence-debug",
+      "task_text": "请解释这段 Python 为什么报错：\n```python\nfor i in range(3)\n    print(i)\n```",
+      "expected_domain": "programming_learning",
+      "expected_task_type": "debugging_guidance",
+      "expected_tool_action": "call",
+      "expected_persistent_event_profile": "success_python_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-004-en-js-learning",
+      "task_text": "Teach me why this JavaScript loop never stops.",
+      "expected_domain": "programming_learning",
+      "expected_task_type": "general_question",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-005-pytest-beginner",
+      "task_text": "新手入门 pytest 单元测试，请给我教程。",
+      "expected_domain": "programming_learning",
+      "expected_task_type": "general_question",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-006-fastapi-hint",
+      "task_text": "请给提示而不是答案：为什么 FastAPI 依赖注入这样工作？",
+      "expected_domain": "programming_learning",
+      "expected_task_type": "code_explanation",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-007-react-review",
+      "task_text": "请审查并重构这段 React 组件代码。",
+      "expected_domain": "software_development",
+      "expected_task_type": "code_review",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-008-typescript-feature",
+      "task_text": "Implement a production feature in TypeScript for this API client.",
+      "expected_domain": "software_development",
+      "expected_task_type": "code_generation",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-009-fastapi-deploy",
+      "task_text": "部署 FastAPI 服务并配置依赖和生产环境。",
+      "expected_domain": "software_development",
+      "expected_task_type": "environment_configuration",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-010-node-refactor",
+      "task_text": "重构 Node.js API 以提升性能。",
+      "expected_domain": "software_development",
+      "expected_task_type": "general_question",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-011-go-review",
+      "task_text": "Review this Go service before release:\n```go\nfunc main() {}\n```",
+      "expected_domain": "software_development",
+      "expected_task_type": "code_review",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-012-docker-setup",
+      "task_text": "Configure Docker deployment and dependency setup for production.",
+      "expected_domain": "software_development",
+      "expected_task_type": "environment_configuration",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-013-email-rewrite",
+      "task_text": "请改写这封邮件，让表达更简洁礼貌。",
+      "expected_domain": "general_text",
+      "expected_task_type": "general_question",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-014-meeting-summary",
+      "task_text": "总结这份会议纪要并列出三个行动项。",
+      "expected_domain": "general_text",
+      "expected_task_type": "general_question",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-015-translation",
+      "task_text": "Translate this paragraph into Chinese and preserve its tone.",
+      "expected_domain": "general_text",
+      "expected_task_type": "general_question",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-016-tone-proofread",
+      "task_text": "润色这段介绍，把语气调整得更专业。",
+      "expected_domain": "general_text",
+      "expected_task_type": "general_question",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-017-format-citations",
+      "task_text": "Format these bibliography entries consistently.",
+      "expected_domain": "general_text",
+      "expected_task_type": "general_question",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-018-proofread-report",
+      "task_text": "Proofread this report and summarize the changes.",
+      "expected_domain": "general_text",
+      "expected_task_type": "general_question",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-019-no-signal",
+      "task_text": "帮我处理一下。",
+      "expected_domain": "other",
+      "expected_task_type": "general_question",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-020-ordinary-question",
+      "task_text": "明天有什么安排？",
+      "expected_domain": "other",
+      "expected_task_type": "general_question",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-021-learning-development-tie",
+      "task_text": "给新手做 Python 代码审查教程。",
+      "expected_domain": "other",
+      "expected_task_type": "code_review",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-022-debug-review-tie",
+      "task_text": "Review this Python bug before release.",
+      "expected_domain": "other",
+      "expected_task_type": "debugging_guidance",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-023-code-only-low-score",
+      "task_text": "```python\nprint(1)\n```",
+      "expected_domain": "other",
+      "expected_task_type": "general_question",
+      "expected_tool_action": "call",
+      "expected_persistent_event_profile": "success_python_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    },
+    {
+      "id": "d2-024-nontechnical-explanation",
+      "task_text": "解释今天的天气。",
+      "expected_domain": "other",
+      "expected_task_type": "code_explanation",
+      "expected_tool_action": "skip",
+      "expected_persistent_event_profile": "success_no_tool",
+      "expected_feedback_available_after": "succeeded_only"
+    }
+  ]
+}

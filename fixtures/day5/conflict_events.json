@@ -1,0 +1,17 @@
+{
+  "fixture_version": "0.1-draft",
+  "target_day": 5,
+  "review_status": "member_b_draft_requires_joint_review",
+  "executable_in_day3": false,
+  "purpose": "Eight synthetic, human-labelled conflict cases prepared for Day 5. Day 3 does not implement conflict resolution or Memory Pack behavior.",
+  "entries": [
+    { "id": "d5-c01", "existing": "回答先给提示", "incoming": "回答直接给完整修复", "scope_relation": "same", "expected_relation": "contradicts", "expected_action": "require_user_resolution" },
+    { "id": "d5-c02", "existing": "回答使用中文", "incoming": "回答保持简洁", "scope_relation": "same", "expected_relation": "compatible", "expected_action": "keep_both" },
+    { "id": "d5-c03", "existing": "Python 教学先给思路", "incoming": "所有任务先给思路", "scope_relation": "incoming_broader", "expected_relation": "scope_overlap", "expected_action": "require_scope_narrowing" },
+    { "id": "d5-c04", "existing": "所有开发任务先跑测试", "incoming": "仅项目 alpha 先跑测试", "scope_relation": "incoming_narrower", "expected_relation": "refines", "expected_action": "allow_versioned_refinement" },
+    { "id": "d5-c05", "existing": "部署前检查 migration", "incoming": "部署前检查 migration", "scope_relation": "same", "expected_relation": "duplicate", "expected_action": "merge_evidence" },
+    { "id": "d5-c06", "existing": "使用 pytest", "incoming": "使用 unittest", "scope_relation": "same_project", "expected_relation": "contradicts", "expected_action": "require_user_resolution" },
+    { "id": "d5-c07", "existing": "初学者解释要分步", "incoming": "高级用户解释要简洁", "scope_relation": "disjoint_audience", "expected_relation": "compatible", "expected_action": "keep_both" },
+    { "id": "d5-c08", "existing": "普通任务先解释", "incoming": "紧急任务直接修复", "scope_relation": "exception", "expected_relation": "exception", "expected_action": "attach_controlled_exception" }
+  ]
+}

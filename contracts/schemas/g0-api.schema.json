@@ -10,7 +10,17 @@
     {"$ref": "#/$defs/TaskCreateAccepted"},
     {"$ref": "#/$defs/TaskSnapshot"},
     {"$ref": "#/$defs/ErrorResponse"},
-    {"$ref": "#/$defs/SseCursorQuery"}
+    {"$ref": "#/$defs/SseCursorQuery"},
+    {"$ref": "#/$defs/DemoSessionCreateRequest"},
+    {"$ref": "#/$defs/DemoSessionResponse"},
+    {"$ref": "#/$defs/FeedbackCreateRequest"},
+    {"$ref": "#/$defs/FeedbackCreateAccepted"},
+    {"$ref": "#/$defs/MemoryJobResponse"},
+    {"$ref": "#/$defs/MemoryCard"},
+    {"$ref": "#/$defs/ResolveRequest"},
+    {"$ref": "#/$defs/ResolveResponse"},
+    {"$ref": "#/$defs/MemoryListResponse"},
+    {"$ref": "#/$defs/MemoryDetailResponse"}
   ],
   "$defs": {
     "TaskId": {
@@ -48,6 +58,22 @@
     "ErrorId": {
       "type": "string",
       "pattern": "^err_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "FeedbackId": {
+      "type": "string",
+      "pattern": "^feedback_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "MemoryJobId": {
+      "type": "string",
+      "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "SessionId": {
+      "type": "string",
+      "pattern": "^sess_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "UserId": {
+      "type": "string",
+      "pattern": "^usr_[0-9A-HJKMNP-TV-Z]{26}$"
     },
     "Timestamp": {
       "type": "string",
@@ -89,21 +115,20 @@
     },
     "TaskCreateRequest": {
       "type": "object",
-      "description": "The server trims task_text before enforcing 1..20000 Unicode scalar values. Effective memory is off when either memory_mode is off or current_constraints.memory_disabled is true.",
+      "description": "The server trims task_text before enforcing 1..20000 Unicode scalar values. The task domain is derived server-side; clients must not send scenario. Effective memory is off when either memory_mode is off or current_constraints.memory_disabled is true.",
       "properties": {
         "task_text": {
           "type": "string",
           "minLength": 1,
           "maxLength": 20000
         },
-        "scenario": {"$ref": "#/$defs/Scenario"},
         "memory_mode": {
           "type": "string",
           "enum": ["on", "off"]
         },
         "current_constraints": {"$ref": "#/$defs/CurrentConstraints"}
       },
-      "required": ["task_text", "scenario", "memory_mode", "current_constraints"],
+      "required": ["task_text", "memory_mode", "current_constraints"],
       "additionalProperties": false
     },
     "TaskCreateAccepted": {
@@ -126,6 +151,10 @@
       "type": "string",
       "enum": ["programming_learning", "software_development", "general_text", "other"]
     },
+    "ClassificationReasonCode": {
+      "type": "string",
+      "enum": ["code_present", "technical_context", "debugging_cue", "learning_cue", "explanation_intent", "development_action", "deployment_cue", "text_task", "ambiguous"]
+    },
     "TaskType": {
       "type": "string",
       "enum": ["debugging_guidance", "code_review", "code_explanation", "code_generation", "environment_configuration", "general_question", "other"]
@@ -144,9 +173,17 @@
         "id": {"$ref": "#/$defs/FingerprintId"},
         "schema_version": {
           "type": "string",
-          "const": "1.0"
+          "const": "1.1"
         },
         "domain": {"$ref": "#/$defs/Domain"},
+        "classification_source": {"type": "string", "const": "auto_rule_v1"},
+        "classification_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "classification_reasons": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/ClassificationReasonCode"},
+          "maxItems": 5,
+          "uniqueItems": true
+        },
         "task_type": {"$ref": "#/$defs/TaskType"},
         "artifact_type": {"$ref": "#/$defs/ArtifactType"},
         "audience": {
@@ -189,7 +226,7 @@
           "maxLength": 512
         }
       },
-      "required": ["id", "schema_version", "domain", "task_type", "artifact_type", "audience", "project_key", "language", "framework", "concepts", "tool_context", "current_constraints", "semantic_query"],
+      "required": ["id", "schema_version", "domain", "classification_source", "classification_confidence", "classification_reasons", "task_type", "artifact_type", "audience", "project_key", "language", "framework", "concepts", "tool_context", "current_constraints", "semantic_query"],
       "additionalProperties": false
     },
     "PublicPlan": {
@@ -370,7 +407,7 @@
     },
     "AsyncErrorCode": {
       "type": "string",
-      "enum": ["PROVIDER_TIMEOUT", "PROVIDER_ERROR", "TOOL_NOT_FOUND", "TOOL_INPUT_INVALID", "STREAM_INTERRUPTED"]
+      "enum": ["PROVIDER_TIMEOUT", "PROVIDER_ERROR", "TOOL_NOT_FOUND", "TOOL_INPUT_INVALID", "STREAM_INTERRUPTED", "RUN_INTERRUPTED"]
     },
     "RunErrorSnapshot": {
       "type": "object",
@@ -392,13 +429,169 @@
       "type": "string",
       "enum": ["queued", "fingerprinting", "retrieving", "planning", "tool_running", "generating", "succeeded", "failed"]
     },
+    "TaskMessageRecord": {
+      "type": "object",
+      "properties": {
+        "message_id": {"$ref": "#/$defs/MessageId"},
+        "run_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/RunId"},
+            {"type": "null"}
+          ]
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "assistant"]
+        },
+        "content": {"type": "string", "maxLength": 262144},
+        "created_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["message_id", "role", "content", "created_at"],
+      "additionalProperties": false
+    },
+    "FeedbackType": {
+      "type": "string",
+      "enum": ["explicit_text", "edited_output", "rating", "accepted", "rejected", "composite"]
+    },
+    "FeedbackEventRecord": {
+      "type": "object",
+      "properties": {
+        "feedback_id": {"$ref": "#/$defs/FeedbackId"},
+        "run_id": {"$ref": "#/$defs/RunId"},
+        "feedback_type": {"$ref": "#/$defs/FeedbackType"},
+        "explicit_text": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "edited_output": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 100000
+        },
+        "rating": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 5
+        },
+        "accepted": {"type": ["boolean", "null"]},
+        "memory_job_id": {"$ref": "#/$defs/MemoryJobId"},
+        "created_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["feedback_id", "run_id", "feedback_type", "memory_job_id", "created_at"],
+      "additionalProperties": false
+    },
+    "DemoAlias": {
+      "type": "string",
+      "enum": ["blank_demo", "seeded_demo"]
+    },
+    "DemoSessionCreateRequest": {
+      "type": "object",
+      "properties": {
+        "demo_alias": {"$ref": "#/$defs/DemoAlias"}
+      },
+      "required": ["demo_alias"],
+      "additionalProperties": false
+    },
+    "DemoSessionResponse": {
+      "type": "object",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "demo_alias": {"$ref": "#/$defs/DemoAlias"},
+        "expires_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["request_id", "demo_alias", "expires_at"],
+      "additionalProperties": false
+    },
+    "FeedbackCreateRequest": {
+      "type": "object",
+      "properties": {
+        "explicit_text": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "edited_output": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 100000
+        },
+        "rating": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 5
+        },
+        "accepted": {"type": ["boolean", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "FeedbackCreateAccepted": {
+      "type": "object",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "feedback_id": {"$ref": "#/$defs/FeedbackId"},
+        "memory_job_id": {"$ref": "#/$defs/MemoryJobId"},
+        "feedback_type": {"$ref": "#/$defs/FeedbackType"},
+        "job_status": {
+          "type": "string",
+          "const": "pending"
+        }
+      },
+      "required": ["request_id", "feedback_id", "memory_job_id", "feedback_type", "job_status"],
+      "additionalProperties": false
+    },
+    "MemoryJobResponse": {
+      "type": "object",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "memory_job_id": {"$ref": "#/$defs/MemoryJobId"},
+        "feedback_id": {"$ref": "#/$defs/FeedbackId"},
+        "job_type": {
+          "type": "string",
+          "const": "extract_feedback"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "running", "completed", "failed"]
+        },
+        "stage": {
+          "type": "string",
+          "enum": ["queued", "diffing", "classifying_durability", "extracting", "validating", "admitting", "done", "failed"]
+        },
+        "attempt": {"type": "integer", "minimum": 0},
+        "candidate_ids": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/MemoryId"},
+          "maxItems": 3
+        },
+        "disposition": {
+          "type": ["string", "null"],
+          "enum": ["candidate_created", "episode_only", "reinforce_usage_only", "no_memory", "failed", null]
+        },
+        "error_code": {
+          "type": ["string", "null"],
+          "enum": ["MEMORY_JOB_INTERRUPTED", "MEMORY_JSON_INVALID", "MEMORY_SCHEMA_INVALID", "MEMORY_REPAIR_FAILED", "MEMORY_PROVIDER_ERROR", "MEMORY_PROVIDER_TIMEOUT", "MEMORY_EVIDENCE_NOT_FOUND", "MEMORY_NO_REUSABLE_CONTENT", "MEMORY_SCOPE_TOO_BROAD", null]
+        },
+        "retryable": {"type": "boolean"},
+        "created_at": {"$ref": "#/$defs/Timestamp"},
+        "updated_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["request_id", "memory_job_id", "feedback_id", "job_type", "status", "stage", "attempt", "candidate_ids", "disposition", "error_code", "retryable", "created_at", "updated_at"],
+      "additionalProperties": false
+    },
     "TaskSnapshot": {
       "type": "object",
-      "description": "Authoritative G0 recovery snapshot. Clients merge it monotonically by UTF-8 byte end_offset and always fetch it after a terminal SSE event.",
+      "description": "Authoritative G0/G1 recovery snapshot. Clients merge it monotonically by UTF-8 byte end_offset and always fetch it after a terminal SSE event.",
       "properties": {
         "request_id": {"$ref": "#/$defs/RequestId"},
         "task_id": {"$ref": "#/$defs/TaskId"},
         "run_id": {"$ref": "#/$defs/RunId"},
+        "task_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "scenario": {"$ref": "#/$defs/Scenario"},
         "task_status": {
           "type": "string",
           "const": "active"
@@ -435,11 +628,19 @@
           "type": "string",
           "const": "utf8_bytes"
         },
+        "messages": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/TaskMessageRecord"}
+        },
         "final_message": {
           "oneOf": [
             {"$ref": "#/$defs/MessageSnapshot"},
             {"type": "null"}
           ]
+        },
+        "feedback_events": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/FeedbackEventRecord"}
         },
         "error": {
           "oneOf": [
@@ -451,7 +652,31 @@
         "last_persistent_event_seq": {"type": "integer", "minimum": 0},
         "updated_at": {"$ref": "#/$defs/Timestamp"}
       },
-      "required": ["request_id", "task_id", "run_id", "task_status", "run_status", "provider_mode", "effective_memory_mode", "fingerprint", "public_plan", "tool_decision", "tool_calls", "partial_output", "end_offset", "offset_unit", "final_message", "error", "terminal", "last_persistent_event_seq", "updated_at"],
+      "required": [
+        "request_id",
+        "task_id",
+        "run_id",
+        "task_text",
+        "scenario",
+        "task_status",
+        "run_status",
+        "provider_mode",
+        "effective_memory_mode",
+        "fingerprint",
+        "public_plan",
+        "tool_decision",
+        "tool_calls",
+        "partial_output",
+        "end_offset",
+        "offset_unit",
+        "messages",
+        "final_message",
+        "feedback_events",
+        "error",
+        "terminal",
+        "last_persistent_event_seq",
+        "updated_at"
+      ],
       "additionalProperties": false,
       "allOf": [
         {
@@ -510,16 +735,19 @@
       "type": "object",
       "properties": {
         "config": {"type": "string", "const": "pass"},
+        "session_secret": {"type": "string", "const": "pass"},
         "data_dir": {"type": "string", "const": "pass"},
         "provider_credentials": {"type": "string", "enum": ["pass", "not_required"]},
-        "provider_network": {"type": "string", "const": "unchecked"}
+        "provider_network": {"type": "string", "const": "unchecked"},
+        "database": {"type": "string", "const": "pass"},
+        "migration_revision": {"type": "string", "const": "pass"}
       },
-      "required": ["config", "data_dir", "provider_credentials", "provider_network"],
+      "required": ["config", "session_secret", "data_dir", "provider_credentials", "provider_network", "database", "migration_revision"],
       "additionalProperties": false
     },
     "ReadyResponse": {
       "type": "object",
-      "description": "Returned only with HTTP 200. A readiness failure uses ErrorResponse with HTTP 503. G0 never probes provider network or a database.",
+      "description": "Returned only with HTTP 200. A readiness failure uses ErrorResponse with HTTP 503. Provider network remains unchecked; database connectivity and the unique Alembic head are required.",
       "properties": {
         "request_id": {"$ref": "#/$defs/RequestId"},
         "status": {"type": "string", "const": "ready"},
@@ -572,7 +800,7 @@
         "provider_status": {"type": ["integer", "null"], "minimum": 400, "maximum": 599},
         "check": {
           "type": "string",
-          "enum": ["provider_configuration", "data_directory"]
+          "enum": ["provider_configuration", "data_directory", "database_connection", "migration_revision", "session_secret"]
         },
         "http_status": {"type": "integer", "minimum": 400, "maximum": 599}
       },
@@ -581,7 +809,24 @@
     },
     "ErrorCode": {
       "type": "string",
-      "enum": ["VALIDATION_ERROR", "TASK_NOT_FOUND", "PROVIDER_CONFIG_MISSING", "PROVIDER_TIMEOUT", "PROVIDER_ERROR", "TOOL_NOT_FOUND", "TOOL_INPUT_INVALID", "STREAM_INTERRUPTED", "INTERNAL_ERROR"]
+      "enum": [
+        "VALIDATION_ERROR",
+        "TASK_NOT_FOUND",
+        "PROVIDER_CONFIG_MISSING",
+        "PROVIDER_TIMEOUT",
+        "PROVIDER_ERROR",
+        "TOOL_NOT_FOUND",
+        "TOOL_INPUT_INVALID",
+        "STREAM_INTERRUPTED",
+        "INTERNAL_ERROR",
+        "SESSION_REQUIRED",
+        "IDEMPOTENCY_CONFLICT",
+        "FEEDBACK_NO_CHANGES",
+        "TASK_NOT_READY_FOR_FEEDBACK",
+        "MEMORY_NOT_FOUND",
+        "MEMORY_ALREADY_RESOLVED",
+        "MEMORY_JOB_NOT_RETRYABLE"
+      ]
     },
     "ErrorResponse": {
       "type": "object",
@@ -615,6 +860,279 @@
         "after_offset": {"type": "integer", "minimum": 0, "maximum": 262144, "default": 0}
       },
       "required": [],
+      "additionalProperties": false
+    },
+    "MemoryId": {
+      "type": "string",
+      "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "MemoryVersionId": {
+      "type": "string",
+      "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "EvidenceId": {
+      "type": "string",
+      "pattern": "^evidence_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "MemoryKind": {
+      "type": "string",
+      "enum": ["preference", "constraint", "procedure", "experience", "environment", "learning_checkpoint"]
+    },
+    "MemoryCardStatus": {
+      "type": "string",
+      "enum": ["candidate", "active", "rejected", "conflicted", "paused", "superseded", "merged", "archived", "deleted"]
+    },
+    "RejectionReason": {
+      "type": "string",
+      "enum": ["user_rejected", "episode_only"]
+    },
+    "SourceType": {
+      "type": "string",
+      "enum": ["explicit_feedback", "explicit_correction", "edit_diff", "accept", "reject", "rating", "outcome", "import"]
+    },
+    "ScopeLevel": {
+      "type": "string",
+      "enum": ["session", "task_family", "project", "global"]
+    },
+    "ScopeDomain": {
+      "type": "string",
+      "enum": ["programming_learning", "software_development", "general_text", "other", "any"]
+    },
+    "AllowedException": {
+      "type": "string",
+      "enum": ["response_policy:direct_fix", "urgency:urgent"]
+    },
+    "MemoryScope": {
+      "type": "object",
+      "properties": {
+        "level": {"$ref": "#/$defs/ScopeLevel"},
+        "domain": {"$ref": "#/$defs/ScopeDomain"},
+        "task_type": {
+          "oneOf": [
+            {"$ref": "#/$defs/TaskType"},
+            {"type": "null"}
+          ]
+        },
+        "artifact_type": {
+          "oneOf": [
+            {"$ref": "#/$defs/ArtifactType"},
+            {"type": "null"}
+          ]
+        },
+        "audience": {
+          "oneOf": [
+            {"type": "string", "enum": ["beginner", "intermediate", "advanced", "unknown"]},
+            {"type": "null"}
+          ]
+        },
+        "project_key": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": ["level", "domain"],
+      "additionalProperties": false
+    },
+    "MemoryCard": {
+      "type": "object",
+      "properties": {
+        "memory_id": {"$ref": "#/$defs/MemoryId"},
+        "schema_version": {"type": "string", "const": "1.0"},
+        "kind": {"$ref": "#/$defs/MemoryKind"},
+        "title": {"type": "string", "minLength": 4, "maxLength": 40},
+        "rule": {"type": "string", "minLength": 20, "maxLength": 300},
+        "avoid": {"type": "string", "maxLength": 400},
+        "trigger_text": {"type": "string", "maxLength": 240},
+        "scope": {"$ref": "#/$defs/MemoryScope"},
+        "exceptions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/AllowedException"},
+          "maxItems": 8,
+          "uniqueItems": true
+        },
+        "status": {"$ref": "#/$defs/MemoryCardStatus"},
+        "rejection_reason": {
+          "oneOf": [
+            {"$ref": "#/$defs/RejectionReason"},
+            {"type": "null"}
+          ]
+        },
+        "source_type": {"$ref": "#/$defs/SourceType"},
+        "save_preselected": {"type": "boolean"},
+        "source_trust": {"type": "number", "minimum": 0, "maximum": 1},
+        "rule_confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "scope_confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "evidence_count": {"type": "integer", "minimum": 0},
+        "version": {"type": "integer", "minimum": 0},
+        "current_version_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/MemoryVersionId"},
+            {"type": "null"}
+          ]
+        },
+        "created_at": {"$ref": "#/$defs/Timestamp"},
+        "updated_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["memory_id", "schema_version", "kind", "title", "rule", "avoid", "trigger_text", "scope", "exceptions", "status", "rejection_reason", "source_type", "save_preselected", "source_trust", "rule_confidence", "scope_confidence", "evidence_count", "version", "current_version_id", "created_at", "updated_at"],
+      "additionalProperties": false
+    },
+    "MemoryCardPatch": {
+      "type": "object",
+      "properties": {
+        "title": {"type": "string", "minLength": 4, "maxLength": 40},
+        "rule": {"type": "string", "minLength": 20, "maxLength": 300},
+        "avoid": {"type": "string", "maxLength": 400},
+        "scope": {"$ref": "#/$defs/MemoryScope"},
+        "exceptions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/AllowedException"},
+          "maxItems": 8,
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false,
+      "anyOf": [
+        {"required": ["title"]},
+        {"required": ["rule"]},
+        {"required": ["avoid"]},
+        {"required": ["scope"]},
+        {"required": ["exceptions"]}
+      ]
+    },
+    "ResolveAction": {
+      "type": "string",
+      "enum": ["accept", "edit_accept", "reject", "one_shot"]
+    },
+    "ResolveRequest": {
+      "type": "object",
+      "properties": {
+        "action": {"$ref": "#/$defs/ResolveAction"},
+        "patch": {
+          "oneOf": [
+            {"$ref": "#/$defs/MemoryCardPatch"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "required": ["action"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"properties": {"action": {"const": "edit_accept"}}, "required": ["action"]},
+          "then": {"properties": {"patch": {"$ref": "#/$defs/MemoryCardPatch"}}}
+        },
+        {
+          "if": {"properties": {"action": {"enum": ["accept", "reject", "one_shot"]}}, "required": ["action"]},
+          "then": {"properties": {"patch": {"type": "null"}}}
+        }
+      ]
+    },
+    "ResolveResponse": {
+      "type": "object",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "memory_id": {"$ref": "#/$defs/MemoryId"},
+        "action": {"$ref": "#/$defs/ResolveAction"},
+        "old_status": {"$ref": "#/$defs/MemoryCardStatus"},
+        "new_status": {"$ref": "#/$defs/MemoryCardStatus"},
+        "disposition": {
+          "type": "string",
+          "enum": ["candidate_created", "episode_only", "reinforce_usage_only", "no_memory", "failed"]
+        },
+        "memory_version_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/MemoryVersionId"},
+            {"type": "null"}
+          ]
+        },
+        "card": {"$ref": "#/$defs/MemoryCard"}
+      },
+      "required": ["request_id", "memory_id", "action", "old_status", "new_status", "disposition", "card"],
+      "additionalProperties": false
+    },
+    "MemoryListResponse": {
+      "type": "object",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "items": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/MemoryCard"},
+          "maxItems": 100
+        },
+        "next_cursor": {"type": ["string", "null"]}
+      },
+      "required": ["request_id", "items"],
+      "additionalProperties": false
+    },
+    "MemoryEvidenceProjection": {
+      "type": "object",
+      "properties": {
+        "evidence_id": {"$ref": "#/$defs/EvidenceId"},
+        "source_type": {"$ref": "#/$defs/SourceType"},
+        "feedback_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/FeedbackId"},
+            {"type": "null"}
+          ]
+        },
+        "task_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/TaskId"},
+            {"type": "null"}
+          ]
+        },
+        "run_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/RunId"},
+            {"type": "null"}
+          ]
+        },
+        "evidence_quote": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "diff_summary": {"type": ["string", "null"], "minLength": 1, "maxLength": 2000},
+        "normalized_edit_cost": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "created_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["evidence_id", "source_type", "evidence_quote", "created_at"],
+      "additionalProperties": false
+    },
+    "MemoryVersionProjection": {
+      "type": "object",
+      "properties": {
+        "memory_version_id": {"$ref": "#/$defs/MemoryVersionId"},
+        "version": {"type": "integer", "minimum": 1},
+        "title": {"type": "string", "minLength": 4, "maxLength": 40},
+        "rule": {"type": "string", "minLength": 20, "maxLength": 300},
+        "avoid": {"type": "string", "maxLength": 400},
+        "trigger_text": {"type": "string", "maxLength": 240},
+        "scope": {"$ref": "#/$defs/MemoryScope"},
+        "exceptions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/AllowedException"},
+          "maxItems": 8,
+          "uniqueItems": true
+        },
+        "created_by_action": {"$ref": "#/$defs/ResolveAction"},
+        "created_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["memory_version_id", "version", "title", "rule", "avoid", "trigger_text", "scope", "exceptions", "created_by_action", "created_at"],
+      "additionalProperties": false
+    },
+    "MemoryDetailResponse": {
+      "type": "object",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "card": {"$ref": "#/$defs/MemoryCard"},
+        "evidence": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/MemoryEvidenceProjection"}
+        },
+        "versions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/MemoryVersionProjection"}
+        }
+      },
+      "required": ["request_id", "card", "evidence", "versions"],
       "additionalProperties": false
     }
   }

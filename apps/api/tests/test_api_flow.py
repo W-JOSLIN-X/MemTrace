@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -11,6 +14,8 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 from memtrace_api.config import Settings
 from memtrace_api.main import create_app
+
+TEST_SESSION_SECRET = "test_session_secret_01234567890123456789"
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day1"
@@ -36,15 +41,43 @@ def _validate_api_model(name: str, value: dict[str, Any]) -> None:
     Draft202012Validator(selected, format_checker=FormatChecker()).validate(value)
 
 
+def _migrate(db_url: str) -> None:
+    env = dict(os.environ, MEMTRACE_DATABASE_URL=db_url)
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "alembic",
+            "-c",
+            str(PROJECT_ROOT / "apps" / "api" / "alembic.ini"),
+            "upgrade",
+            "head",
+        ],
+        env=env,
+        check=True,
+        capture_output=True,
+        cwd=str(PROJECT_ROOT),
+    )
+
+
 def _client(tmp_path: Path, **overrides: object) -> TestClient:
     values: dict[str, object] = {
         "app_env": "test",
         "mock_mode": True,
         "memtrace_data_dir": tmp_path / "data",
+        "memtrace_database_url": f"sqlite:///{(tmp_path / 'test.sqlite3').as_posix()}",
+        "session_secret": TEST_SESSION_SECRET,
         "mock_chunk_delay_ms": 250,
     }
     values.update(overrides)
-    return TestClient(create_app(Settings(_env_file=None, **values)))
+    _migrate(values["memtrace_database_url"])
+    client = TestClient(
+        create_app(Settings(_env_file=None, **values)),
+        headers={"Idempotency-Key": "test-idempotency-key-0001"},
+    )
+    login = client.post("/api/v1/session/demo", json={"demo_alias": "blank_demo"})
+    assert login.status_code == 200, login.text
+    return client
 
 
 def _read_sse(client: TestClient, url: str, **kwargs: Any) -> list[dict[str, Any]]:

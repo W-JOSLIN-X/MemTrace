@@ -39,6 +39,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && rm -f /tmp/requirements.lock
 
 COPY --chown=memtrace:memtrace apps/api/src/ /app/apps/api/src/
+COPY --chown=memtrace:memtrace apps/api/alembic.ini /app/apps/api/alembic.ini
+COPY --chown=memtrace:memtrace apps/api/alembic/ /app/apps/api/alembic/
 COPY --from=web-builder --chown=memtrace:memtrace /build/apps/web/dist/ /app/static/
 
 USER memtrace
@@ -47,6 +49,6 @@ EXPOSE 8000
 STOPSIGNAL SIGTERM
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2).read()"]
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/ready', timeout=2).read()"]
 
-CMD ["python", "-m", "uvicorn", "memtrace_api.main:app", "--app-dir", "/app/apps/api/src", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["python", "/app/apps/api/src/memtrace_api/docker_entrypoint.py"]

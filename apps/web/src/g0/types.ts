@@ -7,7 +7,15 @@ export type PlanId = `plan_${string}`
 export type ToolCallId = `tool_${string}`
 export type ToolResultId = `toolres_${string}`
 export type ErrorId = `err_${string}`
+export type FeedbackId = `feedback_${string}`
+export type MemoryJobId = `job_${string}`
+export type MemoryId = `mem_${string}`
+export type MemoryVersionId = `memver_${string}`
+export type EvidenceId = `evidence_${string}`
+export type SessionId = `sess_${string}`
+export type UserId = `usr_${string}`
 
+export type DemoAlias = 'blank_demo' | 'seeded_demo'
 export type ProviderMode = 'mock' | 'real'
 export type EffectiveMemoryMode = 'on' | 'off'
 export type Scenario =
@@ -15,6 +23,16 @@ export type Scenario =
   | 'software_development'
   | 'general_text'
   | 'other'
+export type ClassificationReasonCode =
+  | 'code_present'
+  | 'technical_context'
+  | 'debugging_cue'
+  | 'learning_cue'
+  | 'explanation_intent'
+  | 'development_action'
+  | 'deployment_cue'
+  | 'text_task'
+  | 'ambiguous'
 export type ResponsePolicy = 'default' | 'guided_hint' | 'direct_fix'
 export type RunStatus =
   | 'queued'
@@ -45,6 +63,7 @@ export type AsyncErrorCode =
   | 'TOOL_NOT_FOUND'
   | 'TOOL_INPUT_INVALID'
   | 'STREAM_INTERRUPTED'
+  | 'RUN_INTERRUPTED'
 export type ErrorCode =
   | 'VALIDATION_ERROR'
   | 'TASK_NOT_FOUND'
@@ -55,6 +74,13 @@ export type ErrorCode =
   | 'TOOL_INPUT_INVALID'
   | 'STREAM_INTERRUPTED'
   | 'INTERNAL_ERROR'
+  | 'SESSION_REQUIRED'
+  | 'IDEMPOTENCY_CONFLICT'
+  | 'FEEDBACK_NO_CHANGES'
+  | 'TASK_NOT_READY_FOR_FEEDBACK'
+  | 'MEMORY_NOT_FOUND'
+  | 'MEMORY_ALREADY_RESOLVED'
+  | 'MEMORY_JOB_NOT_RETRYABLE'
 
 export interface CurrentConstraints {
   response_policy: ResponsePolicy
@@ -65,7 +91,6 @@ export interface CurrentConstraints {
 
 export interface TaskCreateRequest {
   task_text: string
-  scenario: Scenario
   memory_mode: 'on' | 'off'
   current_constraints: CurrentConstraints
 }
@@ -79,10 +104,19 @@ export interface TaskCreateAccepted {
   effective_memory_mode: EffectiveMemoryMode
 }
 
+export interface DemoSessionResponse {
+  request_id: RequestId
+  demo_alias: DemoAlias
+  expires_at: string
+}
+
 export interface TaskFingerprint {
   id: FingerprintId
-  schema_version: '1.0'
+  schema_version: '1.1'
   domain: Scenario
+  classification_source: 'auto_rule_v1'
+  classification_confidence: number
+  classification_reasons: ClassificationReasonCode[]
   task_type:
     | 'debugging_guidance'
     | 'code_review'
@@ -167,6 +201,93 @@ export interface MessageSnapshot {
   created_at: string
 }
 
+export interface TaskMessageRecord {
+  message_id: MessageId
+  run_id: RunId | null
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+}
+
+export type FeedbackType =
+  | 'explicit_text'
+  | 'edited_output'
+  | 'rating'
+  | 'accepted'
+  | 'rejected'
+  | 'composite'
+
+export interface FeedbackCreateRequest {
+  explicit_text?: string | null
+  edited_output?: string | null
+  rating?: number | null
+  accepted?: boolean | null
+}
+
+export interface FeedbackCreateAccepted {
+  request_id: RequestId
+  feedback_id: FeedbackId
+  memory_job_id: MemoryJobId
+  feedback_type: FeedbackType
+  job_status: 'pending'
+}
+
+export type MemoryJobStage =
+  | 'queued'
+  | 'diffing'
+  | 'classifying_durability'
+  | 'extracting'
+  | 'validating'
+  | 'admitting'
+  | 'done'
+  | 'failed'
+
+export type Disposition =
+  | 'candidate_created'
+  | 'episode_only'
+  | 'reinforce_usage_only'
+  | 'no_memory'
+  | 'failed'
+
+export type MemoryJobErrorCode =
+  | 'MEMORY_JOB_INTERRUPTED'
+  | 'MEMORY_JSON_INVALID'
+  | 'MEMORY_SCHEMA_INVALID'
+  | 'MEMORY_REPAIR_FAILED'
+  | 'MEMORY_PROVIDER_ERROR'
+  | 'MEMORY_PROVIDER_TIMEOUT'
+  | 'MEMORY_EVIDENCE_NOT_FOUND'
+  | 'MEMORY_NO_REUSABLE_CONTENT'
+  | 'MEMORY_SCOPE_TOO_BROAD'
+
+export interface MemoryJobResponse {
+  request_id: RequestId
+  memory_job_id: MemoryJobId
+  feedback_id: FeedbackId
+  job_type: 'extract_feedback'
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  stage: MemoryJobStage
+  attempt: number
+  candidate_ids: MemoryId[]
+  disposition: Disposition | null
+  error_code: MemoryJobErrorCode | null
+  retryable: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface FeedbackEventRecord {
+  feedback_id: FeedbackId
+  run_id: RunId
+  feedback_type: FeedbackType
+  explicit_text: string | null
+  edited_output: string | null
+  rating: number | null
+  accepted: boolean | null
+  memory_job_id: MemoryJobId
+  created_at: string
+}
+
 export interface RunErrorSnapshot {
   error_id: ErrorId
   code: AsyncErrorCode
@@ -178,6 +299,8 @@ export interface TaskSnapshot {
   request_id: RequestId
   task_id: TaskId
   run_id: RunId
+  task_text: string
+  scenario: Scenario
   task_status: 'active'
   run_status: RunStatus
   provider_mode: ProviderMode
@@ -189,7 +312,9 @@ export interface TaskSnapshot {
   partial_output: string
   end_offset: number
   offset_unit: 'utf8_bytes'
+  messages: TaskMessageRecord[]
   final_message: MessageSnapshot | null
+  feedback_events: FeedbackEventRecord[]
   error: RunErrorSnapshot | null
   terminal: boolean
   last_persistent_event_seq: number
@@ -231,6 +356,9 @@ export type TaskFingerprintedEvent = EventEnvelope<
   {
     fingerprint_id: FingerprintId
     domain: Scenario
+    classification_source: 'auto_rule_v1'
+    classification_confidence: number
+    classification_reasons: ClassificationReasonCode[]
     task_type: TaskFingerprint['task_type']
     artifact_type: TaskFingerprint['artifact_type']
     language: TaskFingerprint['language']
@@ -239,7 +367,7 @@ export type TaskFingerprintedEvent = EventEnvelope<
 >
 export type MemoryRetrievalStartedEvent = EventEnvelope<
   'memory.retrieval.started',
-  { memory_count: 0; summary: 'no_long_term_memory_day1' },
+  { memory_count: 0; summary: 'no_long_term_memory_day2' },
   null
 >
 export type AgentPlanPublishedEvent = EventEnvelope<
@@ -247,7 +375,7 @@ export type AgentPlanPublishedEvent = EventEnvelope<
   {
     plan_id: PlanId
     goal_code: 'analyze_code' | 'answer_question' | 'explain_concept' | 'other'
-    memory_summary_code: 'no_long_term_memory_day1'
+    memory_summary_code: 'no_long_term_memory_day2'
     next_action_code: 'python_ast_check' | 'generate_directly'
   },
   number
@@ -336,6 +464,192 @@ export type StreamDoneEvent = EventEnvelope<
   { status: 'succeeded' | 'failed'; final_snapshot_required: true },
   number
 >
+export type FeedbackRecordedEvent = EventEnvelope<
+  'feedback.recorded',
+  {
+    feedback_id: FeedbackId
+    memory_job_id: MemoryJobId
+    feedback_type: FeedbackType
+  },
+  number
+>
+
+export type MemoryExtractionStageEvent = EventEnvelope<
+  'memory.extraction.stage',
+  { memory_job_id: MemoryJobId; stage: MemoryJobStage },
+  number
+>
+export type MemoryCandidateCreatedEvent = EventEnvelope<
+  'memory.candidate.created',
+  {
+    memory_job_id: MemoryJobId
+    memory_id: MemoryId
+    evidence_id: EvidenceId
+    ordinal: number
+  },
+  number
+>
+export type MemoryAdmissionResolvedEvent = EventEnvelope<
+  'memory.admission.resolved',
+  {
+    memory_id: MemoryId
+    old_status: MemoryCardStatus
+    new_status: MemoryCardStatus
+    memory_version_id: MemoryVersionId | null
+    disposition: Disposition
+  },
+  number
+>
+export type MemoryJobFailedEvent = EventEnvelope<
+  'memory.job.failed',
+  {
+    memory_job_id: MemoryJobId
+    stage: MemoryJobStage
+    error_code: MemoryJobErrorCode
+    retryable: boolean
+  },
+  number
+>
+
+export type MemoryCardStatus =
+  | 'candidate'
+  | 'active'
+  | 'rejected'
+  | 'conflicted'
+  | 'paused'
+  | 'superseded'
+  | 'merged'
+  | 'archived'
+  | 'deleted'
+
+export type MemoryRejectionReason = 'user_rejected' | 'episode_only'
+
+export type MemoryKind =
+  | 'preference'
+  | 'constraint'
+  | 'procedure'
+  | 'experience'
+  | 'environment'
+  | 'learning_checkpoint'
+
+export type MemorySourceType =
+  | 'explicit_feedback'
+  | 'explicit_correction'
+  | 'edit_diff'
+  | 'accept'
+  | 'reject'
+  | 'rating'
+  | 'outcome'
+  | 'import'
+
+export type MemoryScopeLevel =
+  | 'session'
+  | 'task_family'
+  | 'project'
+  | 'global'
+
+export type MemoryScopeDomain = Scenario | 'any'
+
+export type AllowedMemoryException =
+  | 'response_policy:direct_fix'
+  | 'urgency:urgent'
+
+export interface MemoryScope {
+  level: MemoryScopeLevel
+  domain: MemoryScopeDomain
+  task_type: TaskFingerprint['task_type'] | null
+  artifact_type: TaskFingerprint['artifact_type'] | null
+  audience: TaskFingerprint['audience'] | null
+  project_key: string | null
+}
+
+export interface MemoryCard {
+  memory_id: MemoryId
+  schema_version: '1.0'
+  kind: MemoryKind
+  title: string
+  rule: string
+  avoid: string
+  trigger_text: string
+  scope: MemoryScope
+  exceptions: AllowedMemoryException[]
+  status: MemoryCardStatus
+  rejection_reason: MemoryRejectionReason | null
+  source_type: MemorySourceType
+  save_preselected: boolean
+  source_trust: number
+  rule_confidence: number | null
+  scope_confidence: number | null
+  evidence_count: number
+  version: number
+  current_version_id: MemoryVersionId | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MemoryCardPatch {
+  title?: string | null
+  rule?: string | null
+  avoid?: string | null
+  scope?: MemoryScope | null
+  exceptions?: AllowedMemoryException[] | null
+}
+
+export type ResolveAction = 'accept' | 'edit_accept' | 'reject' | 'one_shot'
+
+export interface ResolveRequest {
+  action: ResolveAction
+  patch?: MemoryCardPatch | null
+}
+
+export interface ResolveResponse {
+  request_id: RequestId
+  memory_id: MemoryId
+  action: ResolveAction
+  old_status: MemoryCardStatus
+  new_status: MemoryCardStatus
+  disposition: Disposition
+  memory_version_id: MemoryVersionId | null
+  card: MemoryCard
+}
+
+export interface MemoryListResponse {
+  request_id: RequestId
+  items: MemoryCard[]
+  next_cursor: string | null
+}
+
+export interface MemoryEvidenceProjection {
+  evidence_id: EvidenceId
+  source_type: MemorySourceType
+  feedback_id: FeedbackId | null
+  task_id: TaskId | null
+  run_id: RunId | null
+  evidence_quote: string
+  diff_summary: string | null
+  normalized_edit_cost: number | null
+  created_at: string
+}
+
+export interface MemoryVersionProjection {
+  memory_version_id: MemoryVersionId
+  version: number
+  title: string
+  rule: string
+  avoid: string
+  trigger_text: string
+  scope: MemoryScope
+  exceptions: AllowedMemoryException[]
+  created_by_action: ResolveAction
+  created_at: string
+}
+
+export interface MemoryDetailResponse {
+  request_id: RequestId
+  card: MemoryCard
+  evidence: MemoryEvidenceProjection[]
+  versions: MemoryVersionProjection[]
+}
 
 export type G0SseEvent =
   | TaskCreatedEvent
@@ -351,6 +665,11 @@ export type G0SseEvent =
   | RunFailedEvent
   | ErrorEvent
   | StreamDoneEvent
+  | FeedbackRecordedEvent
+  | MemoryExtractionStageEvent
+  | MemoryCandidateCreatedEvent
+  | MemoryAdmissionResolvedEvent
+  | MemoryJobFailedEvent
 
 export type G0EventType = G0SseEvent['event_type']
 
@@ -368,4 +687,9 @@ export const G0_EVENT_TYPES: readonly G0EventType[] = [
   'run.failed',
   'error',
   'stream.done',
+  'feedback.recorded',
+  'memory.extraction.stage',
+  'memory.candidate.created',
+  'memory.admission.resolved',
+  'memory.job.failed',
 ]

@@ -58,7 +58,7 @@ class StreamingProvider(Protocol):
 
 class MockProvider:
     name = "mock"
-    model = "fixture-g0"
+    model = "fixture-g1"
     mode = ProviderMode.MOCK
 
     def __init__(self, *, chunk_delay_seconds: float = 0.0) -> None:

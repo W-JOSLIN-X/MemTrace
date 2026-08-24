@@ -2,7 +2,7 @@ name: memtrace
 
 services:
   app:
-    image: memtrace:day1-g0
+    image: memtrace:day3-g2
     build:
       context: .
       dockerfile: Dockerfile
@@ -24,7 +24,10 @@ services:
       LLM_BASE_URL: "${LLM_BASE_URL:-https://api.deepseek.com}"
       LLM_MODEL: "${LLM_MODEL:-deepseek-v4-flash}"
       LLM_API_KEY: "${LLM_API_KEY:-}"
+      SESSION_SECRET: "${SESSION_SECRET:?SESSION_SECRET must be set}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
       MEMTRACE_DATA_DIR: /app/data
+      MEMTRACE_DATABASE_URL: sqlite:////app/data/memtrace.sqlite3
       MEMTRACE_WEB_DIST: /app/static
     volumes:
       - memtrace-data:/app/data
@@ -35,7 +38,7 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2).read()"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/ready', timeout=2).read()"
       interval: 10s
       timeout: 3s
       start_period: 10s
