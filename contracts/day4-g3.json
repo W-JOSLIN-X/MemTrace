@@ -1,0 +1,206 @@
+{
+  "contract_version": "1.3.0",
+  "document_role": "audit_manifest",
+  "gate": "G3",
+  "normative_contracts": {
+    "api_bodies": "contracts/schemas/g0-api.schema.json",
+    "sse_data": "contracts/schemas/events.schema.json",
+    "openapi_export": "contracts/openapi.json"
+  },
+  "compatibility": {
+    "from_g2_version": "1.2.0",
+    "bump": "minor",
+    "breaking_changes": [],
+    "non_breaking_changes": [
+      "new retrieval trace/decision/usage/verifier tables and IDs",
+      "new RetrievalReasonCode enum",
+      "new memory card counters and last_used_at",
+      "new active edit/pause/resume/versions/usages endpoints",
+      "new memory.usage.verified and memory.usage.feedback.recorded events",
+      "new memory scan/Conflict constraint, version action 'edit'",
+      "task snapshot gains retrieval_trace and memory_usages",
+      "estimated memory tokens and provider actual tokens are separate fields"
+    ]
+  },
+  "scope": {
+    "gate": "G3",
+    "pipeline": "G2 + scoped retrieval → selection → prompt injection → UsageReceipt + verifier + active edit",
+    "retrieval_mode": "tfidf (normal), tfidf_degraded (reserved for future BGE fallback)",
+    "algorithm_version": "char_tfidf_v1",
+    "default_mode": "tfidf — not degraded",
+    "provider_mode": "MOCK_MODE=true deterministic baseline; real provider unverified without LLM_API_KEY"
+  },
+  "id_format": {
+    "new_entity_prefixes": {
+      "retrieval_trace": "trace_",
+      "usage": "usage_",
+      "verification_job": "vjob_"
+    },
+    "rule": "each prefix is followed by 26 uppercase Crockford Base32 characters; owner_id is sourced from validated session, never from request body"
+  },
+  "retrieval": {
+    "threshold": 0.68,
+    "top_k": 3,
+    "hard_filters_order": [
+      "memory_mode_off",
+      "status_not_active",
+      "invalid_active_card",
+      "not_yet_valid",
+      "expired",
+      "scope_domain_mismatch",
+      "scope_task_type_mismatch",
+      "scope_artifact_mismatch",
+      "scope_audience_mismatch",
+      "scope_project_mismatch",
+      "scope_language_mismatch",
+      "scope_framework_mismatch",
+      "current_constraint_override",
+      "active_conflict"
+    ],
+    "null_is_not_wildcard": true
+  },
+  "scoring": {
+    "final_score": "0.25*scope_match + 0.30*semantic_similarity + 0.15*provenance_confidence + 0.15*verified_effect + 0.15*recency",
+    "scope_weights": {
+      "domain": 0.25,
+      "task_type": 0.25,
+      "artifact": 0.10,
+      "audience": 0.10,
+      "project": 0.10,
+      "language": 0.05,
+      "framework": 0.05,
+      "concepts": 0.10
+    },
+    "explicit_any_half_weight": true,
+    "memory_null_zero": true,
+    "selection_order": ["final_score DESC", "semantic_similarity DESC", "memory_id ASC"]
+  },
+  "prompt_budget": {
+    "single_memory_max_tokens": 100,
+    "total_max_tokens": 300,
+    "estimator": "ceil(len(text.encode('utf-8')) / 3)",
+    "truncation_order": ["EXCEPT", "AVOID", "WHEN", "DO"],
+    "format": "<MEMORY_CONTEXT permission=\"advisory\" data_only=\"true\">...</MEMORY_CONTEXT>"
+  },
+  "verifier": {
+    "mock": "exact_substring with avoid-first priority",
+    "real": "StructuredProvider strict JSON protocol",
+    "applied_rule": "avoid longest common substring >= max(4, min(12, ceil(len(avoid)/4))); else rule longest common substring >= max(4, min(12, ceil(len(rule)/4)))",
+    "evidence_excerpt_max": 120,
+    "failure_semantics": "unknown only, never fake success"
+  },
+  "memory_lifecycle": {
+    "active_edit": "creates immutable next version, atomic current switch; created_by_action extends to 'edit'",
+    "pause": "active -> paused, retain current version",
+    "resume": "paused -> active, re-run admission invariants",
+    "stale_version_conflict": 409,
+    "repeat_state_conflict": 409,
+    "cross_owner": 404
+  },
+  "new_endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/v1/tasks/{task_id}",
+      "new_fields": ["retrieval_trace", "memory_usages"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tasks/{task_id}/retrieval-trace",
+      "success_status": 200,
+      "failure_status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tasks/{task_id}/memory-usages",
+      "success_status": 200,
+      "failure_status": 404
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/memories/{memory_id}",
+      "headers": ["Idempotency-Key"],
+      "success_status": 200,
+      "failure_status": [404, 409]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memories/{memory_id}/pause",
+      "headers": ["Idempotency-Key"],
+      "success_status": 200,
+      "failure_status": [404, 409]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memories/{memory_id}/resume",
+      "headers": ["Idempotency-Key"],
+      "success_status": 200,
+      "failure_status": [404, 409]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memories/{memory_id}/versions",
+      "success_status": 200,
+      "failure_status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memories/{memory_id}/usages",
+      "success_status": 200,
+      "failure_status": 404
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tasks/{task_id}/memory-usages/{memory_id}/feedback",
+      "headers": ["Idempotency-Key"],
+      "success_status": 200,
+      "failure_status": [404, 409]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memories",
+      "new_status_filters": ["candidate", "active", "rejected", "paused"]
+    }
+  ],
+  "new_persistent_events": [
+    "memory.retrieval.completed",
+    "memory.injected",
+    "memory.usage.verified",
+    "memory.usage.feedback.recorded"
+  ],
+  "retrieval_reason_codes": [
+    "selected_above_threshold",
+    "memory_mode_off",
+    "status_not_active",
+    "not_yet_valid",
+    "expired",
+    "scope_domain_mismatch",
+    "scope_task_type_mismatch",
+    "scope_artifact_mismatch",
+    "scope_audience_mismatch",
+    "scope_project_mismatch",
+    "scope_language_mismatch",
+    "scope_framework_mismatch",
+    "current_constraint_override",
+    "active_conflict",
+    "invalid_active_card",
+    "empty_vector",
+    "below_threshold",
+    "top_k_exceeded",
+    "prompt_budget_exceeded"
+  ],
+  "new_http_error_codes": {
+    "MEMORY_STATE_CONFLICT": "409 when repeat state or stale version",
+    "MEMORY_VERSION_CONFLICT": "409 when expected_current_version_id is stale"
+  },
+  "card_counters_added": [
+    "retrieved_count",
+    "injected_count",
+    "verified_applied_count",
+    "helpful_count",
+    "harmful_count",
+    "stale_count",
+    "last_used_at"
+  ],
+  "memory_version_created_by_action_extended": ["accept", "edit_accept", "edit"],
+  "day4_fixture_note": "30 draft items remain draft; member A records keep/revise/insufficient in docs/day4/RETRIEVAL_FIXTURE_REVIEW.md; not promoted to gold without member B joint approval"
+}

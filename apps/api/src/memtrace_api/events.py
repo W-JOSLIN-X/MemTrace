@@ -45,6 +45,7 @@ class EventType(StrEnum):
     TASK_STAGE = "task.stage"
     TASK_FINGERPRINTED = "task.fingerprinted"
     MEMORY_RETRIEVAL_STARTED = "memory.retrieval.started"
+    MEMORY_RETRIEVAL_COMPLETED = "memory.retrieval.completed"
     AGENT_PLAN_PUBLISHED = "agent.plan.published"
     TOOL_CALLED = "tool.called"
     TOOL_RESULT = "tool.result"
@@ -59,6 +60,9 @@ class EventType(StrEnum):
     MEMORY_CANDIDATE_CREATED = "memory.candidate.created"
     MEMORY_ADMISSION_RESOLVED = "memory.admission.resolved"
     MEMORY_JOB_FAILED = "memory.job.failed"
+    MEMORY_INJECTED = "memory.injected"
+    MEMORY_USAGE_VERIFIED = "memory.usage.verified"
+    MEMORY_USAGE_FEEDBACK_RECORDED = "memory.usage.feedback.recorded"
 
 
 PERSISTENT_EVENT_TYPES = frozenset(
@@ -66,6 +70,8 @@ PERSISTENT_EVENT_TYPES = frozenset(
         EventType.TASK_CREATED,
         EventType.TASK_STAGE,
         EventType.TASK_FINGERPRINTED,
+        EventType.MEMORY_RETRIEVAL_STARTED,
+        EventType.MEMORY_RETRIEVAL_COMPLETED,
         EventType.AGENT_PLAN_PUBLISHED,
         EventType.TOOL_CALLED,
         EventType.TOOL_RESULT,
@@ -79,6 +85,9 @@ PERSISTENT_EVENT_TYPES = frozenset(
         EventType.MEMORY_CANDIDATE_CREATED,
         EventType.MEMORY_ADMISSION_RESOLVED,
         EventType.MEMORY_JOB_FAILED,
+        EventType.MEMORY_INJECTED,
+        EventType.MEMORY_USAGE_VERIFIED,
+        EventType.MEMORY_USAGE_FEEDBACK_RECORDED,
     }
 )
 
@@ -114,8 +123,7 @@ class TaskFingerprintedPayload(ContractModel):
 
 
 class MemoryRetrievalStartedPayload(ContractModel):
-    memory_count: Literal[0] = 0
-    summary: Literal["no_long_term_memory_day2"] = "no_long_term_memory_day2"
+    retrieval_mode: str
 
 
 class AgentPlanPublishedPayload(ContractModel):
@@ -245,11 +253,53 @@ class MemoryJobFailedPayload(ContractModel):
     retryable: bool
 
 
+class MemoryRetrievalCompletedPayload(ContractModel):
+    retrieval_trace_id: RetrievalTraceId
+    retrieval_mode: str
+    algorithm_version: Literal["char_tfidf_v1"] = "char_tfidf_v1"
+    candidate_count: int = Field(ge=0)
+    retrieved_count: int = Field(ge=0)
+    selected_count: int = Field(ge=0)
+    injected_count: int = Field(ge=0)
+    threshold: float = Field(ge=0, le=1)
+    top_k: int = Field(gt=0)
+    retrieval_ms: int = Field(ge=0)
+    memory_chars: int = Field(ge=0)
+    memory_tokens_estimated: int = Field(ge=0)
+    prompt_section_hash: str | None = None
+
+
+class MemoryInjectedPayload(ContractModel):
+    usage_id: UsageId
+    retrieval_trace_id: RetrievalTraceId
+    memory_id: MemoryId
+    memory_version_id: MemoryVersionId
+    rank: int = Field(ge=1)
+    estimated_tokens: int = Field(ge=0)
+    prompt_section_hash: str | None = None
+
+
+class MemoryUsageVerifiedPayload(ContractModel):
+    usage_id: UsageId
+    memory_id: MemoryId
+    memory_version_id: MemoryVersionId
+    verification_status: VerificationStatus
+    verification_method: Literal["exact_substring", "structured_provider"] | None = None
+    evidence_present: bool
+
+
+class MemoryUsageFeedbackRecordedPayload(ContractModel):
+    usage_id: UsageId
+    memory_id: MemoryId
+    user_effect: UserEffect
+
+
 EventPayload: TypeAlias = (
     TaskCreatedPayload
     | TaskStagePayload
     | TaskFingerprintedPayload
     | MemoryRetrievalStartedPayload
+    | MemoryRetrievalCompletedPayload
     | AgentPlanPublishedPayload
     | ToolCalledPayload
     | ToolResultPayload
@@ -264,6 +314,9 @@ EventPayload: TypeAlias = (
     | MemoryCandidateCreatedPayload
     | MemoryAdmissionResolvedPayload
     | MemoryJobFailedPayload
+    | MemoryInjectedPayload
+    | MemoryUsageVerifiedPayload
+    | MemoryUsageFeedbackRecordedPayload
 )
 
 PAYLOAD_TYPES: dict[EventType, type[ContractModel]] = {
@@ -271,6 +324,7 @@ PAYLOAD_TYPES: dict[EventType, type[ContractModel]] = {
     EventType.TASK_STAGE: TaskStagePayload,
     EventType.TASK_FINGERPRINTED: TaskFingerprintedPayload,
     EventType.MEMORY_RETRIEVAL_STARTED: MemoryRetrievalStartedPayload,
+    EventType.MEMORY_RETRIEVAL_COMPLETED: MemoryRetrievalCompletedPayload,
     EventType.AGENT_PLAN_PUBLISHED: AgentPlanPublishedPayload,
     EventType.TOOL_CALLED: ToolCalledPayload,
     EventType.TOOL_RESULT: ToolResultPayload,
@@ -285,6 +339,9 @@ PAYLOAD_TYPES: dict[EventType, type[ContractModel]] = {
     EventType.MEMORY_CANDIDATE_CREATED: MemoryCandidateCreatedPayload,
     EventType.MEMORY_ADMISSION_RESOLVED: MemoryAdmissionResolvedPayload,
     EventType.MEMORY_JOB_FAILED: MemoryJobFailedPayload,
+    EventType.MEMORY_INJECTED: MemoryInjectedPayload,
+    EventType.MEMORY_USAGE_VERIFIED: MemoryUsageVerifiedPayload,
+    EventType.MEMORY_USAGE_FEEDBACK_RECORDED: MemoryUsageFeedbackRecordedPayload,
 }
 
 

@@ -62,6 +62,8 @@ from memtrace_api.repositories import (
     IdempotencyRepository,
     MemoryCardRepository,
     MemoryJobRepository,
+    MemoryUsageRepository,
+    RetrievalRepository,
     SessionRepository,
     TaskRepository,
     UserContext,
