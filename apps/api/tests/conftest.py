@@ -31,7 +31,7 @@ def migrate_database(db_url: str) -> None:
         env=env,
         check=True,
         capture_output=True,
-        cwd=str(PROJECT_ROOT),
+        cwd=str(PROJECT_ROOT / "apps" / "api"),
     )
 
 

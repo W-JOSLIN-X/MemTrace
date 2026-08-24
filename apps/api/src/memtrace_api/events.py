@@ -31,11 +31,16 @@ from memtrace_api.schemas import (
     PlanId,
     ProgrammingLanguage,
     ProviderMode,
+    RetrievalReasonCode,
+    RetrievalTraceId,
     RunId,
     TaskId,
     TaskType,
     ToolCallId,
     ToolResultId,
+    UsageId,
+    UserEffect,
+    VerificationStatus,
     utc_now,
 )
 
@@ -391,3 +396,7 @@ def serialize_sse(event: EventEnvelope) -> bytes:
     lines.append(f"event: {event.event_type.value}")
     lines.append(f"data: {event.model_dump_json()}")
     return ("\n".join(lines) + "\n\n").encode("utf-8")
+
+
+# Rebuild models that use forward references from schemas.py
+EventEnvelope.model_rebuild()
