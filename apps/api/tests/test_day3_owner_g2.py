@@ -420,7 +420,7 @@ def test_concurrent_resolve_has_one_winner_and_same_key_replays(tmp_path: Path) 
         client.__exit__(None, None, None)
 
 
-def test_memory_list_uses_descending_opaque_cursor_and_explicit_nulls(tmp_path: Path) -> None:
+def test_memory_list_uses_filter_bound_opaque_cursor_and_explicit_nulls(tmp_path: Path) -> None:
     client = _client(tmp_path)
     try:
         factory = client.app.state.db_session_factory
@@ -472,11 +472,10 @@ def test_memory_list_uses_descending_opaque_cursor_and_explicit_nulls(tmp_path: 
         assert first.status_code == 200, first.text
         first_body = first.json()
         assert len(first_body["items"]) == 50
-        assert first_body["next_cursor"] == first_body["items"][-1]["memory_id"]
+        assert first_body["next_cursor"] != first_body["items"][-1]["memory_id"]
         assert first_body["items"] == sorted(
             first_body["items"],
             key=lambda item: item["memory_id"],
-            reverse=True,
         )
         assert first_body["items"][0]["current_version_id"] is None
         assert first_body["items"][0]["rule_confidence"] is None
@@ -495,6 +494,14 @@ def test_memory_list_uses_descending_opaque_cursor_and_explicit_nulls(tmp_path: 
 
         invalid = client.get("/api/v1/memories?cursor=not-a-memory-id")
         assert invalid.status_code == 422
+        assert invalid.json()["error"]["code"] == "INVALID_CURSOR"
+
+        mismatched = client.get(
+            "/api/v1/memories",
+            params={"status": "active", "cursor": first_body["next_cursor"]},
+        )
+        assert mismatched.status_code == 422
+        assert mismatched.json()["error"]["code"] == "INVALID_CURSOR"
     finally:
         client.__exit__(None, None, None)
 

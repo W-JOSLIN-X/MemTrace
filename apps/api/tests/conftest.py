@@ -4,7 +4,6 @@ import os
 import subprocess
 import sys
 from collections.abc import Callable
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -13,7 +12,6 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from memtrace_api.config import PROJECT_ROOT, Settings
-from memtrace_api.db_models import Base
 from memtrace_api.main import create_app
 from memtrace_api.repositories import UserContext
 
@@ -143,8 +141,6 @@ def other_user_context(tmp_path: Path, tmp_db_url: str) -> UserContext:
 @pytest.fixture
 def session(tmp_db_url: str) -> Session:
     """Provide a SQLAlchemy session for direct DB operations."""
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
 
     engine = create_engine(tmp_db_url)
     SessionLocal = sessionmaker(bind=engine)

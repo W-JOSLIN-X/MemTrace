@@ -10,7 +10,6 @@ from memtrace_api.db_models import (
     MemoryRelationModel,
     MemoryVersionModel,
     TaskModel,
-    UserModel,
 )
 
 
@@ -21,10 +20,20 @@ class TestG4DBModels:
     def test_import_batch_has_required_columns(self) -> None:
         cols = {c.name for c in ImportBatchModel.__table__.columns}
         required = {
-            "id", "owner_id", "file_hash", "status",
-            "canonical_payload_json", "preview_json", "preview_token_hash",
-            "inserted_count", "skipped_count", "warning_count",
-            "error_message", "expires_at", "created_at", "updated_at",
+            "id",
+            "owner_id",
+            "file_hash",
+            "status",
+            "canonical_payload_json",
+            "preview_json",
+            "preview_token_hash",
+            "inserted_count",
+            "skipped_count",
+            "warning_count",
+            "error_message",
+            "expires_at",
+            "created_at",
+            "updated_at",
         }
         assert required <= cols, f"Missing columns: {required - cols}"
 

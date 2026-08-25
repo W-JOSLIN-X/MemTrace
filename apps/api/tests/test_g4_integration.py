@@ -1,4 +1,4 @@
-"""Integration tests for G4 Memory Center and Pack operations."""
+"""Database-backed integration tests for G4 owner isolation and invariants."""
 
 from __future__ import annotations
 
@@ -6,228 +6,177 @@ import datetime
 import json
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
-from memtrace_api.db_models import MemoryCardModel, MemoryRelationModel
-from memtrace_api.repositories import (
-    MemoryCardG4Repository,
-    PackRepository,
-    ConflictRepository,
-    MemoryMergeRepository,
-    ImportBatchRepository,
-)
+from memtrace_api.db_models import MemoryCardModel, MemoryVersionModel, TaskModel
 from memtrace_api.ids import new_prefixed_ulid
-from memtrace_api.schemas import CreatedByAction, SourceType
+from memtrace_api.repositories import ConflictRepository, MemoryCardG4Repository, PackRepository
 
 
-class TestG4MemoryCenter:
-    """G4 Memory Center lifecycle operations."""
-
-    def test_permanent_delete_cleans_all_related_tables(
-        self, user_context, session
-    ):
-        """Verify permanent delete clears versions, relations, usage, evidence, idempotency."""
-        repo = MemoryCardG4Repository(user_context, session)
-        card_id = new_prefixed_ulid("mem")
-        version_id = new_prefixed_ulid("memver")
-        now = datetime.datetime.now(datetime.timezone.utc)
-        card = MemoryCardModel(
-            id=card_id,
-            owner_id=user_context.user_id,
-            status="active",
-            kind="preference",
-            source_type="explicit_feedback",
-            title="Test Card",
-            rule="Test rule",
-            avoid="",
-            trigger_text="",
-            scope_level="global",
-            domain="other",
-            scope_json="{}",
-            exceptions_json="[]",
-            source_trust=1.0,
-            rule_confidence=1.0,
-            scope_confidence=1.0,
-            evidence_count=1,
-            version=1,
-            current_version_id=version_id,
-            created_at=now,
-            updated_at=now,
-        )
-        session.add(card)
-        session.flush()
-        result = repo.permanent_delete(
-            memory_id=card_id,
-            expected_version_id=version_id,
-            confirm_title="Test Card",
-        )
-        assert result["status"] == "deleted"
-        assert result["memory_id"] == card_id
-        deleted_card = session.execute(
-            select(MemoryCardModel).where(MemoryCardModel.id == card_id)
-        ).scalar_one_or_none()
-        assert deleted_card is not None
-        assert deleted_card.status == "deleted"
-        assert deleted_card.title is None
-        assert deleted_card.rule is None
-
-    def test_task_delete_preserves_cards(
-        self, user_context, session
-    ):
-        """Verify task delete preserves cards but marks evidence_missing."""
-        repo = MemoryCardG4Repository(user_context, session)
-        card_id = new_prefixed_ulid("mem")
-        card = MemoryCardModel(
-            id=card_id,
-            owner_id=user_context.user_id,
-            status="active",
-            kind="preference",
-            source_type="explicit_feedback",
-            title="Task Card",
-            rule="Rule",
-            avoid="",
-            trigger_text="",
-            scope_level="global",
-            domain="other",
-            scope_json="{}",
-            exceptions_json="[]",
-            source_trust=1.0,
-            rule_confidence=1.0,
-            scope_confidence=1.0,
-            evidence_count=1,
-            version=1,
-            current_version_id=new_prefixed_ulid("memver"),
-            created_at=datetime.datetime.now(datetime.timezone.utc),
-            updated_at=datetime.datetime.now(datetime.timezone.utc),
-        )
-        session.add(card)
-        task_id = new_prefixed_ulid("task")
-        session.flush()
-        result = repo.delete_source_task(task_id)
-        assert result["task_id"] == task_id
-        assert result["status"] == "deleted"
-        assert result["memory_policy"] == "preserve_and_mark_evidence_missing"
-
-    def test_conflict_create_and_resolve_prefer(
-        self, user_context, session
-    ):
-        """Test creating conflict and resolving with prefer action."""
-        card_repo = MemoryCardG4Repository(user_context, session)
-        conflict_repo = ConflictRepository(user_context, session)
-        left_id = new_prefixed_ulid("mem")
-        right_id = new_prefixed_ulid("mem")
-        ver_1 = new_prefixed_ulid("memver")
-        ver_2 = new_prefixed_ulid("memver")
-        now = datetime.datetime.now(datetime.timezone.utc)
-        for card_id, ver_id in [(left_id, ver_1), (right_id, ver_2)]:
-            card = MemoryCardModel(
-                id=card_id,
-                owner_id=user_context.user_id,
-                status="active",
-                kind="preference",
-                source_type="explicit_feedback",
-                title=f"Card {card_id[-6:]}",
-                rule="Test rule",
-                avoid="",
-                trigger_text="",
-                scope_level="global",
-                domain="other",
-                scope_json="{}",
-                exceptions_json="[]",
-                source_trust=1.0,
-                rule_confidence=1.0,
-                scope_confidence=1.0,
-                evidence_count=1,
-                version=1,
-                current_version_id=ver_id,
-                created_at=now,
-                updated_at=now,
-            )
-            session.add(card)
-        session.flush()
-        rel_id = new_prefixed_ulid("rel")
-        relation = conflict_repo.create_conflict(
-            relation_id=rel_id,
-            left_memory_id=left_id,
-            right_memory_id=right_id,
-        )
-        assert relation.relation_type == "conflicts_with"
-        assert relation.status == "unresolved"
-        resolved = conflict_repo.resolve(
-            rel_id,
-            action="prefer",
-            resolution_memory_id=left_id,
-        )
-        assert resolved.status == "resolved"
-        assert resolved.resolution_action == "prefer"
-
-    def test_pack_export_rfc8785(
-        self, user_context, session
-    ):
-        """Test Pack export with RFC 8785 canonicalization."""
-        pack_repo = PackRepository(user_context, session)
-        card_id = new_prefixed_ulid("mem")
-        ver_id = new_prefixed_ulid("memver")
-        now = datetime.datetime.now(datetime.timezone.utc)
-        card = MemoryCardModel(
-            id=card_id,
-            owner_id=user_context.user_id,
-            status="active",
-            kind="preference",
-            source_type="explicit_feedback",
-            title="Export Test",
-            rule="Test rule for export",
-            avoid="",
-            trigger_text="",
-            scope_level="global",
-            domain="other",
-            scope_json="{}",
-            exceptions_json="[]",
-            source_trust=1.0,
-            rule_confidence=1.0,
-            scope_confidence=1.0,
-            evidence_count=1,
-            version=1,
-            current_version_id=ver_id,
-            created_at=now,
-            updated_at=now,
-        )
-        session.add(card)
-        session.flush()
-        pack = pack_repo.export_memories(
-            pack_id=new_prefixed_ulid("pack"),
-            name="Test Export",
-            description="Test",
-            memory_ids=[card_id],
-        )
-        assert "schema_ref" in pack
-        assert pack["schema_ref"] == "memtrace-memory-pack@1.0.0"
-        assert "integrity" in pack
-        assert "canonical_payload_sha256" in pack["integrity"]
-        assert len(pack["integrity"]["canonical_payload_sha256"]) == 64
-        assert len(pack["cards"]) == 1
-        assert pack["cards"][0]["title"] == "Export Test"
+def _scope_json() -> str:
+    return json.dumps(
+        {
+            "level": "global",
+            "domain": "other",
+            "task_type": "any",
+            "artifact_type": "any",
+            "audience": "any",
+            "project_key": None,
+            "language": "any",
+            "framework": None,
+            "concepts": [],
+        },
+        separators=(",", ":"),
+    )
 
 
-class TestG4AdmissionGuard:
-    """Admission Guard invariants."""
+def _active_card(session, owner_id: str, label: str) -> MemoryCardModel:
+    now = datetime.datetime.now(datetime.UTC)
+    card = MemoryCardModel(
+        id=new_prefixed_ulid("mem"),
+        owner_id=owner_id,
+        status="candidate",
+        kind="preference",
+        source_type="explicit_feedback",
+        title=f"{label} memory card",
+        rule=f"Always apply the verified {label} rule in matching future tasks.",
+        avoid="",
+        trigger_text=f"matching {label} task",
+        scope_level="global",
+        domain="other",
+        task_type="any",
+        artifact_type="any",
+        audience="any",
+        scope_json=_scope_json(),
+        exceptions_json="[]",
+        source_trust=1.0,
+        rule_confidence=None,
+        scope_confidence=None,
+        evidence_count=1,
+        version=0,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(card)
+    session.flush()
+    version = MemoryVersionModel(
+        id=new_prefixed_ulid("memver"),
+        owner_id=owner_id,
+        memory_id=card.id,
+        version=1,
+        title=card.title,
+        rule=card.rule,
+        avoid=card.avoid,
+        trigger_text=card.trigger_text,
+        scope_json=card.scope_json,
+        exceptions_json=card.exceptions_json,
+        created_by_action="accept",
+        created_at=now,
+    )
+    session.add(version)
+    session.flush()
+    card.status = "active"
+    card.version = 1
+    card.current_version_id = version.id
+    card.rule_confidence = 1.0
+    card.scope_confidence = 1.0
+    card.valid_from = now
+    session.flush()
+    return card
 
-    def test_active_card_requires_confirmed_confidence(
-        self, user_context, session
-    ):
-        """Active card must have confirmed rule_confidence and scope_confidence."""
-        card = MemoryCardModel(
+
+def test_permanent_delete_keeps_only_safe_tombstone(user_context, session) -> None:
+    card = _active_card(session, user_context.user_id, "delete")
+    version_id = card.current_version_id
+    result = MemoryCardG4Repository(user_context, session).permanent_delete(
+        memory_id=card.id,
+        expected_version_id=version_id,
+        confirm_title=card.title,
+    )
+    assert result["status"] == "deleted"
+    deleted = session.execute(
+        select(MemoryCardModel).where(MemoryCardModel.id == card.id)
+    ).scalar_one()
+    assert deleted.status == "deleted"
+    assert deleted.title is None and deleted.rule is None and deleted.scope_json is None
+    assert deleted.current_version_id is None
+    assert session.get(MemoryVersionModel, version_id) is None
+
+
+def test_task_delete_creates_body_free_tombstone(user_context, session) -> None:
+    now = datetime.datetime.now(datetime.UTC)
+    task = TaskModel(
+        id=new_prefixed_ulid("task"),
+        owner_id=user_context.user_id,
+        scenario="other",
+        task_text="synthetic task body that must be removed",
+        effective_memory_mode="on",
+        status="active",
+        next_event_seq=1,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(task)
+    session.flush()
+    result = MemoryCardG4Repository(user_context, session).delete_source_task(task.id)
+    assert result["task_id"] == task.id
+    assert result["affected_card_count"] == 0
+    session.refresh(task)
+    assert task.task_text == "" and task.deleted_at is not None
+
+
+def test_conflict_repository_enforces_owner_and_resolves(user_context, session) -> None:
+    left = _active_card(session, user_context.user_id, "left")
+    right = _active_card(session, user_context.user_id, "right")
+    repository = ConflictRepository(user_context, session)
+    relation = repository.create_conflict(
+        relation_id=new_prefixed_ulid("rel"),
+        left_memory_id=left.id,
+        right_memory_id=right.id,
+    )
+    assert relation.status == "unresolved"
+    resolved = repository.resolve(
+        relation.id,
+        action="prefer",
+        resolution_memory_id=left.id,
+    )
+    assert resolved.status == "resolved"
+    assert resolved.resolution_action == "prefer"
+
+
+def test_pack_export_is_anonymous_canonical_and_uses_external_ids(user_context, session) -> None:
+    card = _active_card(session, user_context.user_id, "export")
+    repository = PackRepository(user_context, session)
+    pack = repository.export_memories(
+        pack_id=new_prefixed_ulid("pack"),
+        name="Synthetic export",
+        description="Pack contract check",
+        memory_ids=[card.id],
+    )
+    encoded = repository.canonical_bytes(pack)
+    assert json.loads(encoded) == pack
+    assert pack["cards"][0]["external_id"] == "card_001"
+    assert card.id not in encoded.decode("utf-8")
+    assert len(pack["integrity"]["canonical_payload_sha256"]) == 64
+
+
+def test_database_rejects_active_card_without_confirmed_confidence(user_context, session) -> None:
+    now = datetime.datetime.now(datetime.UTC)
+    session.add(
+        MemoryCardModel(
             id=new_prefixed_ulid("mem"),
             owner_id=user_context.user_id,
             status="active",
             kind="preference",
             source_type="explicit_feedback",
-            title="Bad Active Card",
-            rule="Rule",
+            title="Invalid active card",
+            rule="This active rule lacks the required confirmed confidence values.",
             avoid="",
-            trigger_text="",
+            trigger_text="invalid active test",
             scope_level="global",
             domain="other",
-            scope_json="{}",
+            scope_json=_scope_json(),
             exceptions_json="[]",
             source_trust=1.0,
             rule_confidence=None,
@@ -235,50 +184,14 @@ class TestG4AdmissionGuard:
             evidence_count=0,
             version=1,
             current_version_id=new_prefixed_ulid("memver"),
-            created_at=datetime.datetime.now(datetime.timezone.utc),
-            updated_at=datetime.datetime.now(datetime.timezone.utc),
-        )
-        session.add(card)
-        session.flush()
-        repo = MemoryCardG4Repository(user_context, session)
-        with pytest.raises(ValueError, match="active card invariants"):
-            repo._get(card.id)
-
-
-class TestG4CrossOwnerIsolation:
-    """Cross-owner isolation."""
-
-    def test_memory_card_cross_owner_invisible(
-        self, user_context, other_user_context, session
-    ):
-        """Verify cross-owner memory cards are not visible."""
-        card_id = new_prefixed_ulid("mem")
-        now = datetime.datetime.now(datetime.timezone.utc)
-        card = MemoryCardModel(
-            id=card_id,
-            owner_id=user_context.user_id,
-            status="active",
-            kind="preference",
-            source_type="explicit_feedback",
-            title="Owner 1 Card",
-            rule="Rule",
-            avoid="",
-            trigger_text="",
-            scope_level="global",
-            domain="other",
-            scope_json="{}",
-            exceptions_json="[]",
-            source_trust=1.0,
-            rule_confidence=1.0,
-            scope_confidence=1.0,
-            evidence_count=0,
-            version=1,
-            current_version_id=new_prefixed_ulid("memver"),
             created_at=now,
             updated_at=now,
         )
-        session.add(card)
+    )
+    with pytest.raises(IntegrityError):
         session.flush()
-        other_repo = MemoryCardG4Repository(other_user_context, session)
-        result = other_repo.get_detail(card_id)
-        assert result is None, "Cross-owner card must not be visible"
+
+
+def test_memory_card_cross_owner_is_invisible(user_context, other_user_context, session) -> None:
+    card = _active_card(session, user_context.user_id, "private")
+    assert MemoryCardG4Repository(other_user_context, session).get_detail(card.id) is None

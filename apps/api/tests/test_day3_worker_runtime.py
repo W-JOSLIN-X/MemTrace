@@ -14,7 +14,7 @@ from memtrace_api.db_models import EventLogModel, FeedbackEventModel, MemoryJobM
 from memtrace_api.ids import new_prefixed_ulid
 from memtrace_api.main import create_app
 from memtrace_api.repositories import UserRepository
-from memtrace_api.schemas import utc_now
+from memtrace_api.schemas import MemoryScope, utc_now
 from memtrace_api.store import TaskStore
 from memtrace_api.worker import MemoryJobWorker
 from test_day3_owner_g2 import _client, _task_to_terminal
@@ -77,6 +77,23 @@ def _store() -> TaskStore:
         max_subscribers_per_task=8,
         subscriber_queue_size=64,
     )
+
+
+def test_memory_scope_normalizes_provider_concepts_without_g2_regression() -> None:
+    scope = MemoryScope.model_validate(
+        {
+            "level": "task_family",
+            "domain": "programming_learning",
+            "task_type": "debugging_guidance",
+            "artifact_type": "source_code",
+            "audience": "beginner",
+            "project_key": None,
+            "language": "python",
+            "framework": None,
+            "concepts": ["Loops", "debugging", "loops"],
+        }
+    )
+    assert scope.concepts == ["debugging", "loops"]
 
 
 def test_two_workers_atomically_claim_eight_jobs_once(tmp_path) -> None:
