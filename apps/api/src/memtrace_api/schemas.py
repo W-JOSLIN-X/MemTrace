@@ -32,6 +32,12 @@ UserId = Annotated[str, StringConstraints(pattern=r"^usr_[0-9A-HJKMNP-TV-Z]{26}$
 IdempotencyKey = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9._:-]{8,128}$")]
 
 
+RelationId = Annotated[str, StringConstraints(pattern=r"^rel_[0-9A-HJKMNP-TV-Z]{26}$")]
+ImportBatchId = Annotated[str, StringConstraints(pattern=r"^batch_[0-9A-HJKMNP-TV-Z]{26}$")]
+PackId = Annotated[str, StringConstraints(pattern=r"^pack_[0-9A-HJKMNP-TV-Z]{26}$")]
+MemoryVersionId = Annotated[str, StringConstraints(pattern=r"^memver_[0-9A-HJKMNP-TV-Z]{26}$")]
+
+
 def utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -658,16 +664,40 @@ class Disposition(StrEnum):
     FAILED = "failed"
 
 
-class ResolveAction(StrEnum):
+class CandidateResolveAction(StrEnum):
     ACCEPT = "accept"
     EDIT_ACCEPT = "edit_accept"
     REJECT = "reject"
     ONE_SHOT = "one_shot"
 
 
+class ConflictResolutionAction(StrEnum):
+    PREFER = "prefer"
+    SEPARATE_SCOPES = "separate_scopes"
+    MERGE = "merge"
+    PAUSE_BOTH = "pause_both"
+
+
+# Alias for G4 decision note
+ResolutionAction = ConflictResolutionAction
+
+
+# Alias for backward compatibility
+ResolveAction = CandidateResolveAction
+
+
 class RejectionReason(StrEnum):
     USER_REJECTED = "user_rejected"
     EPISODE_ONLY = "episode_only"
+
+
+class CreatedByAction(StrEnum):
+    ACCEPT = "accept"
+    EDIT_ACCEPT = "edit_accept"
+    EDIT = "edit"
+    IMPORT = "import"
+    MERGE = "merge"
+    SCOPE_RESOLUTION = "scope_resolution"
 
 
 class MemoryJobStage(StrEnum):
@@ -1035,3 +1065,200 @@ class MemoryUsageListResponse(ContractModel):
     request_id: RequestId
     items: Annotated[list[MemoryUsageResponse], Field(max_length=100)] = Field(default_factory=list)
     next_cursor: str | None = None
+
+
+class MemoryListFilter(ContractModel):
+    query: Annotated[str, StringConstraints(min_length=1, max_length=100)] | None = None
+    kind: MemoryKind | None = None
+    status: MemoryCardStatus | None = None
+    domain: Domain | None = None
+    task_type: TaskType | None = None
+    source_type: SourceType | None = None
+    used_after: datetime | None = None
+    sort: Literal["updated_desc", "created_desc", "last_used_desc", "title_asc"] = "updated_desc"
+    cursor: str | None = None
+
+
+class MemoryDeleteRequest(ContractModel):
+    expected_current_version_id: MemoryVersionId | None = None
+    confirm_title: Annotated[str, StringConstraints(min_length=1, max_length=40)]
+
+
+class TaskDeleteRequest(ContractModel):
+    confirm_task_id: TaskId
+    memory_policy: Literal["preserve_and_mark_evidence_missing"] = (
+        "preserve_and_mark_evidence_missing"
+    )
+
+
+class MemoryRelationProjection(ContractModel):
+    relation_id: RelationId
+    from_memory_id: MemoryId
+    to_memory_id: MemoryId
+    relation_type: Literal[
+        "duplicate_of", "reinforces", "conflicts_with", "supersedes", "merged_into", "related_to"
+    ]
+    status: Literal["unresolved", "resolved"]
+    resolution_action: Literal["prefer", "separate_scopes", "merge", "pause_both"] | None = None
+    resolution_memory_id: MemoryId | None = None
+    created_at: datetime
+    resolved_at: datetime | None = None
+
+
+class MemoryConflictDetectRequest(ContractModel):
+    left_memory_id: MemoryId
+    left_expected_current_version_id: MemoryVersionId
+    right_memory_id: MemoryId
+    right_expected_current_version_id: MemoryVersionId
+
+
+class MemoryConflictDetectResponse(ContractModel):
+    request_id: RequestId
+    relation_id: RelationId
+    left_memory_id: MemoryId
+    right_memory_id: MemoryId
+    relation_type: Literal["conflicts_with"] = "conflicts_with"
+    status: Literal["unresolved"] = "unresolved"
+
+
+class MemoryConflictResolveRequest(ContractModel):
+    expected_relation_status: Literal["unresolved"] = "unresolved"
+    left_expected_current_version_id: MemoryVersionId
+    right_expected_current_version_id: MemoryVersionId
+    action: Literal["prefer", "separate_scopes", "merge", "pause_both"]
+    preferred_memory_id: MemoryId | None = None
+    left_scope: MemoryScope | None = None
+    right_scope: MemoryScope | None = None
+    merged_card: MemoryCardPatch | None = None
+
+    @model_validator(mode="after")
+    def validate_action_fields(self) -> MemoryConflictResolveRequest:
+        if self.action == "prefer" and self.preferred_memory_id is None:
+            raise ValueError("prefer action requires preferred_memory_id")
+        if self.action == "separate_scopes":
+            if self.left_scope is None or self.right_scope is None:
+                raise ValueError("separate_scopes requires left_scope and right_scope")
+        if self.action == "merge" and self.merged_card is None:
+            raise ValueError("merge action requires merged_card")
+        if self.action == "pause_both" and self.merged_card is not None:
+            raise ValueError("pause_both action must not include merged_card")
+        # Ensure mutual exclusivity
+        has_prefer = self.action == "prefer"
+        has_scopes = self.action == "separate_scopes"
+        has_merge = self.action == "merge"
+        fields = [self.preferred_memory_id, self.merged_card]
+        if not has_prefer:
+            fields = [f for f in fields if f is not None]
+        if (
+            len(
+                [
+                    f
+                    for f in [
+                        self.preferred_memory_id,
+                        self.merged_card,
+                        self.left_scope,
+                        self.right_scope,
+                    ]
+                    if f is not None
+                ]
+            )
+            > 1
+        ):
+            raise ValueError("only one action type may have fields set")
+        return self
+
+
+class MemoryConflictResolveResponse(ContractModel):
+    request_id: RequestId
+    relation_id: RelationId
+    action: Literal["prefer", "separate_scopes", "merge", "pause_both"]
+    status: Literal["resolved"] = "resolved"
+
+
+class MemoryMergeRequest(ContractModel):
+    left_memory_id: MemoryId
+    left_expected_current_version_id: MemoryVersionId
+    right_memory_id: MemoryId
+    right_expected_current_version_id: MemoryVersionId
+    merged_card: MemoryCardPatch
+
+
+class MemoryMergeResponse(ContractModel):
+    request_id: RequestId
+    merged_memory_id: MemoryId
+    left_memory_id: MemoryId
+    right_memory_id: MemoryId
+
+
+class MemoryVersionDiffResponse(ContractModel):
+    request_id: RequestId
+    from_version: MemoryVersionProjection
+    to_version: MemoryVersionProjection
+    changed_fields: list[Literal["title", "rule", "avoid", "trigger_text", "scope", "exceptions"]]
+
+
+class PackExportRequest(ContractModel):
+    memory_ids: list[MemoryId] | None = None
+    name: Annotated[str, StringConstraints(min_length=1, max_length=80)] | None = None
+    description: Annotated[str, StringConstraints(max_length=500)] | None = None
+
+
+class PackExportResponse(ContractModel):
+    request_id: RequestId
+    pack_id: PackId
+    name: str
+    description: str | None = None
+    created_at: datetime
+    producer: dict[str, str]
+    card_count: int
+    relation_count: int
+    canonical_payload_sha256: str
+
+
+class PackPreviewItem(ContractModel):
+    external_id: str
+    kind: str
+    title: str
+    rule: str
+    avoid: str
+    scope: dict[str, object]
+    classification: Literal["legal_new", "duplicate", "potential_conflict", "suspicious"]
+    reason: str | None = None
+
+
+class PackPreviewResponse(ContractModel):
+    request_id: RequestId
+    batch_id: ImportBatchId
+    pack_metadata: dict[str, object]
+    legal_new_count: int
+    duplicate_count: int
+    potential_conflict_count: int
+    suspicious_count: int
+    items: list[PackPreviewItem]
+    preview_token: str | None = None
+
+
+class ImportCommitRequest(ContractModel):
+    batch_id: ImportBatchId
+    preview_token: str
+    mode: Literal["import_all_paused"] = "import_all_paused"
+
+
+class ImportCommitResponse(ContractModel):
+    request_id: RequestId
+    batch_id: ImportBatchId
+    inserted_count: int
+    skipped_count: int
+    warning_count: int
+
+
+class ImportBatchResponse(ContractModel):
+    request_id: RequestId
+    batch_id: ImportBatchId
+    status: str
+    created_at: datetime
+    expires_at: datetime | None = None
+    inserted_count: int
+    skipped_count: int
+    warning_count: int
+    error_message: str | None = None
