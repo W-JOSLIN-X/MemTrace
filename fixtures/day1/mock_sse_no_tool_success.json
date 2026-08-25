@@ -74,12 +74,21 @@
       "task_id": "task_01J00000000000000000000011",
       "run_id": "run_01J00000000000000000000011",
       "at": "2026-08-21T00:10:05Z",
-      "data": {"memory_count": 0, "summary": "no_long_term_memory_day2"}
+      "data": {"retrieval_mode": "tfidf"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "memory.retrieval.completed",
+      "event_seq": 5,
+      "task_id": "task_01J00000000000000000000011",
+      "run_id": "run_01J00000000000000000000011",
+      "at": "2026-08-21T00:10:05Z",
+      "data": {"trace_id": "trace_01J00000000000000000000011", "mode": "tfidf", "algorithm_version": "char_tfidf_v1", "candidate_count": 0, "retrieved_count": 0, "selected_count": 0, "injected_count": 0, "threshold": 0.68, "top_k": 3, "retrieval_ms": 0, "memory_chars": 0, "estimated_tokens": 0, "prompt_section_hash": null}
     },
     {
       "event_version": "1.0",
       "event_type": "task.stage",
-      "event_seq": 5,
+      "event_seq": 6,
       "task_id": "task_01J00000000000000000000011",
       "run_id": "run_01J00000000000000000000011",
       "at": "2026-08-21T00:10:06Z",
@@ -88,21 +97,21 @@
     {
       "event_version": "1.0",
       "event_type": "agent.plan.published",
-      "event_seq": 6,
+      "event_seq": 7,
       "task_id": "task_01J00000000000000000000011",
       "run_id": "run_01J00000000000000000000011",
       "at": "2026-08-21T00:10:07Z",
       "data": {
         "plan_id": "plan_01J00000000000000000000011",
         "goal_code": "explain_concept",
-        "memory_summary_code": "no_long_term_memory_day2",
+        "memory_summary_code": "no_memory_selected",
         "next_action_code": "generate_directly"
       }
     },
     {
       "event_version": "1.0",
       "event_type": "task.stage",
-      "event_seq": 7,
+      "event_seq": 8,
       "task_id": "task_01J00000000000000000000011",
       "run_id": "run_01J00000000000000000000011",
       "at": "2026-08-21T00:10:08Z",
@@ -147,7 +156,7 @@
     {
       "event_version": "1.0",
       "event_type": "run.metrics",
-      "event_seq": 8,
+      "event_seq": 9,
       "task_id": "task_01J00000000000000000000011",
       "run_id": "run_01J00000000000000000000011",
       "at": "2026-08-21T00:10:13Z",
@@ -156,7 +165,7 @@
     {
       "event_version": "1.0",
       "event_type": "run.completed",
-      "event_seq": 9,
+      "event_seq": 10,
       "task_id": "task_01J00000000000000000000011",
       "run_id": "run_01J00000000000000000000011",
       "at": "2026-08-21T00:10:14Z",
@@ -165,7 +174,7 @@
     {
       "event_version": "1.0",
       "event_type": "stream.done",
-      "event_seq": 10,
+      "event_seq": 11,
       "task_id": "task_01J00000000000000000000011",
       "run_id": "run_01J00000000000000000000011",
       "at": "2026-08-21T00:10:15Z",
@@ -213,17 +222,19 @@
     "offset_unit": "utf8_bytes",
     "messages": [],
     "feedback_events": [],
+    "retrieval_trace": null,
+    "memory_usages": [],
     "final_message": {"id": "msg_01J00000000000000000000011", "role": "assistant", "content": "递归像打开一只套娃，直到最里面停止。🙂", "created_at": "2026-08-21T00:10:14Z"},
     "error": null,
     "terminal": true,
-    "last_persistent_event_seq": 10,
+    "last_persistent_event_seq": 11,
     "updated_at": "2026-08-21T00:10:15Z"
   },
   "expectations": {
     "trace": "no_tool_success",
     "chunk_text": "递归像打开一只套娃，直到最里面停止。🙂",
     "final_end_offset": 58,
-    "persistent_event_count": 10,
+    "persistent_event_count": 11,
     "transient_chunk_count": 4,
     "contains_tool_events": false
   }

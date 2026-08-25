@@ -3,16 +3,11 @@
 from __future__ import annotations
 
 import math
-import unicodedata
 
 import pytest
 
 from memtrace_api.retrieval import (
-    THRESHOLD,
-    TOP_K,
-    ALGORITHM_VERSION,
-    RETRIEVAL_MODE,
-    SCOPE_WEIGHTS,
+    build_vector,
     compute_recency,
     compute_scope_match,
     compute_tfidf_vectors,
@@ -21,7 +16,6 @@ from memtrace_api.retrieval import (
     longest_common_substring_len,
     normalize_text,
     safe_round,
-    build_vector,
 )
 
 
@@ -143,7 +137,14 @@ class TestTfIdf:
 
     def test_stable_tiebreak_by_id(self):
         """Same score cards are ordered by memory_id ASC."""
-        pass  # tiebreak tested in retrieval integration
+        from memtrace_api.retrieval import RetrievalDecision
+
+        decisions = [
+            RetrievalDecision("mem_02", "ver_02", "active", True, final_score=0.8),
+            RetrievalDecision("mem_01", "ver_01", "active", True, final_score=0.8),
+        ]
+        decisions.sort(key=lambda item: (-(item.final_score or 0), item.memory_id))
+        assert [item.memory_id for item in decisions] == ["mem_01", "mem_02"]
 
 
 class TestHardFilters:
@@ -208,7 +209,6 @@ class TestHardFilters:
 
 class TestScopeMatch:
     def test_exact_domain(self):
-        from memtrace_api.retrieval import compute_scope_match
 
         class FakeFP:
             domain = type("D", (), {"value": "programming_learning"})()
@@ -218,7 +218,7 @@ class TestScopeMatch:
             project_key = None
             language = type("L", (), {"value": "python"})()
             framework = None
-            concepts = []
+            concepts = ()
 
         cs = {
             "domain": "programming_learning",
@@ -235,7 +235,6 @@ class TestScopeMatch:
 
     def test_null_not_wildcard(self):
         """null domain = 0 contribution, not wildcard match."""
-        from memtrace_api.retrieval import compute_scope_match
 
         class FakeFP:
             domain = type("D", (), {"value": "software_development"})()
@@ -245,7 +244,7 @@ class TestScopeMatch:
             project_key = None
             language = type("L", (), {"value": "python"})()
             framework = None
-            concepts = []
+            concepts = ()
 
         cs = {
             "domain": None,
@@ -261,7 +260,6 @@ class TestScopeMatch:
         assert score == 0.0
 
     def test_any_gets_half(self):
-        from memtrace_api.retrieval import compute_scope_match
 
         class FakeFP:
             domain = type("D", (), {"value": "software_development"})()
@@ -271,7 +269,7 @@ class TestScopeMatch:
             project_key = None
             language = type("L", (), {"value": "python"})()
             framework = None
-            concepts = []
+            concepts = ()
 
         cs = {
             "domain": "any",
@@ -311,25 +309,20 @@ class TestVerifiedEffect:
 
 class TestRecency:
     def test_explicit_feedback_full(self):
-        from memtrace_api.retrieval import compute_recency
 
         assert compute_recency("explicit_feedback", None) == 1.0
 
     def test_rating_full(self):
-        from memtrace_api.retrieval import compute_recency
 
         assert compute_recency("rating", None) == 1.0
 
     def test_outcome_fresh(self):
-        from datetime import timedelta
-        from memtrace_api.retrieval import compute_recency
 
         now = __import__("datetime").datetime.now(__import__("datetime").UTC)
         assert compute_recency("outcome", now) == pytest.approx(1.0, abs=0.01)
 
     def test_outcome_old(self):
         from datetime import timedelta
-        from memtrace_api.retrieval import compute_recency
 
         old = __import__("datetime").datetime.now(__import__("datetime").UTC) - timedelta(days=180)
         assert compute_recency("outcome", old) == pytest.approx(0.0, abs=0.01)
@@ -347,7 +340,6 @@ class TestLongestCommonSubstring:
         s = "use avoid me please"
         # avoid has 9 chars match, rule has 12 chars match
         a = "please avoid me"  # contains "avoid me" = 9 chars
-        r = "use avoid me"  # contains "avoid me" = 9 chars
         # they're the same substring length, just check they match
         avoid_score = longest_common_substring_len(s, a, 12)
         assert avoid_score >= 5

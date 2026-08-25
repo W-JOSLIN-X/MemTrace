@@ -74,12 +74,21 @@
       "task_id": "task_01J00000000000000000000021",
       "run_id": "run_01J00000000000000000000021",
       "at": "2026-08-21T00:20:05Z",
-      "data": {"memory_count": 0, "summary": "no_long_term_memory_day2"}
+      "data": {"retrieval_mode": "tfidf"}
+    },
+    {
+      "event_version": "1.0",
+      "event_type": "memory.retrieval.completed",
+      "event_seq": 5,
+      "task_id": "task_01J00000000000000000000021",
+      "run_id": "run_01J00000000000000000000021",
+      "at": "2026-08-21T00:20:05Z",
+      "data": {"trace_id": "trace_01J00000000000000000000021", "mode": "tfidf", "algorithm_version": "char_tfidf_v1", "candidate_count": 0, "retrieved_count": 0, "selected_count": 0, "injected_count": 0, "threshold": 0.68, "top_k": 3, "retrieval_ms": 0, "memory_chars": 0, "estimated_tokens": 0, "prompt_section_hash": null}
     },
     {
       "event_version": "1.0",
       "event_type": "task.stage",
-      "event_seq": 5,
+      "event_seq": 6,
       "task_id": "task_01J00000000000000000000021",
       "run_id": "run_01J00000000000000000000021",
       "at": "2026-08-21T00:20:06Z",
@@ -88,21 +97,21 @@
     {
       "event_version": "1.0",
       "event_type": "agent.plan.published",
-      "event_seq": 6,
+      "event_seq": 7,
       "task_id": "task_01J00000000000000000000021",
       "run_id": "run_01J00000000000000000000021",
       "at": "2026-08-21T00:20:07Z",
       "data": {
         "plan_id": "plan_01J00000000000000000000021",
         "goal_code": "answer_question",
-        "memory_summary_code": "no_long_term_memory_day2",
+        "memory_summary_code": "no_memory_selected",
         "next_action_code": "generate_directly"
       }
     },
     {
       "event_version": "1.0",
       "event_type": "task.stage",
-      "event_seq": 7,
+      "event_seq": 8,
       "task_id": "task_01J00000000000000000000021",
       "run_id": "run_01J00000000000000000000021",
       "at": "2026-08-21T00:20:08Z",
@@ -129,7 +138,7 @@
     {
       "event_version": "1.0",
       "event_type": "run.metrics",
-      "event_seq": 8,
+      "event_seq": 9,
       "task_id": "task_01J00000000000000000000021",
       "run_id": "run_01J00000000000000000000021",
       "at": "2026-08-21T00:20:11Z",
@@ -138,7 +147,7 @@
     {
       "event_version": "1.0",
       "event_type": "task.stage",
-      "event_seq": 9,
+      "event_seq": 10,
       "task_id": "task_01J00000000000000000000021",
       "run_id": "run_01J00000000000000000000021",
       "at": "2026-08-21T00:20:12Z",
@@ -147,7 +156,7 @@
     {
       "event_version": "1.0",
       "event_type": "run.failed",
-      "event_seq": 10,
+      "event_seq": 11,
       "task_id": "task_01J00000000000000000000021",
       "run_id": "run_01J00000000000000000000021",
       "at": "2026-08-21T00:20:13Z",
@@ -156,7 +165,7 @@
     {
       "event_version": "1.0",
       "event_type": "error",
-      "event_seq": 11,
+      "event_seq": 12,
       "task_id": "task_01J00000000000000000000021",
       "run_id": "run_01J00000000000000000000021",
       "at": "2026-08-21T00:20:14Z",
@@ -165,7 +174,7 @@
     {
       "event_version": "1.0",
       "event_type": "stream.done",
-      "event_seq": 12,
+      "event_seq": 13,
       "task_id": "task_01J00000000000000000000021",
       "run_id": "run_01J00000000000000000000021",
       "at": "2026-08-21T00:20:15Z",
@@ -213,17 +222,19 @@
     "offset_unit": "utf8_bytes",
     "messages": [],
     "feedback_events": [],
+    "retrieval_trace": null,
+    "memory_usages": [],
     "final_message": null,
     "error": {"error_id": "err_01J00000000000000000000021", "code": "PROVIDER_ERROR", "message": "模型服务在生成过程中中断，请保留部分结果后重试。", "retryable": true},
     "terminal": true,
-    "last_persistent_event_seq": 12,
+    "last_persistent_event_seq": 13,
     "updated_at": "2026-08-21T00:20:15Z"
   },
   "expectations": {
     "trace": "run_failure",
     "chunk_text": "正在生成部分结果…",
     "final_end_offset": 27,
-    "persistent_event_count": 12,
+    "persistent_event_count": 13,
     "transient_chunk_count": 2,
     "terminal_error_code": "PROVIDER_ERROR",
     "silent_retry_after_chunk": false

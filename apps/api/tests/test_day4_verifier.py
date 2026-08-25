@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from memtrace_api.verifier import verify_exact_substring
 
 
@@ -20,7 +18,7 @@ class TestVerifier:
         output = "Please hardcode the API key for simplicity"
         rule = "Never hardcode credentials"
         avoid = "hardcode"
-        status, excerpt = verify_exact_substring(output, rule, avoid)
+        status, _excerpt = verify_exact_substring(output, rule, avoid)
         assert status == "violated"
 
     def test_not_observable(self):
@@ -48,7 +46,7 @@ class TestVerifier:
     def test_empty_rule(self):
         output = "some output"
         rule = ""
-        status, excerpt = verify_exact_substring(output, rule)
+        status, _excerpt = verify_exact_substring(output, rule)
         assert status == "not_observable"
 
     def test_excerpt_max_120(self):
@@ -61,7 +59,7 @@ class TestVerifier:
     def test_no_output_no_applied(self):
         """Without output evidence, cannot write applied."""
         # This is an integration test concept - no output = not_observable
-        status, excerpt = verify_exact_substring("", "some rule")
+        status, _excerpt = verify_exact_substring("", "some rule")
         assert status != "applied"
 
     def test_threshold_4(self):
@@ -75,5 +73,5 @@ class TestVerifier:
     def test_exact_substring_chinese(self):
         output = "调试时应先检查边界条件"
         rule = "调试时应先检查边界条件再给出答案"
-        status, excerpt = verify_exact_substring(output, rule)
+        status, _excerpt = verify_exact_substring(output, rule)
         assert status == "applied"

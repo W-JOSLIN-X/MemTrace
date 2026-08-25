@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day1"
 DAY2_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day2"
 DAY3_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day3"
+DAY4_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day4"
 API_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "schemas" / "g0-api.schema.json"
 EVENT_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "schemas" / "events.schema.json"
 
@@ -315,6 +316,42 @@ def validate_day3_learning_events(api_schema: dict[str, Any]) -> None:
     assert chinese, "learning_events must include Chinese feedback"
 
 
+def validate_day4_g3_cases() -> None:
+    fixture = load_json(DAY4_FIXTURE_ROOT / "g3_retrieval_cases.json")
+    scan_forbidden(fixture, "g3_retrieval_cases")
+    assert fixture["contract_version"] == "1.3.0"
+    assert fixture["review_status"] == "member_b_verified_2026-08-25"
+    assert fixture["approval_claim"] == "owner_verified_not_joint_approval"
+    assert fixture["transport"] == "rest_only"
+    assert fixture["privacy"] == "metadata_only_results"
+    cases = fixture["cases"]
+    assert len(cases) == 30, f"Day 4 G3 fixture must contain 30 cases, got {len(cases)}"
+    assert len({case["id"] for case in cases}) == 30
+    assert {case["id"] for case in cases} == {f"d4-g3-{index:02d}" for index in range(1, 31)}
+    required_operations = {
+        "retrieve",
+        "negative",
+        "status_filter",
+        "pause",
+        "resume",
+        "memory_off",
+        "override",
+        "budget_single",
+        "budget_total",
+        "hash",
+        "recovery",
+        "verifier",
+        "owner_isolation",
+    }
+    operations = {case["operation"] for case in cases}
+    assert required_operations <= operations
+    for case in cases:
+        assert re.fullmatch(r"d4-r\d{2}", case["source"])
+        assert isinstance(case["expected"], dict) and case["expected"]
+        if "task_text" in case:
+            assert 1 <= len(case["task_text"].strip()) <= 20_000
+            assert case["memory_mode"] in {"on", "off"}
+            assert case["response_policy"] in {"default", "guided_hint", "direct_fix"}
 def trace_signature(events: list[dict[str, Any]]) -> list[str]:
     signature: list[str] = []
     chunk_seen = False
@@ -339,6 +376,7 @@ EXPECTED_TRACES = {
         "task.fingerprinted",
         "task.stage:retrieving",
         "memory.retrieval.started",
+        "memory.retrieval.completed",
         "task.stage:planning",
         "agent.plan.published",
         "task.stage:tool_running",
@@ -356,6 +394,7 @@ EXPECTED_TRACES = {
         "task.fingerprinted",
         "task.stage:retrieving",
         "memory.retrieval.started",
+        "memory.retrieval.completed",
         "task.stage:planning",
         "agent.plan.published",
         "task.stage:generating",
@@ -370,6 +409,7 @@ EXPECTED_TRACES = {
         "task.fingerprinted",
         "task.stage:retrieving",
         "memory.retrieval.started",
+        "memory.retrieval.completed",
         "task.stage:planning",
         "agent.plan.published",
         "task.stage:generating",
@@ -484,6 +524,7 @@ def main() -> int:
     validate_feedback_drafts()
     validate_day2_matrix()
     validate_day3_learning_events(api_schema)
+    validate_day4_g3_cases()
     for path in MOCK_FIXTURES:
         validate_mock_fixture(path, api_schema, event_validator)
 
@@ -493,6 +534,7 @@ def main() -> int:
         "PASS: Day 3 learning events cover durability matrix, 0-3 candidates, "
         "provider failure paths, and zh/en feedback"
     )
+    print("PASS: 30 owner-verified Day 4 G3 REST-only cases and privacy metadata")
     print("PASS: python_success, no_tool_success, and run_failure SSE fixtures")
     print(
         "PASS: UTF-8 byte offsets, trace order, metadata IDs, and secret/reasoning scan"
