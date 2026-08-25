@@ -136,9 +136,7 @@ def test_lifespan_worker_creates_candidate_and_accepts_v1(tmp_path: Path) -> Non
         assert body["card"]["current_version_id"] == body["memory_version_id"]
 
         recalled = _task_to_terminal(client, key="g3-task-recall-active-v1-0001")
-        trace = client.get(
-            f"/api/v1/tasks/{recalled['task_id']}/retrieval-trace"
-        )
+        trace = client.get(f"/api/v1/tasks/{recalled['task_id']}/retrieval-trace")
         assert trace.status_code == 200, trace.text
         assert trace.json()["selected_count"] == 1
         assert trace.json()["injected_count"] == 1
