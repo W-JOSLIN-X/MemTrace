@@ -1,6 +1,6 @@
 # Day 5 G4 Fixture Owner Decision
 
-日期：2026-08-26  
+日期：2026-08-26
 所有者核验：W-JOSLIN-X（成员 B）
 
 `fixtures/day5/conflict_events.json` 保持 `0.1-draft`，不改写成联合批准或 gold。成员 A 的审阅意见保留为历史输入，但其中“需要任意结构化 exception schema”和“时间窗口自动检测”没有进入冻结 G4 契约，不能据此扩展产品边界。
