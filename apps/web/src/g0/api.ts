@@ -14,6 +14,36 @@ import {
   parseTaskCreateAccepted,
   parseTaskSnapshot,
 } from './runtime'
+import {
+  parseConflictDetect,
+  parseConflictDetail,
+  parseConflictResolve,
+  parseImportBatch,
+  parseImportCommit,
+  parseMemoryDelete,
+  parseMemoryMerge,
+  parseMemoryPack,
+  parseMemoryRelationList,
+  parseMemoryVersionDiff,
+  parsePackPreview,
+  parseTaskDelete,
+} from './g4'
+import type {
+  ConflictDetectRequest,
+  ConflictDetectResponse,
+  ConflictDetailResponse,
+  ConflictResolveRequest,
+  ConflictResolveResponse,
+  ImportBatchResponse,
+  ImportCommitResponse,
+  MemoryDeleteResponse,
+  MemoryListOptions,
+  MemoryMergeRequest,
+  MemoryMergeResponse,
+  MemoryPackDocument,
+  PackPreviewResponse,
+  TaskDeleteResponse,
+} from './g4'
 import type {
   DemoAlias,
   DemoSessionResponse,
@@ -22,7 +52,6 @@ import type {
   FeedbackCreateRequest,
   MemoryJobId,
   MemoryJobResponse,
-  MemoryCardStatus,
   MemoryDetailResponse,
   MemoryId,
   MemoryListResponse,
@@ -74,10 +103,7 @@ export interface G0Api {
     signal?: AbortSignal,
   ): Promise<ResolveResponse>
   listMemories?(
-    options?: {
-      status?: Extract<MemoryCardStatus, 'candidate' | 'active' | 'paused' | 'rejected'>
-      cursor?: string
-    },
+    options?: MemoryListOptions,
     signal?: AbortSignal,
   ): Promise<MemoryListResponse>
   getMemory?(
@@ -92,6 +118,21 @@ export interface G0Api {
   pauseMemory?(memoryId: MemoryId, versionId: string, idempotencyKey: string, signal?: AbortSignal): Promise<MemoryDetailResponse>
   resumeMemory?(memoryId: MemoryId, versionId: string, idempotencyKey: string, signal?: AbortSignal): Promise<MemoryDetailResponse>
   recordMemoryEffect?(taskId: TaskId, memoryId: MemoryId, effect: UserEffect, idempotencyKey: string, signal?: AbortSignal): Promise<MemoryUsage>
+  getMemoryRelations?(memoryId: MemoryId, cursor?: string, signal?: AbortSignal): Promise<import('./types').MemoryRelationListResponse>
+  getMemoryVersionDiff?(memoryId: MemoryId, fromVersionId: string, toVersionId: string, signal?: AbortSignal): Promise<import('./types').MemoryVersionDiffResponse>
+  archiveMemory?(memoryId: MemoryId, versionId: string, idempotencyKey: string, signal?: AbortSignal): Promise<MemoryDetailResponse>
+  restoreMemory?(memoryId: MemoryId, versionId: string, idempotencyKey: string, signal?: AbortSignal): Promise<MemoryDetailResponse>
+  deleteMemory?(memoryId: MemoryId, versionId: string, confirmTitle: string, idempotencyKey: string, signal?: AbortSignal): Promise<MemoryDeleteResponse>
+  deleteSourceTask?(taskId: TaskId, idempotencyKey: string, signal?: AbortSignal): Promise<TaskDeleteResponse>
+  listMemoryConflicts?(status?: 'unresolved' | 'resolved', cursor?: string, signal?: AbortSignal): Promise<import('./types').MemoryRelationListResponse>
+  getMemoryConflict?(relationId: string, signal?: AbortSignal): Promise<ConflictDetailResponse>
+  detectMemoryConflict?(request: ConflictDetectRequest, idempotencyKey: string, signal?: AbortSignal): Promise<ConflictDetectResponse>
+  resolveMemoryConflict?(relationId: string, request: ConflictResolveRequest, idempotencyKey: string, signal?: AbortSignal): Promise<ConflictResolveResponse>
+  mergeMemories?(request: MemoryMergeRequest, idempotencyKey: string, signal?: AbortSignal): Promise<MemoryMergeResponse>
+  exportMemoryPack?(memoryIds: MemoryId[] | null, name: string, description: string, idempotencyKey: string, signal?: AbortSignal): Promise<MemoryPackDocument>
+  previewMemoryPack?(file: Uint8Array, idempotencyKey: string, signal?: AbortSignal): Promise<PackPreviewResponse>
+  commitMemoryPack?(batchId: string, previewToken: string, idempotencyKey: string, signal?: AbortSignal): Promise<ImportCommitResponse>
+  getImportBatch?(batchId: string, signal?: AbortSignal): Promise<ImportBatchResponse>
 }
 
 export class G0ApiError extends Error {
@@ -179,7 +220,9 @@ export const browserG0Api: G0Api = {
     const body = await readJson(response)
     if (!response.ok) throw responseError(response.status, body)
     try {
-      return parseDemoSessionResponse(body)
+      const session = parseDemoSessionResponse(body)
+      globalThis.dispatchEvent?.(new CustomEvent('memtrace:session-changed', { detail: session }))
+      return session
     } catch {
       throw invalidResponse()
     }
@@ -282,6 +325,13 @@ export const browserG0Api: G0Api = {
     const query = new URLSearchParams()
     if (options.status) query.set('status', options.status)
     if (options.cursor) query.set('cursor', options.cursor)
+    if (options.query) query.set('query', options.query)
+    if (options.kind) query.set('kind', options.kind)
+    if (options.domain) query.set('domain', options.domain)
+    if (options.task_type) query.set('task_type', options.task_type)
+    if (options.source_type) query.set('source_type', options.source_type)
+    if (options.used_after) query.set('used_after', options.used_after)
+    if (options.sort) query.set('sort', options.sort)
     const suffix = query.size > 0 ? `?${query.toString()}` : ''
     const response = await safeFetch(`/api/v1/memories${suffix}`, {
       method: 'GET',
@@ -364,6 +414,92 @@ export const browserG0Api: G0Api = {
     })
     return parseMemoryUsage(body)
   },
+
+  async getMemoryRelations(memoryId, cursor, signal) {
+    const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
+    return parseMemoryRelationList(await apiJson(`/api/v1/memories/${encodeURIComponent(memoryId)}/relations${query}`, { signal }))
+  },
+
+  async getMemoryVersionDiff(memoryId, fromVersionId, toVersionId, signal) {
+    const query = new URLSearchParams({ from_version_id: fromVersionId, to_version_id: toVersionId })
+    return parseMemoryVersionDiff(await apiJson(`/api/v1/memories/${encodeURIComponent(memoryId)}/version-diff?${query}`, { signal }))
+  },
+
+  async archiveMemory(memoryId, versionId, idempotencyKey, signal) {
+    return changeMemoryState(memoryId, 'archive', versionId, idempotencyKey, signal)
+  },
+
+  async restoreMemory(memoryId, versionId, idempotencyKey, signal) {
+    return changeMemoryState(memoryId, 'restore', versionId, idempotencyKey, signal)
+  },
+
+  async deleteMemory(memoryId, versionId, confirmTitle, idempotencyKey, signal) {
+    return parseMemoryDelete(await apiJson(`/api/v1/memories/${encodeURIComponent(memoryId)}`, {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ expected_current_version_id: versionId, confirm_title: confirmTitle }), signal,
+    }))
+  },
+
+  async deleteSourceTask(taskId, idempotencyKey, signal) {
+    return parseTaskDelete(await apiJson(`/api/v1/tasks/${encodeURIComponent(taskId)}`, {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ confirm_task_id: taskId, memory_policy: 'preserve_and_mark_evidence_missing' }), signal,
+    }))
+  },
+
+  async listMemoryConflicts(status, cursor, signal) {
+    const query = new URLSearchParams()
+    if (status) query.set('status', status)
+    if (cursor) query.set('cursor', cursor)
+    const suffix = query.size ? `?${query}` : ''
+    return parseMemoryRelationList(await apiJson(`/api/v1/memory-conflicts${suffix}`, { signal }))
+  },
+
+  async getMemoryConflict(relationId, signal) {
+    return parseConflictDetail(await apiJson(`/api/v1/memory-conflicts/${encodeURIComponent(relationId)}`, { signal }))
+  },
+
+  async detectMemoryConflict(request, idempotencyKey, signal) {
+    return parseConflictDetect(await apiJson('/api/v1/memory-conflicts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(request), signal,
+    }))
+  },
+
+  async resolveMemoryConflict(relationId, request, idempotencyKey, signal) {
+    return parseConflictResolve(await apiJson(`/api/v1/memory-conflicts/${encodeURIComponent(relationId)}/resolve`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(request), signal,
+    }))
+  },
+
+  async mergeMemories(request, idempotencyKey, signal) {
+    return parseMemoryMerge(await apiJson('/api/v1/memories/merge', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(request), signal,
+    }))
+  },
+
+  async exportMemoryPack(memoryIds, name, description, idempotencyKey, signal) {
+    return parseMemoryPack(await apiJson('/api/v1/memory-packs/export', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ memory_ids: memoryIds, name, description }), signal,
+    }))
+  },
+
+  async previewMemoryPack(file, idempotencyKey, signal) {
+    return parsePackPreview(await apiJson('/api/v1/memory-packs/import/preview', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: file.slice().buffer as ArrayBuffer, signal,
+    }))
+  },
+
+  async commitMemoryPack(batchId, previewToken, idempotencyKey, signal) {
+    return parseImportCommit(await apiJson('/api/v1/memory-packs/import/commit', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ batch_id: batchId, preview_token: previewToken, mode: 'import_all_paused' }), signal,
+    }))
+  },
+
+  async getImportBatch(batchId, signal) {
+    return parseImportBatch(await apiJson(`/api/v1/memory-packs/import/${encodeURIComponent(batchId)}`, { signal }))
+  },
 }
 
 async function apiJson(path: string, init: RequestInit = {}): Promise<unknown> {
@@ -379,7 +515,7 @@ async function apiJson(path: string, init: RequestInit = {}): Promise<unknown> {
 
 async function changeMemoryState(
   memoryId: MemoryId,
-  action: 'pause' | 'resume',
+  action: 'pause' | 'resume' | 'archive' | 'restore',
   versionId: string,
   idempotencyKey: string,
   signal?: AbortSignal,

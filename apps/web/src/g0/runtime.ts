@@ -7,6 +7,8 @@ import {
   type G0EventType,
   type G0SseEvent,
   type MemoryDetailResponse,
+  type MemoryCard,
+  type MemoryRelation,
   type MemoryJobResponse,
   type MemoryListResponse,
   type MemoryUsage,
@@ -35,6 +37,7 @@ const memoryVersionIdPattern = /^memver_[0-9A-HJKMNP-TV-Z]{26}$/
 const evidenceIdPattern = /^evidence_[0-9A-HJKMNP-TV-Z]{26}$/
 const retrievalTraceIdPattern = /^trace_[0-9A-HJKMNP-TV-Z]{26}$/
 const usageIdPattern = /^usage_[0-9A-HJKMNP-TV-Z]{26}$/
+const relationIdPattern = /^rel_[0-9A-HJKMNP-TV-Z]{26}$/
 const textEncoder = new TextEncoder()
 
 export class ContractError extends Error {
@@ -309,7 +312,7 @@ export function parseMemoryListResponse(value: unknown): MemoryListResponse {
   if (items.length > 100) throw new ContractError('items exceeds 100')
   items.forEach(validateMemoryCard)
   if (body.next_cursor !== null) {
-    patternString(body.next_cursor, memoryIdPattern, 'next_cursor')
+    stringValue(body.next_cursor, 'next_cursor')
   }
   return body as unknown as MemoryListResponse
 }
@@ -318,11 +321,12 @@ export function parseMemoryDetailResponse(
   value: unknown,
 ): MemoryDetailResponse {
   const body = record(value, 'MemoryDetailResponse')
-  exactKeys(body, ['request_id', 'card', 'evidence', 'versions'])
+  exactKeys(body, ['request_id', 'card', 'evidence', 'versions', 'relations'])
   patternString(body.request_id, requestIdPattern, 'request_id')
   validateMemoryCard(body.card)
   arrayValue(body.evidence, 'evidence').forEach(validateMemoryEvidence)
   arrayValue(body.versions, 'versions').forEach(validateMemoryVersion)
+  arrayValue(body.relations, 'relations').forEach(validateMemoryRelation)
   return body as unknown as MemoryDetailResponse
 }
 
@@ -386,6 +390,9 @@ function validateMemoryCard(value: unknown): void {
     'harmful_count',
     'stale_count',
     'last_used_at',
+    'evidence_missing',
+    'import_batch_id',
+    'import_source_version',
     'created_at',
     'updated_at',
   ])
@@ -452,6 +459,17 @@ function validateMemoryCard(value: unknown): void {
   nonNegativeInteger(body.harmful_count, 'harmful_count')
   nonNegativeInteger(body.stale_count, 'stale_count')
   nullableTimestamp(body.last_used_at, 'last_used_at')
+  booleanValue(body.evidence_missing, 'evidence_missing')
+  if (body.import_batch_id !== null) {
+    patternString(body.import_batch_id, /^batch_[0-9A-HJKMNP-TV-Z]{26}$/, 'import_batch_id')
+  }
+  if (body.import_source_version !== null) {
+    const sourceVersion = nonNegativeInteger(
+      body.import_source_version,
+      'import_source_version',
+    )
+    if (sourceVersion < 1) throw new ContractError('import_source_version must be positive')
+  }
   timestamp(body.created_at, 'created_at')
   timestamp(body.updated_at, 'updated_at')
   if (
@@ -473,9 +491,14 @@ function validateMemoryCard(value: unknown): void {
   }
 }
 
+export function parseMemoryCard(value: unknown): MemoryCard {
+  validateMemoryCard(value)
+  return value as MemoryCard
+}
+
 function validateMemoryCardPatch(value: unknown): void {
   const body = record(value, 'MemoryCardPatch')
-  const allowed = ['title', 'rule', 'avoid', 'scope', 'exceptions']
+  const allowed = ['title', 'rule', 'avoid', 'trigger_text', 'scope', 'exceptions']
   const keys = Object.keys(body)
   if (keys.length === 0 || keys.some((key) => !allowed.includes(key))) {
     throw new ContractError('MemoryCardPatch has invalid keys')
@@ -491,6 +514,9 @@ function validateMemoryCardPatch(value: unknown): void {
   }
   if (body.avoid !== undefined && body.avoid !== null) {
     boundedString(body.avoid, 400, 'patch.avoid')
+  }
+  if (body.trigger_text !== undefined && body.trigger_text !== null) {
+    boundedString(body.trigger_text, 240, 'patch.trigger_text')
   }
   if (body.scope !== undefined && body.scope !== null) {
     validateMemoryScope(body.scope)
@@ -656,10 +682,56 @@ function validateMemoryVersion(value: unknown): void {
   validateExceptions(body.exceptions)
   enumValue(
     body.created_by_action,
-    ['accept', 'edit_accept', 'edit'] as const,
+    ['accept', 'edit_accept', 'edit', 'import', 'merge', 'scope_resolution'] as const,
     'created_by_action',
   )
   timestamp(body.created_at, 'created_at')
+}
+
+function validateMemoryRelation(value: unknown): void {
+  const body = record(value, 'MemoryRelation')
+  exactKeys(body, [
+    'relation_id',
+    'from_memory_id',
+    'to_memory_id',
+    'relation_type',
+    'status',
+    'resolution_action',
+    'resolution_memory_id',
+    'created_at',
+    'resolved_at',
+  ])
+  patternString(body.relation_id, relationIdPattern, 'relation_id')
+  patternString(body.from_memory_id, memoryIdPattern, 'from_memory_id')
+  patternString(body.to_memory_id, memoryIdPattern, 'to_memory_id')
+  enumValue(
+    body.relation_type,
+    [
+      'duplicate_of',
+      'reinforces',
+      'conflicts_with',
+      'supersedes',
+      'merged_into',
+      'related_to',
+    ] as const,
+    'relation_type',
+  )
+  enumValue(body.status, ['unresolved', 'resolved'] as const, 'relation.status')
+  if (body.resolution_action !== null) {
+    enumValue(
+      body.resolution_action,
+      ['prefer', 'separate_scopes', 'merge', 'pause_both'] as const,
+      'resolution_action',
+    )
+  }
+  nullablePattern(body.resolution_memory_id, memoryIdPattern, 'resolution_memory_id')
+  timestamp(body.created_at, 'created_at')
+  nullableTimestamp(body.resolved_at, 'resolved_at')
+}
+
+export function parseMemoryRelation(value: unknown): MemoryRelation {
+  validateMemoryRelation(value)
+  return value as MemoryRelation
 }
 
 function validateMemoryCardStatus(value: unknown, label: string) {

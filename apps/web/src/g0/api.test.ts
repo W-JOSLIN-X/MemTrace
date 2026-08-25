@@ -164,6 +164,45 @@ describe('browser G1 API', () => {
   })
 })
 
+describe('browser G4 API', () => {
+  it('projects lifecycle, deletion, Diff and conflict routes with caller-owned keys', async () => {
+    const active = makeMemoryDetail().card
+    const relation = {
+      relation_id: 'rel_01J00000000000000000000000', from_memory_id: MEMORY_ID,
+      to_memory_id: 'mem_01J00000000000000000000002' as const, relation_type: 'conflicts_with',
+      status: 'unresolved', resolution_action: null, resolution_memory_id: null,
+      created_at: AT, resolved_at: null,
+    }
+    const responses = [
+      makeMemoryDetail(), makeMemoryDetail(), makeMemoryDetail(), makeMemoryDetail(),
+      { request_id: 'req_01J00000000000000000000000', memory_id: MEMORY_ID, status: 'deleted', deleted_at: AT },
+      { request_id: 'req_01J00000000000000000000000', task_id: TASK_ID, status: 'deleted', memory_policy: 'preserve_and_mark_evidence_missing', affected_card_count: 1 },
+      { request_id: 'req_01J00000000000000000000000', items: [relation], next_cursor: null },
+      { request_id: 'req_01J00000000000000000000000', relation_id: relation.relation_id, left_memory_id: relation.from_memory_id, right_memory_id: relation.to_memory_id, relation_type: 'conflicts_with', status: 'unresolved' },
+      { request_id: 'req_01J00000000000000000000000', relation_id: relation.relation_id, action: 'pause_both', status: 'resolved' },
+    ]
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => jsonResponse(responses.shift()))
+    vi.stubGlobal('fetch', fetchMock)
+    const version = active.current_version_id!
+    await browserG0Api.editMemory?.(MEMORY_ID, { expected_current_version_id: version, patch: { rule: 'new' } }, 'g4-edit-key')
+    await browserG0Api.pauseMemory?.(MEMORY_ID, version, 'g4-pause-key')
+    await browserG0Api.archiveMemory?.(MEMORY_ID, version, 'g4-archive-key')
+    await browserG0Api.restoreMemory?.(MEMORY_ID, version, 'g4-restore-key')
+    await browserG0Api.deleteMemory?.(MEMORY_ID, version, active.title, 'g4-delete-key')
+    await browserG0Api.deleteSourceTask?.(TASK_ID, 'g4-task-delete-key')
+    await browserG0Api.listMemoryConflicts?.('unresolved')
+    await browserG0Api.detectMemoryConflict?.({ left_memory_id: relation.from_memory_id, left_expected_current_version_id: version, right_memory_id: relation.to_memory_id, right_expected_current_version_id: version }, 'g4-detect-key')
+    await browserG0Api.resolveMemoryConflict?.(relation.relation_id, { expected_relation_status: 'unresolved', left_expected_current_version_id: version, right_expected_current_version_id: version, action: 'pause_both' }, 'g4-resolve-key')
+
+    expect(fetchMock).toHaveBeenCalledTimes(9)
+    for (const call of fetchMock.mock.calls) expect(call[1]?.credentials).toBe('same-origin')
+    expect(fetchMock.mock.calls[4][1]?.method).toBe('DELETE')
+    expect(fetchMock.mock.calls[5][1]?.body).toContain('preserve_and_mark_evidence_missing')
+    expect(String(fetchMock.mock.calls[6][0])).toContain('status=unresolved')
+    expect(fetchMock.mock.calls[8][1]?.headers).toMatchObject({ 'Idempotency-Key': 'g4-resolve-key' })
+  })
+})
+
 function jsonResponse(value: unknown): Response {
   return new Response(JSON.stringify(value), {
     status: 200,

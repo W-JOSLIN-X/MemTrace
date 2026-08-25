@@ -16,6 +16,9 @@ export type SessionId = `sess_${string}`
 export type UserId = `usr_${string}`
 export type RetrievalTraceId = `trace_${string}`
 export type UsageId = `usage_${string}`
+export type RelationId = `rel_${string}`
+export type ImportBatchId = `batch_${string}`
+export type PackId = `pack_${string}`
 
 export type DemoAlias = 'blank_demo' | 'seeded_demo'
 export type ProviderMode = 'mock' | 'real'
@@ -85,6 +88,19 @@ export type ErrorCode =
   | 'MEMORY_JOB_NOT_RETRYABLE'
   | 'MEMORY_STATE_CONFLICT'
   | 'MEMORY_VERSION_CONFLICT'
+  | 'INVALID_CURSOR'
+  | 'MEMORY_RELATION_NOT_FOUND'
+  | 'MEMORY_CONFLICT_ALREADY_RESOLVED'
+  | 'MEMORY_MERGE_CONFLICT'
+  | 'CONFIRMATION_MISMATCH'
+  | 'MEMORY_PACK_TOO_LARGE'
+  | 'MEMORY_PACK_INVALID'
+  | 'MEMORY_PACK_UNSUPPORTED_VERSION'
+  | 'MEMORY_PACK_INTEGRITY_MISMATCH'
+  | 'IMPORT_BATCH_NOT_FOUND'
+  | 'IMPORT_BATCH_EXPIRED'
+  | 'IMPORT_PREVIEW_TOKEN_INVALID'
+  | 'IMPORT_BATCH_STATE_CONFLICT'
 
 export interface CurrentConstraints {
   response_policy: ResponsePolicy
@@ -650,6 +666,9 @@ export interface MemoryCard {
   harmful_count: number
   stale_count: number
   last_used_at: string | null
+  evidence_missing: boolean
+  import_batch_id: ImportBatchId | null
+  import_source_version: number | null
   created_at: string
   updated_at: string
 }
@@ -658,6 +677,7 @@ export interface MemoryCardPatch {
   title?: string | null
   rule?: string | null
   avoid?: string | null
+  trigger_text?: string | null
   scope?: MemoryScope | null
   exceptions?: AllowedMemoryException[] | null
 }
@@ -707,7 +727,13 @@ export interface MemoryVersionProjection {
   trigger_text: string
   scope: MemoryScope
   exceptions: AllowedMemoryException[]
-  created_by_action: 'accept' | 'edit_accept' | 'edit'
+  created_by_action:
+    | 'accept'
+    | 'edit_accept'
+    | 'edit'
+    | 'import'
+    | 'merge'
+    | 'scope_resolution'
   created_at: string
 }
 
@@ -824,6 +850,40 @@ export interface MemoryDetailResponse {
   card: MemoryCard
   evidence: MemoryEvidenceProjection[]
   versions: MemoryVersionProjection[]
+  relations: MemoryRelation[]
+}
+
+export type MemoryRelationType =
+  | 'duplicate_of'
+  | 'reinforces'
+  | 'conflicts_with'
+  | 'supersedes'
+  | 'merged_into'
+  | 'related_to'
+
+export interface MemoryRelation {
+  relation_id: RelationId
+  from_memory_id: MemoryId
+  to_memory_id: MemoryId
+  relation_type: MemoryRelationType
+  status: 'unresolved' | 'resolved'
+  resolution_action: 'prefer' | 'separate_scopes' | 'merge' | 'pause_both' | null
+  resolution_memory_id: MemoryId | null
+  created_at: string
+  resolved_at: string | null
+}
+
+export interface MemoryRelationListResponse {
+  request_id: RequestId
+  items: MemoryRelation[]
+  next_cursor: string | null
+}
+
+export interface MemoryVersionDiffResponse {
+  request_id: RequestId
+  from_version: MemoryVersionProjection
+  to_version: MemoryVersionProjection
+  changed_fields: Array<'title' | 'rule' | 'avoid' | 'trigger_text' | 'scope' | 'exceptions'>
 }
 
 export type G0SseEvent =

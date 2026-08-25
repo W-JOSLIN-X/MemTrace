@@ -1024,6 +1024,7 @@ export function useG0Agent({
             card: resolved.card,
             evidence: current?.evidence ?? [],
             versions: current?.versions ?? [],
+            relations: current?.relations ?? [],
           }
         }
         if (generation !== generationRef.current) return null

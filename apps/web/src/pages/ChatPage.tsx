@@ -137,6 +137,9 @@ export function ChatPage({
     event.preventDefault()
     if (invalidLength || isSubmitting || sessionUnavailable) return
     resetFeedbackForm()
+    usageEffectKeysRef.current.clear()
+    setEffectPending(null)
+    setEffectError(null)
     void submitTask(taskText, {
       memoryMode: memoryEnabled ? 'on' : 'off',
       responsePolicy,

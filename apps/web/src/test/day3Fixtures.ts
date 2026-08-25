@@ -75,6 +75,9 @@ export function makeMemoryCard(
     harmful_count: 0,
     stale_count: 0,
     last_used_at: null,
+    evidence_missing: false,
+    import_batch_id: null,
+    import_source_version: null,
     created_at: AT,
     updated_at: AT,
     ...overrides,
@@ -101,6 +104,7 @@ export function makeMemoryDetail(
       },
     ],
     versions: [],
+    relations: [],
   }
 }
 
