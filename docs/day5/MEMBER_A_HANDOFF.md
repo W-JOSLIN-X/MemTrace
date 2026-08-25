@@ -1,5 +1,12 @@
 # MemTrace Day 5 成员 A 交接
 
+> **成员 B 核验更正（2026-08-26）**：以下内容是成员 A 的原始交接声明，保留作为历史证据，
+> 但其中 base/head、提交数量及测试状态不能作为最终事实。成员 B 从远端 Git 对象核得：
+> `origin/main=b41afc51f1c0c2d43ebd3f61548e46faabb8d51d`，
+> `origin/feat/a-d5-memory-center=d40f01c448434afff12c1e0a7c939000f95f3f7c`，
+> merge base 为 `b41afc51f1c0c2d43ebd3f61548e46faabb8d51d`，协作者分支实际领先 7 个提交、
+> 落后 0 个提交。最终完成状态与门禁结果以 `OWNER_INTEGRATION_REPORT.md` 的本轮独立证据为准。
+
 **仓库**: W-JOSLIN-X/MemTrace
 **分支**: `feat/a-d5-memory-center`
 **Base SHA**: `47cfb07cb544267ab91acf18f30657c9500e6986` (origin/main 本地已知)
