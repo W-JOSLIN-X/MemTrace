@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+import secrets
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import and_, func, or_, select, update, text
 from sqlalchemy.orm import Session
 
 from memtrace_api.db_models import (
@@ -16,11 +20,14 @@ from memtrace_api.db_models import (
     EventLogModel,
     FeedbackEventModel,
     IdempotencyKeyModel,
+    ImportBatchModel,
     MemoryCardModel,
     MemoryEvidenceLinkModel,
     MemoryEvidenceModel,
     MemoryJobModel,
+    MemoryRelationModel,
     MemoryUsageModel,
+    MemoryVerificationJobModel,
     MemoryVersionModel,
     MessageModel,
     RetrievalDecisionModel,
@@ -34,21 +41,32 @@ from memtrace_api.events import EventType
 from memtrace_api.ids import new_prefixed_ulid
 from memtrace_api.schemas import (
     AsyncErrorCode,
+    CreatedByAction,
     Domain,
     EffectiveMemoryMode,
     FeedbackEventRecord,
     FeedbackType,
+    ImportBatchId,
+    MemoryId,
+    MemoryKind,
+    MemoryVersionId,
     MessageRole,
     MessageSnapshot,
+    PackId,
     ProviderMode,
+    RelationId,
+    ResolutionAction,
     RunErrorSnapshot,
     RunStatus,
     Scenario,
+    SourceType,
     TaskCreateRequest,
     TaskFingerprint,
+    TaskId,
     TaskMessageRecord,
     TaskSnapshot,
     ToolCallSnapshot,
+    UsageId,
     utc_now,
 )
 
@@ -984,3 +1002,926 @@ class MemoryUsageRepository:
             row.evidence_excerpt = excerpt[:120]
         row.updated_at = utc_now()
         return row
+
+
+# ===========================================================================
+# Day 5 G4: Memory Center / Conflict / Pack / Import G4 helpers & repos
+# ===========================================================================
+
+
+def _nfkc_cf(s: str) -> str:
+    import unicodedata as _ud
+    return _ud.normalize("NFKC", s).casefold()
+
+
+def _collapse_ws(s: str) -> str:
+    return " ".join(s.split())
+
+
+def _query_token(s: str) -> str:
+    return _collapse_ws(_nfkc_cf(s))
+
+
+def _nfkc_contains(haystack: str, needle: str) -> bool:
+    return _query_token(needle) in _query_token(haystack)
+
+
+def _rfc8785_canonical_bytes(data: dict[str, Any]) -> bytes:
+    return _rfc8785_dumps(data).encode("utf-8")
+
+
+def _rfc8785_dumps(data: dict[str, Any]) -> str:
+    return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _sha256_hex(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _clear_idempotency_snapshots(session: Session, user_id: str, resource_ids: list[str]) -> None:
+    for rid in resource_ids:
+        session.execute(
+            IdempotencyKeyModel.__table__.delete().where(
+                and_(
+                    IdempotencyKeyModel.owner_id == user_id,
+                    IdempotencyKeyModel.response_json.like(f"%{rid}%"),
+                )
+            )
+        )
+
+
+# ── G4 MemoryCard (extended, separate class to not break G1-G3 routes) ─────
+
+
+class MemoryCardG4Repository:
+    """G4 Memory Center lifecycle operations."""
+
+    def __init__(self, user_ctx: UserContext, session: Session) -> None:
+        self.user_ctx = user_ctx
+        self.session = session
+
+    def _q(self) -> Any:
+        return and_(
+            MemoryCardModel.owner_id == self.user_ctx.user_id,
+            MemoryCardModel.status != "deleted",
+        )
+
+    def _get(self, memory_id: str) -> MemoryCardModel | None:
+        return self.session.execute(
+            select(MemoryCardModel).where(
+                and_(MemoryCardModel.id == memory_id, self._q())
+            )
+        ).scalar_one_or_none()
+
+    def _update(self, card_id: str, **updates: Any) -> None:
+        self.session.execute(
+            update(MemoryCardModel)
+            .where(
+                and_(
+                    MemoryCardModel.id == card_id,
+                    MemoryCardModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+            .values(**updates)
+        )
+
+    # ── G4 list with full filters ──────────────────────────────────────────
+
+    def list_memories(
+        self,
+        *,
+        query: str | None = None,
+        kind: str | None = None,
+        status: str | None = None,
+        domain: str | None = None,
+        task_type: str | None = None,
+        source_type: str | None = None,
+        used_after: datetime | None = None,
+        sort: str = "updated_desc",
+        cursor: str | None = None,
+        limit: int = 51,
+    ) -> list[MemoryCardModel]:
+        q = select(MemoryCardModel).where(self._q())
+        if status:
+            q = q.where(MemoryCardModel.status == status)
+        if kind:
+            q = q.where(MemoryCardModel.kind == kind)
+        if domain:
+            q = q.where(MemoryCardModel.domain == domain)
+        if task_type:
+            q = q.where(MemoryCardModel.task_type == task_type)
+        if source_type:
+            q = q.where(MemoryCardModel.source_type == source_type)
+        if used_after is not None:
+            q = q.where(MemoryCardModel.last_used_at >= used_after)
+        if query:
+            norm = _query_token(query)
+            parts = norm.split()
+            conds: list[Any] = []
+            for p in parts:
+                conds.append(func.lower(MemoryCardModel.title).like(func.lower(f"%{p}%")))
+                conds.append(func.lower(MemoryCardModel.rule).like(func.lower(f"%{p}%")))
+                conds.append(func.lower(MemoryCardModel.trigger_text).like(func.lower(f"%{p}%")))
+            q = q.where(and_(*conds))
+        sort_map: dict[str, Any] = {
+            "updated_desc": MemoryCardModel.updated_at.desc(),
+            "created_desc": MemoryCardModel.created_at.desc(),
+            "last_used_desc": MemoryCardModel.last_used_at.desc(),
+            "title_asc": MemoryCardModel.title.asc(),
+        }
+        order = sort_map.get(sort, MemoryCardModel.updated_at.desc())
+        if cursor:
+            if sort == "title_asc":
+                q = q.where(MemoryCardModel.title > cursor)
+            elif sort == "last_used_desc":
+                q = q.where(
+                    or_(
+                        MemoryCardModel.last_used_at < cursor,
+                        and_(
+                            MemoryCardModel.last_used_at == cursor,
+                            MemoryCardModel.id > cursor,
+                        ),
+                    )
+                )
+            else:
+                q = q.where(MemoryCardModel.updated_at < cursor)
+        q = q.order_by(order, MemoryCardModel.id.asc()).limit(limit)
+        return list(self.session.execute(q).scalars().all())
+
+    # ── G4 detail / versions / usages / relations ──────────────────────────
+
+    def get_detail(self, memory_id: str) -> MemoryCardModel | None:
+        return self._get(memory_id)
+
+    def list_relations(self, memory_id: str) -> list[MemoryRelationModel]:
+        return list(
+            self.session.execute(
+                select(MemoryRelationModel).where(
+                    and_(
+                        MemoryRelationModel.owner_id == self.user_ctx.user_id,
+                        MemoryRelationModel.from_memory_id == memory_id,
+                    )
+                )
+                .order_by(MemoryRelationModel.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+
+    def list_usages_for_memory(
+        self, memory_id: str, cursor: str | None = None, limit: int = 51
+    ) -> list[MemoryUsageModel]:
+        q = select(MemoryUsageModel).where(
+            and_(
+                MemoryUsageModel.memory_id == memory_id,
+                MemoryUsageModel.owner_id == self.user_ctx.user_id,
+            )
+        )
+        if cursor:
+            q = q.where(MemoryUsageModel.id < cursor)
+        q = q.order_by(MemoryUsageModel.id.desc()).limit(limit)
+        return list(self.session.execute(q).scalars().all())
+
+    # ── G4 lifecycle ───────────────────────────────────────────────────────
+
+    def edit(
+        self,
+        memory_id: str,
+        expected_version_id: str,
+        *,
+        title: str,
+        rule: str,
+        avoid: str,
+        scope_json: str,
+        exceptions_json: str,
+        trigger_text: str | None = None,
+    ) -> tuple[MemoryCardModel, str]:
+        card = self._get(memory_id)
+        if card is None:
+            raise ValueError("MEMORY_NOT_FOUND")
+        if card.current_version_id != expected_version_id:
+            raise ValueError("MEMORY_VERSION_CONFLICT")
+        allowed = {"active", "paused", "archived", "conflicted"}
+        if card.status not in allowed:
+            raise ValueError(f"MEMORY_STATE_CONFLICT: cannot edit {card.status}")
+        next_ver = card.version + 1
+        version_id = new_prefixed_ulid("memver")
+        now = utc_now()
+        eff_trigger = card.trigger_text if trigger_text is None else trigger_text
+        self.session.add(
+            MemoryVersionModel(
+                id=version_id,
+                owner_id=self.user_ctx.user_id,
+                memory_id=memory_id,
+                version=next_ver,
+                title=title,
+                rule=rule,
+                avoid=avoid,
+                trigger_text=eff_trigger,
+                scope_json=scope_json,
+                exceptions_json=exceptions_json,
+                created_by_action=CreatedByAction.EDIT.value,
+                created_at=now,
+            )
+        )
+        self._update(
+            memory_id,
+            title=title,
+            rule=rule,
+            avoid=avoid,
+            trigger_text=eff_trigger,
+            scope_json=scope_json,
+            exceptions_json=exceptions_json,
+            current_version_id=version_id,
+            version=next_ver,
+            updated_at=now,
+        )
+        self.session.flush()
+        updated = self._get(memory_id)
+        assert updated is not None
+        return updated, version_id
+
+    def set_status(self, memory_id: str, expected_version_id: str, new_status: str) -> MemoryCardModel:
+        card = self._get(memory_id)
+        if card is None:
+            raise ValueError("MEMORY_NOT_FOUND")
+        if card.current_version_id != expected_version_id:
+            raise ValueError("MEMORY_VERSION_CONFLICT")
+        self._update(memory_id, status=new_status, updated_at=utc_now())
+        self.session.flush()
+        updated = self._get(memory_id)
+        assert updated is not None
+        return updated
+
+    # ── permanent delete ──────────────────────────────────────────────────
+
+    def permanent_delete(
+        self,
+        memory_id: str,
+        expected_version_id: str | None,
+        confirm_title: str,
+    ) -> dict[str, Any]:
+        card = self._get(memory_id)
+        if card is None:
+            raise ValueError("MEMORY_NOT_FOUND")
+        if card.current_version_id != expected_version_id:
+            raise ValueError("MEMORY_VERSION_CONFLICT")
+        if card.title != confirm_title:
+            raise ValueError("CONFIRMATION_MISMATCH")
+        now = utc_now()
+        linked_ids = [
+            link.evidence_id
+            for link in self.session.execute(
+                select(MemoryEvidenceLinkModel).where(
+                    MemoryEvidenceLinkModel.memory_id == memory_id
+                )
+            ).scalars().all()
+        ]
+        # 1. Delete versions
+        self.session.execute(
+            MemoryVersionModel.__table__.delete().where(
+                MemoryVersionModel.memory_id == memory_id
+            )
+        )
+        # 2. Delete relations
+        self.session.execute(
+            MemoryRelationModel.__table__.delete().where(
+                MemoryRelationModel.from_memory_id == memory_id
+            )
+        )
+        self.session.execute(
+            MemoryRelationModel.__table__.delete().where(
+                MemoryRelationModel.to_memory_id == memory_id
+            )
+        )
+        # 3. Delete retrieval decisions/traces/usages
+        for tbl in (RetrievalDecisionModel, RetrievalTraceModel, MemoryUsageModel):
+            self.session.execute(
+                tbl.__table__.delete().where(tbl.memory_id == memory_id)
+            )
+        # 4. Delete verification jobs
+        self.session.execute(
+            MemoryVerificationJobModel.__table__.delete().where(
+                MemoryVerificationJobModel.memory_usage_id.in_(
+                    select(MemoryUsageModel.id).where(
+                        MemoryUsageModel.memory_id == memory_id
+                    )
+                )
+            )
+        )
+        # 5. Delete evidence links + orphan evidence
+        self.session.execute(
+            MemoryEvidenceLinkModel.__table__.delete().where(
+                MemoryEvidenceLinkModel.memory_id == memory_id
+            )
+        )
+        for eid in linked_ids:
+            remaining = self.session.execute(
+                select(MemoryEvidenceLinkModel.id).where(
+                    MemoryEvidenceLinkModel.evidence_id == eid
+                )
+            ).scalar_one_or_none()
+            if remaining is None:
+                self.session.execute(
+                    MemoryEvidenceModel.__table__.delete().where(
+                        MemoryEvidenceModel.id == eid
+                    )
+                )
+        # 6. Tombstone card
+        self._update(
+            memory_id,
+            status="deleted",
+            kind=None,
+            title=None,
+            rule=None,
+            avoid=None,
+            trigger_text=None,
+            scope_level=None,
+            domain=None,
+            task_type=None,
+            artifact_type=None,
+            audience=None,
+            project_key=None,
+            scope_json="{}",
+            exceptions_json="[]",
+            source_type=None,
+            save_preselected=False,
+            rejection_reason=None,
+            source_trust=0.0,
+            rule_confidence=None,
+            scope_confidence=None,
+            evidence_count=0,
+            version=0,
+            current_version_id=None,
+            valid_from=None,
+            valid_to=None,
+            retrieved_count=0,
+            injected_count=0,
+            verified_applied_count=0,
+            helpful_count=0,
+            harmful_count=0,
+            stale_count=0,
+            last_used_at=None,
+            evidence_missing=False,
+            deleted_at=now,
+            import_batch_id=None,
+            import_source_version=None,
+            updated_at=now,
+        )
+        self.session.flush()
+        return {"memory_id": memory_id, "status": "deleted", "deleted_at": now}
+
+    # ── source task delete ──────────────────────────────────────────────────
+
+    def delete_source_task(self, task_id: str) -> dict[str, Any]:
+        affected_card_ids = [
+            r[0]
+            for r in self.session.execute(
+                select(MemoryCardModel.id).where(
+                    MemoryCardModel.owner_id == self.user_ctx.user_id
+                )
+            ).all()
+        ]
+        _clear_idempotency_snapshots(
+            self.session, self.user_ctx.user_id, [task_id] + affected_card_ids
+        )
+        evidence_missing_count = 0
+        for cid in affected_card_ids:
+            has_links = self.session.execute(
+                select(MemoryEvidenceLinkModel.id).where(
+                    MemoryEvidenceLinkModel.memory_id == cid
+                )
+            ).scalar_one_or_none()
+            if has_links is None:
+                self.session.execute(
+                    update(MemoryCardModel)
+                    .where(
+                        and_(
+                            MemoryCardModel.id == cid,
+                            MemoryCardModel.owner_id == self.user_ctx.user_id,
+                        )
+                    )
+                    .values(evidence_missing=True)
+                )
+                evidence_missing_count += 1
+        self.session.execute(
+            update(TaskModel)
+            .where(
+                and_(
+                    TaskModel.id == task_id,
+                    TaskModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+            .values(
+                status="deleted",
+                task_text="",
+                deleted_at=utc_now(),
+                deletion_reason="source_task_delete",
+                updated_at=utc_now(),
+            )
+        )
+        self.session.flush()
+        return {
+            "task_id": task_id,
+            "affected_memory_cards": len(affected_card_ids),
+            "evidence_missing_cards": evidence_missing_count,
+        }
+
+
+# ── MemoryRelationRepository ────────────────────────────────────────────────
+
+
+class MemoryRelationRepository:
+    def __init__(self, user_ctx: UserContext, session: Session) -> None:
+        self.user_ctx = user_ctx
+        self.session = session
+
+    def create_relation(
+        self,
+        *,
+        relation_id: str,
+        from_memory_id: str,
+        to_memory_id: str,
+        relation_type: str,
+        status: str = "resolved",
+        resolution_action: str | None = None,
+        resolution_memory_id: str | None = None,
+    ) -> MemoryRelationModel:
+        rel = MemoryRelationModel(
+            id=relation_id,
+            owner_id=self.user_ctx.user_id,
+            from_memory_id=from_memory_id,
+            to_memory_id=to_memory_id,
+            relation_type=relation_type,
+            status=status,
+            resolution_action=resolution_action,
+            resolution_memory_id=resolution_memory_id,
+            resolved_at=utc_now() if status == "resolved" else None,
+            created_at=utc_now(),
+        )
+        self.session.add(rel)
+        self.session.flush()
+        return rel
+
+    def get(self, relation_id: str) -> MemoryRelationModel | None:
+        return self.session.execute(
+            select(MemoryRelationModel).where(
+                and_(
+                    MemoryRelationModel.id == relation_id,
+                    MemoryRelationModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    def list_relations(
+        self,
+        memory_id: str | None = None,
+        status: str | None = None,
+        cursor: str | None = None,
+    ) -> list[MemoryRelationModel]:
+        q = select(MemoryRelationModel).where(
+            MemoryRelationModel.owner_id == self.user_ctx.user_id
+        )
+        if memory_id:
+            q = q.where(MemoryRelationModel.from_memory_id == memory_id)
+        if status:
+            q = q.where(MemoryRelationModel.status == status)
+        if cursor:
+            q = q.where(MemoryRelationModel.id < cursor)
+        q = q.order_by(MemoryRelationModel.created_at.desc()).limit(51)
+        return list(self.session.execute(q).scalars().all())
+
+    def resolve(
+        self,
+        relation_id: str,
+        *,
+        action: str,
+        resolution_memory_id: str | None = None,
+    ) -> MemoryRelationModel | None:
+        rel = self.get(relation_id)
+        if rel is None:
+            return None
+        rel.status = "resolved"
+        rel.resolution_action = action
+        rel.resolution_memory_id = resolution_memory_id
+        rel.resolved_at = utc_now()
+        self.session.flush()
+        return rel
+
+
+# ── ConflictRepository ──────────────────────────────────────────────────────
+
+
+class ConflictRepository:
+    def __init__(self, user_ctx: UserContext, session: Session) -> None:
+        self.user_ctx = user_ctx
+        self.session = session
+
+    def create_conflict(
+        self,
+        *,
+        relation_id: str,
+        left_memory_id: str,
+        right_memory_id: str,
+    ) -> MemoryRelationModel:
+        if left_memory_id > right_memory_id:
+            left_memory_id, right_memory_id = right_memory_id, left_memory_id
+        rel = MemoryRelationModel(
+            id=relation_id,
+            owner_id=self.user_ctx.user_id,
+            from_memory_id=left_memory_id,
+            to_memory_id=right_memory_id,
+            relation_type="conflicts_with",
+            status="unresolved",
+            created_at=utc_now(),
+        )
+        self.session.add(rel)
+        self.session.flush()
+        return rel
+
+    def list_conflicts(
+        self, status: str | None = None, cursor: str | None = None
+    ) -> list[MemoryRelationModel]:
+        q = select(MemoryRelationModel).where(
+            and_(
+                MemoryRelationModel.owner_id == self.user_ctx.user_id,
+                MemoryRelationModel.relation_type == "conflicts_with",
+            )
+        )
+        if status:
+            q = q.where(MemoryRelationModel.status == status)
+        if cursor:
+            q = q.where(MemoryRelationModel.id < cursor)
+        q = q.order_by(MemoryRelationModel.created_at.desc()).limit(51)
+        return list(self.session.execute(q).scalars().all())
+
+    def get(self, relation_id: str) -> MemoryRelationModel | None:
+        return self.session.execute(
+            select(MemoryRelationModel).where(
+                and_(
+                    MemoryRelationModel.id == relation_id,
+                    MemoryRelationModel.owner_id == self.user_ctx.user_id,
+                    MemoryRelationModel.relation_type == "conflicts_with",
+                )
+            )
+        ).scalar_one_or_none()
+
+    def resolve(
+        self,
+        relation_id: str,
+        *,
+        action: str,
+        resolution_memory_id: str | None = None,
+    ) -> MemoryRelationModel | None:
+        rel = self.get(relation_id)
+        if rel is None:
+            return None
+        rel.status = "resolved"
+        rel.resolution_action = action
+        rel.resolution_memory_id = resolution_memory_id
+        rel.resolved_at = utc_now()
+        self.session.flush()
+        return rel
+
+
+# ── MemoryMergeRepository ───────────────────────────────────────────────────
+
+
+class MemoryMergeRepository:
+    def __init__(self, user_ctx: UserContext, session: Session) -> None:
+        self.user_ctx = user_ctx
+        self.session = session
+
+    def manual_merge(
+        self,
+        *,
+        merged_memory_id: str,
+        left_memory_id: str,
+        right_memory_id: str,
+        merged_card_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = utc_now()
+        new_version_id = new_prefixed_ulid("memver")
+        scope = merged_card_data.get("scope", {})
+        scope_json = json.dumps(scope, separators=(",", ":"), ensure_ascii=False)
+        exc_json = json.dumps(
+            merged_card_data.get("exceptions", []),
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        new_card = MemoryCardModel(
+            id=merged_memory_id,
+            owner_id=self.user_ctx.user_id,
+            status="active",
+            kind=merged_card_data["kind"],
+            source_type="import",
+            save_preselected=False,
+            title=merged_card_data["title"],
+            rule=merged_card_data["rule"],
+            avoid=merged_card_data.get("avoid", ""),
+            trigger_text=merged_card_data.get("trigger_text", ""),
+            scope_level=scope.get("level", "global"),
+            domain=scope.get("domain", "other"),
+            task_type=scope.get("task_type"),
+            artifact_type=scope.get("artifact_type"),
+            audience=scope.get("audience"),
+            project_key=scope.get("project_key"),
+            scope_json=scope_json,
+            exceptions_json=exc_json,
+            source_trust=0.50,
+            rule_confidence=1.0,
+            scope_confidence=1.0,
+            evidence_count=0,
+            version=1,
+            current_version_id=new_version_id,
+            valid_from=now,
+            retrieved_count=0,
+            injected_count=0,
+            verified_applied_count=0,
+            helpful_count=0,
+            harmful_count=0,
+            stale_count=0,
+            evidence_missing=False,
+            created_at=now,
+            updated_at=now,
+        )
+        self.session.add(new_card)
+        self.session.add(
+            MemoryVersionModel(
+                id=new_version_id,
+                owner_id=self.user_ctx.user_id,
+                memory_id=merged_memory_id,
+                version=1,
+                title=merged_card_data["title"],
+                rule=merged_card_data["rule"],
+                avoid=merged_card_data.get("avoid", ""),
+                trigger_text=merged_card_data.get("trigger_text", ""),
+                scope_json=scope_json,
+                exceptions_json=exc_json,
+                created_by_action=CreatedByAction.MERGE.value,
+                created_at=now,
+            )
+        )
+        for src_id in (left_memory_id, right_memory_id):
+            self.session.execute(
+                update(MemoryCardModel)
+                .where(
+                    and_(
+                        MemoryCardModel.id == src_id,
+                        MemoryCardModel.owner_id == self.user_ctx.user_id,
+                    )
+                )
+                .values(status="merged", updated_at=now)
+            )
+            rel_id = new_prefixed_ulid("rel")
+            self.session.add(
+                MemoryRelationModel(
+                    id=rel_id,
+                    owner_id=self.user_ctx.user_id,
+                    from_memory_id=src_id,
+                    to_memory_id=merged_memory_id,
+                    relation_type="merged_into",
+                    status="resolved",
+                    resolved_at=now,
+                    created_at=now,
+                )
+            )
+        self.session.flush()
+        return {
+            "merged_memory_id": merged_memory_id,
+            "left_status": "merged",
+            "right_status": "merged",
+            "new_version_id": new_version_id,
+        }
+
+
+# ── ImportBatchRepository ──────────────────────────────────────────────────
+
+
+class ImportBatchRepository:
+    def __init__(self, user_ctx: UserContext, session: Session) -> None:
+        self.user_ctx = user_ctx
+        self.session = session
+
+    def create_batch(
+        self,
+        *,
+        batch_id: str,
+        file_hash: str,
+        pack_name: str | None,
+        format_version: str | None,
+        canonical_payload_json: str,
+        preview_json: str,
+        preview_token_hash: str,
+        expires_at: datetime,
+        legal_new_count: int = 0,
+        duplicate_count: int = 0,
+        conflict_count: int = 0,
+        suspicious_count: int = 0,
+        error_message: str | None = None,
+    ) -> ImportBatchModel:
+        now = utc_now()
+        batch = ImportBatchModel(
+            id=batch_id,
+            owner_id=self.user_ctx.user_id,
+            file_hash=file_hash,
+            status="quarantined",
+            canonical_payload_json=canonical_payload_json,
+            preview_json=preview_json,
+            preview_token_hash=preview_token_hash,
+            expires_at=expires_at,
+            inserted_count=legal_new_count,
+            skipped_count=duplicate_count + conflict_count + suspicious_count,
+            warning_count=conflict_count + suspicious_count,
+            error_message=error_message,
+            created_at=now,
+            updated_at=now,
+        )
+        self.session.add(batch)
+        self.session.flush()
+        return batch
+
+    def get_batch(self, batch_id: str) -> ImportBatchModel | None:
+        return self.session.execute(
+            select(ImportBatchModel).where(
+                and_(
+                    ImportBatchModel.id == batch_id,
+                    ImportBatchModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    def commit(self, batch_id: str, inserted_count: int, skipped_count: int) -> ImportBatchModel | None:
+        batch = self.get_batch(batch_id)
+        if batch is None:
+            return None
+        batch.status = "committed"
+        batch.committed_at = utc_now()
+        batch.inserted_count = inserted_count
+        batch.skipped_count = skipped_count
+        batch.canonical_payload_json = None
+        batch.preview_json = None
+        batch.preview_token_hash = None
+        batch.expires_at = None
+        self.session.flush()
+        return batch
+
+    def cancel(self, batch_id: str) -> ImportBatchModel | None:
+        batch = self.get_batch(batch_id)
+        if batch is None:
+            return None
+        batch.status = "cancelled"
+        batch.updated_at = utc_now()
+        self.session.flush()
+        return batch
+
+
+# ── PackRepository ──────────────────────────────────────────────────────────
+
+
+class PackRepository:
+    MAX_PACK_SIZE = 1_048_576
+    MAX_CARDS = 200
+    MAX_DEPTH = 12
+    MAX_STRING = 10_000
+
+    def __init__(self, user_ctx: UserContext, session: Session) -> None:
+        self.user_ctx = user_ctx
+        self.session = session
+
+    def export_memories(
+        self,
+        *,
+        pack_id: str,
+        name: str,
+        description: str,
+        memory_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        if memory_ids:
+            cards = list(
+                self.session.execute(
+                    select(MemoryCardModel).where(
+                        and_(
+                            MemoryCardModel.owner_id == self.user_ctx.user_id,
+                            MemoryCardModel.id.in_(memory_ids),
+                            MemoryCardModel.status.notin_(
+                                ("candidate", "rejected", "deleted")
+                            ),
+                            MemoryCardModel.current_version_id.is_not(None),
+                        )
+                    )
+                ).scalars().all()
+            )
+        else:
+            cards = list(
+                self.session.execute(
+                    select(MemoryCardModel).where(
+                        and_(
+                            MemoryCardModel.owner_id == self.user_ctx.user_id,
+                            MemoryCardModel.status.in_(
+                                ("active", "paused")
+                            ),
+                            MemoryCardModel.current_version_id.is_not(None),
+                        )
+                    )
+                ).scalars().all()
+            )
+        export_cards: list[dict[str, Any]] = []
+        for card in cards:
+            if card.current_version_id is None:
+                continue
+            ver = self.session.execute(
+                select(MemoryVersionModel).where(
+                    and_(
+                        MemoryVersionModel.id == card.current_version_id,
+                        MemoryVersionModel.owner_id == self.user_ctx.user_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if ver is None:
+                continue
+            scope_dict: dict[str, Any] = json.loads(card.scope_json)
+            export_cards.append(
+                {
+                    "external_id": card.id,
+                    "schema_version": "1.0",
+                    "kind": card.kind,
+                    "title": card.title,
+                    "rule": card.rule,
+                    "avoid": card.avoid or "",
+                    "trigger_text": card.trigger_text or "",
+                    "scope": scope_dict,
+                    "exceptions": json.loads(card.exceptions_json),
+                    "claimed_origin": {
+                        "source_type": card.source_type,
+                        "trust_level": "user_confirmed",
+                        "created_at": card.created_at,
+                        "source_task_exported": False,
+                        "source_version": card.version or 1,
+                    },
+                    "version": card.version,
+                    "updated_at": card.updated_at,
+                }
+            )
+        exported_ids = {c["external_id"] for c in export_cards}
+        relations: list[dict[str, Any]] = []
+        if len(exported_ids) > 1:
+            for rel in self.session.execute(
+                select(MemoryRelationModel).where(
+                    and_(
+                        MemoryRelationModel.owner_id == self.user_ctx.user_id,
+                        MemoryRelationModel.from_memory_id.in_(exported_ids),
+                        MemoryRelationModel.to_memory_id.in_(exported_ids),
+                    )
+                )
+            ).scalars().all():
+                relations.append(
+                    {
+                        "from_external_id": rel.from_memory_id,
+                        "to_external_id": rel.to_memory_id,
+                        "relation_type": rel.relation_type,
+                    }
+                )
+        pack: dict[str, Any] = {
+            "schema_ref": "memtrace-memory-pack@1.0.0",
+            "format": "memtrace-memory-pack",
+            "format_version": "1.0.0",
+            "pack_id": pack_id,
+            "name": name,
+            "description": description,
+            "created_at": utc_now(),
+            "producer": {"name": "MemTrace", "version": "0.1.0"},
+            "source": {"kind": "user_export", "trust": "self_asserted"},
+            "privacy": {"contains_raw_evidence": False, "anonymized": True},
+            "cards": export_cards,
+            "relations": relations,
+        }
+        canonical_bytes = _rfc8785_canonical_bytes(pack)
+        pack["integrity"] = {
+            "algorithm": "sha256",
+            "canonical_payload_sha256": _sha256_hex(canonical_bytes),
+        }
+        return pack
+
+    @staticmethod
+    def encode_preview_token(secret: str, batch_id: str, file_hash: str, exp_ts: int) -> str:
+        payload = f"{batch_id}|{file_hash}|{exp_ts}"
+        mac = hashlib.sha256(f"{secret}:{payload}".encode()).digest()
+        token = base64.urlsafe_b64encode(
+            f"{payload}:{base64.urlsafe_b64encode(mac).decode()}".encode()
+        ).decode().rstrip("=")
+        return token
+
+    @staticmethod
+    def decode_preview_token(secret: str, token: str) -> tuple[str, str, int] | None:
+        try:
+            raw = base64.urlsafe_b64decode(token + "==").decode()
+            payload, mac_b64 = raw.rsplit(":", 1)
+            expected_mac = base64.urlsafe_b64decode(mac_b64 + "==")
+            computed = hashlib.sha256(f"{secret}:{payload}".encode()).digest()
+            if not secrets.compare_digest(computed, expected_mac):
+                return None
+            batch_id, file_hash, exp_str = payload.split("|", 2)
+            return batch_id, file_hash, int(exp_str)
+        except Exception:
+            return None
