@@ -52,6 +52,14 @@ from memtrace_api.logic import analyze_task
 from memtrace_api.middleware import RequestIdMiddleware
 from memtrace_api.orchestrator import AgentOrchestrator
 from memtrace_api.providers import DeepSeekProvider, MockProvider, StreamingProvider
+from memtrace_api.retrieval_executor import (
+    execute_retrieval,
+    RetrievalContext,
+    compile_prompt_section,
+    escape_xml,
+    estimate_tokens,
+)
+from memtrace_api.verifier import verify_exact_substring
 from memtrace_api.readiness import (
     DatabaseRevisionError,
     ensure_database_current,
@@ -62,6 +70,8 @@ from memtrace_api.repositories import (
     IdempotencyRepository,
     MemoryCardRepository,
     MemoryJobRepository,
+    MemoryUsageRepository,
+    RetrievalRepository,
     SessionRepository,
     TaskRepository,
     UserContext,

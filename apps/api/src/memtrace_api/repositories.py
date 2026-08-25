@@ -20,8 +20,11 @@ from memtrace_api.db_models import (
     MemoryEvidenceLinkModel,
     MemoryEvidenceModel,
     MemoryJobModel,
+    MemoryUsageModel,
     MemoryVersionModel,
     MessageModel,
+    RetrievalDecisionModel,
+    RetrievalTraceModel,
     TaskFingerprintModel,
     TaskModel,
     ToolCallModel,
@@ -781,7 +784,6 @@ class IdempotencyRepository:
 
     def get_record(self, route: str, key: str) -> IdempotencyKeyModel | None:
         now = utc_now()
-        # Delete if expired
         self.session.execute(
             IdempotencyKeyModel.__table__.delete().where(
                 and_(
@@ -827,3 +829,141 @@ class IdempotencyRepository:
         self.session.add(record)
         self.session.flush()
         return record
+
+
+# ===========================================================================
+# Day 4 G3 retrieval and memory lifecycle repositories
+# ===========================================================================
+
+
+class RetrievalRepository:
+    def __init__(self, user_ctx: UserContext, session: Session) -> None:
+        self.user_ctx = user_ctx
+        self.session = session
+
+    def save_trace(
+        self, trace: RetrievalTraceModel, decisions: list[RetrievalDecisionModel]
+    ) -> None:
+        self.session.add(trace)
+        for d in decisions:
+            self.session.add(d)
+
+    def get_trace(self, trace_id: str) -> RetrievalTraceModel | None:
+        return self.session.execute(
+            select(RetrievalTraceModel).where(
+                and_(
+                    RetrievalTraceModel.id == trace_id,
+                    RetrievalTraceModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    def get_trace_by_run(self, task_id: str, run_id: str) -> RetrievalTraceModel | None:
+        return self.session.execute(
+            select(RetrievalTraceModel).where(
+                and_(
+                    RetrievalTraceModel.task_id == task_id,
+                    RetrievalTraceModel.run_id == run_id,
+                    RetrievalTraceModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    def list_decisions(self, trace_id: str) -> list[RetrievalDecisionModel]:
+        return list(
+            self.session.execute(
+                select(RetrievalDecisionModel)
+                .where(RetrievalDecisionModel.retrieval_trace_id == trace_id)
+                .order_by(RetrievalDecisionModel.id.asc())
+            )
+            .scalars()
+            .all()
+        )
+
+
+class MemoryUsageRepository:
+    def __init__(self, user_ctx: UserContext, session: Session) -> None:
+        self.user_ctx = user_ctx
+        self.session = session
+
+    def save_usages(self, usages: list[MemoryUsageModel]) -> None:
+        for u in usages:
+            self.session.add(u)
+
+    def list_by_run(self, task_id: str, run_id: str) -> list[MemoryUsageModel]:
+        return list(
+            self.session.execute(
+                select(MemoryUsageModel)
+                .where(
+                    and_(
+                        MemoryUsageModel.task_id == task_id,
+                        MemoryUsageModel.run_id == run_id,
+                        MemoryUsageModel.owner_id == self.user_ctx.user_id,
+                    )
+                )
+                .order_by(MemoryUsageModel.rank.asc(), MemoryUsageModel.id.asc())
+            )
+            .scalars()
+            .all()
+        )
+
+    def list_by_memory(
+        self, memory_id: str, cursor: str | None = None, limit: int = 50
+    ) -> list[MemoryUsageModel]:
+        q = select(MemoryUsageModel).where(
+            and_(
+                MemoryUsageModel.memory_id == memory_id,
+                MemoryUsageModel.owner_id == self.user_ctx.user_id,
+            )
+        )
+        if cursor:
+            q = q.where(MemoryUsageModel.id < cursor)
+        q = q.order_by(MemoryUsageModel.id.desc()).limit(limit)
+        return list(self.session.execute(q).scalars().all())
+
+    def get_usage(self, task_id: str, run_id: str, memory_id: str) -> MemoryUsageModel | None:
+        return self.session.execute(
+            select(MemoryUsageModel).where(
+                and_(
+                    MemoryUsageModel.task_id == task_id,
+                    MemoryUsageModel.run_id == run_id,
+                    MemoryUsageModel.memory_id == memory_id,
+                    MemoryUsageModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    def update_user_effect(self, usage_id: str, effect: str) -> MemoryUsageModel | None:
+        row = self.session.execute(
+            select(MemoryUsageModel).where(
+                and_(
+                    MemoryUsageModel.id == usage_id,
+                    MemoryUsageModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        row.user_effect = effect
+        row.updated_at = utc_now()
+        return row
+
+    def update_verification(
+        self, usage_id: str, status: str, method: str | None, excerpt: str | None
+    ) -> MemoryUsageModel | None:
+        row = self.session.execute(
+            select(MemoryUsageModel).where(
+                and_(
+                    MemoryUsageModel.id == usage_id,
+                    MemoryUsageModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        row.verification_status = status
+        row.verification_method = method
+        if excerpt is not None:
+            row.evidence_excerpt = excerpt[:120]
+        row.updated_at = utc_now()
+        return row

@@ -661,6 +661,7 @@ class ResolveAction(StrEnum):
     EDIT_ACCEPT = "edit_accept"
     REJECT = "reject"
     ONE_SHOT = "one_shot"
+    EDIT = "edit"
 
 
 class RejectionReason(StrEnum):
@@ -801,7 +802,7 @@ class ResolveRequest(ContractModel):
 
     @model_validator(mode="after")
     def patch_only_for_edit_accept(self) -> ResolveRequest:
-        if self.action is ResolveAction.EDIT_ACCEPT:
+        if self.action == ResolveAction.EDIT_ACCEPT:
             if self.patch is None:
                 raise ValueError("edit_accept requires a patch")
         elif self.patch is not None:
@@ -856,3 +857,132 @@ class MemoryDetailResponse(ContractModel):
     card: MemoryCard
     evidence: list[MemoryEvidenceProjection] = Field(default_factory=list)
     versions: list[MemoryVersionProjection] = Field(default_factory=list)
+
+
+# ======================================================================================
+# Day 4 G3 retrieval, usage, and memory lifecycle public contract.
+# ======================================================================================
+
+RetrievalTraceId = Annotated[str, StringConstraints(pattern=r"^trace_[0-9A-HJKMNP-TV-Z]{26}$")]
+UsageId = Annotated[str, StringConstraints(pattern=r"^usage_[0-9A-HJKMNP-TV-Z]{26}$")]
+VerificationJobId = Annotated[str, StringConstraints(pattern=r"^vjob_[0-9A-HJKMNP-TV-Z]{26}$")]
+
+
+class RetrievalMode(StrEnum):
+    TFIDF = "tfidf"
+    TFIDF_DEGRADED = "tfidf_degraded"
+
+
+class VerificationStatus(StrEnum):
+    PENDING = "pending"
+    APPLIED = "applied"
+    VIOLATED = "violated"
+    NOT_OBSERVABLE = "not_observable"
+    UNKNOWN = "unknown"
+
+
+class UserEffect(StrEnum):
+    HELPFUL = "helpful"
+    HARMFUL = "harmful"
+    STALE = "stale"
+
+
+class RetrievalReasonCode(StrEnum):
+    SELECTED_ABOVE_THRESHOLD = "selected_above_threshold"
+    MEMORY_MODE_OFF = "memory_mode_off"
+    STATUS_NOT_ACTIVE = "status_not_active"
+    NOT_YET_VALID = "not_yet_valid"
+    EXPIRED = "expired"
+    SCOPE_DOMAIN_MISMATCH = "scope_domain_mismatch"
+    SCOPE_TASK_TYPE_MISMATCH = "scope_task_type_mismatch"
+    SCOPE_ARTIFACT_MISMATCH = "scope_artifact_mismatch"
+    SCOPE_AUDIENCE_MISMATCH = "scope_audience_mismatch"
+    SCOPE_PROJECT_MISMATCH = "scope_project_mismatch"
+    SCOPE_LANGUAGE_MISMATCH = "scope_language_mismatch"
+    SCOPE_FRAMEWORK_MISMATCH = "scope_framework_mismatch"
+    CURRENT_CONSTRAINT_OVERRIDE = "current_constraint_override"
+    ACTIVE_CONFLICT = "active_conflict"
+    INVALID_ACTIVE_CARD = "invalid_active_card"
+    EMPTY_VECTOR = "empty_vector"
+    BELOW_THRESHOLD = "below_threshold"
+    TOP_K_EXCEEDED = "top_k_exceeded"
+    PROMPT_BUDGET_EXCEEDED = "prompt_budget_exceeded"
+
+
+class RetrievalDecisionResponse(ContractModel):
+    memory_id: MemoryId
+    memory_version_id: MemoryVersionId | None = None
+    memory_status: MemoryCardStatus
+    retrieved: bool
+    selected: bool
+    injected: bool
+    rank: int | None = Field(default=None, ge=1)
+    scope_match: float | None = Field(default=None, ge=0, le=1)
+    semantic_similarity: float | None = Field(default=None, ge=0, le=1)
+    provenance_confidence: float | None = Field(default=None, ge=0, le=1)
+    verified_effect: float | None = Field(default=None, ge=0, le=1)
+    recency: float | None = Field(default=None, ge=0, le=1)
+    final_score: float | None = Field(default=None, ge=0, le=1)
+    reason_codes: list[RetrievalReasonCode] = Field(default_factory=list)
+
+
+class RetrievalTraceResponse(ContractModel):
+    request_id: RequestId
+    retrieval_trace_id: RetrievalTraceId
+    task_id: TaskId
+    run_id: RunId
+    retrieval_mode: RetrievalMode
+    algorithm_version: Literal["char_tfidf_v1"] = "char_tfidf_v1"
+    threshold: float = Field(ge=0, le=1)
+    top_k: int = Field(gt=0)
+    candidate_count: int = Field(ge=0)
+    retrieved_count: int = Field(ge=0)
+    selected_count: int = Field(ge=0)
+    injected_count: int = Field(ge=0)
+    decisions: list[RetrievalDecisionResponse] = Field(default_factory=list)
+    retrieval_ms: int = Field(ge=0)
+    memory_chars: int = Field(ge=0)
+    memory_tokens_estimated: int = Field(ge=0)
+    provider_prompt_tokens_actual: int | None = Field(default=None, ge=0)
+    prompt_section_hash: str | None = None
+    reason_codes: list[RetrievalReasonCode] = Field(default_factory=list)
+    created_at: datetime
+
+
+class MemoryUsageResponse(ContractModel):
+    request_id: RequestId
+    usage_id: UsageId
+    task_id: TaskId
+    run_id: RunId
+    memory_id: MemoryId
+    memory_version_id: MemoryVersionId
+    rank: int = Field(ge=1)
+    retrieved: bool
+    selected: bool
+    injected: bool
+    estimated_tokens: int = Field(ge=0)
+    verification_status: VerificationStatus
+    verification_method: Literal["exact_substring", "structured_provider"] | None = None
+    evidence_excerpt: Annotated[str, StringConstraints(max_length=120)] | None = None
+    user_effect: UserEffect | None = None
+    created_at: datetime
+
+
+class MemoryCardListResponse(ContractModel):
+    request_id: RequestId
+    items: Annotated[list[MemoryCard], Field(max_length=100)] = Field(default_factory=list)
+    next_cursor: str | None = None
+
+
+class MemoryVersionListResponse(ContractModel):
+    request_id: RequestId
+    items: Annotated[list[MemoryVersionProjection], Field(max_length=100)] = Field(
+        default_factory=list
+    )
+    next_cursor: str | None = None
+
+
+class MemoryUsageListResponse(ContractModel):
+    request_id: RequestId
+    items: Annotated[list[MemoryUsageResponse], Field(max_length=100)] = Field(default_factory=list)
+    next_cursor: str | None = None
