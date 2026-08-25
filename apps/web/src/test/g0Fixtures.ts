@@ -56,6 +56,8 @@ export function makeSnapshot(
     messages: [],
     final_message: null,
     feedback_events: [],
+    retrieval_trace: null,
+    memory_usages: [],
     error: null,
     terminal: false,
     last_persistent_event_seq: 0,

@@ -14,6 +14,8 @@ export type MemoryVersionId = `memver_${string}`
 export type EvidenceId = `evidence_${string}`
 export type SessionId = `sess_${string}`
 export type UserId = `usr_${string}`
+export type RetrievalTraceId = `trace_${string}`
+export type UsageId = `usage_${string}`
 
 export type DemoAlias = 'blank_demo' | 'seeded_demo'
 export type ProviderMode = 'mock' | 'real'
@@ -81,6 +83,8 @@ export type ErrorCode =
   | 'MEMORY_NOT_FOUND'
   | 'MEMORY_ALREADY_RESOLVED'
   | 'MEMORY_JOB_NOT_RETRYABLE'
+  | 'MEMORY_STATE_CONFLICT'
+  | 'MEMORY_VERSION_CONFLICT'
 
 export interface CurrentConstraints {
   response_policy: ResponsePolicy
@@ -315,6 +319,8 @@ export interface TaskSnapshot {
   messages: TaskMessageRecord[]
   final_message: MessageSnapshot | null
   feedback_events: FeedbackEventRecord[]
+  retrieval_trace: RetrievalTrace | null
+  memory_usages: MemoryUsage[]
   error: RunErrorSnapshot | null
   terminal: boolean
   last_persistent_event_seq: number
@@ -367,15 +373,64 @@ export type TaskFingerprintedEvent = EventEnvelope<
 >
 export type MemoryRetrievalStartedEvent = EventEnvelope<
   'memory.retrieval.started',
-  { memory_count: 0; summary: 'no_long_term_memory_day2' },
+  { retrieval_mode: 'tfidf' },
   null
+>
+export type MemoryRetrievalCompletedEvent = EventEnvelope<
+  'memory.retrieval.completed',
+  {
+    trace_id: RetrievalTraceId
+    mode: 'tfidf' | 'tfidf_degraded'
+    algorithm_version: 'char_tfidf_v1'
+    candidate_count: number
+    retrieved_count: number
+    selected_count: number
+    injected_count: number
+    threshold: number
+    top_k: number
+    retrieval_ms: number
+    memory_chars: number
+    estimated_tokens: number
+    prompt_section_hash: string | null
+  },
+  number
+>
+export type MemoryInjectedEvent = EventEnvelope<
+  'memory.injected',
+  {
+    usage_id: UsageId
+    trace_id: RetrievalTraceId
+    memory_id: MemoryId
+    memory_version_id: MemoryVersionId
+    rank: number
+    estimated_tokens: number
+    prompt_section_hash: string | null
+  },
+  number
+>
+export type MemoryUsageVerifiedEvent = EventEnvelope<
+  'memory.usage.verified',
+  {
+    usage_id: UsageId
+    memory_id: MemoryId
+    memory_version_id: MemoryVersionId
+    verification_status: VerificationStatus
+    verification_method: 'exact_substring' | 'structured_provider' | null
+    evidence_present: boolean
+  },
+  number
+>
+export type MemoryUsageFeedbackRecordedEvent = EventEnvelope<
+  'memory.usage.feedback.recorded',
+  { usage_id: UsageId; memory_id: MemoryId; user_effect: UserEffect },
+  number
 >
 export type AgentPlanPublishedEvent = EventEnvelope<
   'agent.plan.published',
   {
     plan_id: PlanId
     goal_code: 'analyze_code' | 'answer_question' | 'explain_concept' | 'other'
-    memory_summary_code: 'no_long_term_memory_day2'
+    memory_summary_code: 'no_memory_selected' | 'memory_selected'
     next_action_code: 'python_ast_check' | 'generate_directly'
   },
   number
@@ -557,10 +612,13 @@ export type AllowedMemoryException =
 export interface MemoryScope {
   level: MemoryScopeLevel
   domain: MemoryScopeDomain
-  task_type: TaskFingerprint['task_type'] | null
-  artifact_type: TaskFingerprint['artifact_type'] | null
-  audience: TaskFingerprint['audience'] | null
+  task_type: TaskFingerprint['task_type'] | 'any' | null
+  artifact_type: TaskFingerprint['artifact_type'] | 'any' | null
+  audience: TaskFingerprint['audience'] | 'any' | null
   project_key: string | null
+  language: TaskFingerprint['language'] | 'any' | null
+  framework: string | null
+  concepts: string[]
 }
 
 export interface MemoryCard {
@@ -583,6 +641,15 @@ export interface MemoryCard {
   evidence_count: number
   version: number
   current_version_id: MemoryVersionId | null
+  valid_from: string | null
+  valid_to: string | null
+  retrieved_count: number
+  injected_count: number
+  verified_applied_count: number
+  helpful_count: number
+  harmful_count: number
+  stale_count: number
+  last_used_at: string | null
   created_at: string
   updated_at: string
 }
@@ -640,8 +707,110 @@ export interface MemoryVersionProjection {
   trigger_text: string
   scope: MemoryScope
   exceptions: AllowedMemoryException[]
-  created_by_action: ResolveAction
+  created_by_action: 'accept' | 'edit_accept' | 'edit'
   created_at: string
+}
+
+export type RetrievalReasonCode =
+  | 'selected_above_threshold'
+  | 'memory_mode_off'
+  | 'status_not_active'
+  | 'not_yet_valid'
+  | 'expired'
+  | 'scope_domain_mismatch'
+  | 'scope_task_type_mismatch'
+  | 'scope_artifact_mismatch'
+  | 'scope_audience_mismatch'
+  | 'scope_project_mismatch'
+  | 'scope_language_mismatch'
+  | 'scope_framework_mismatch'
+  | 'current_constraint_override'
+  | 'active_conflict'
+  | 'invalid_active_card'
+  | 'empty_vector'
+  | 'below_threshold'
+  | 'top_k_exceeded'
+  | 'prompt_budget_exceeded'
+
+export type VerificationStatus =
+  | 'pending'
+  | 'applied'
+  | 'violated'
+  | 'not_observable'
+  | 'unknown'
+export type UserEffect = 'helpful' | 'harmful' | 'stale'
+
+export interface RetrievalDecision {
+  memory_id: MemoryId
+  memory_version_id: MemoryVersionId | null
+  memory_status: MemoryCardStatus
+  retrieved: boolean
+  selected: boolean
+  injected: boolean
+  rank: number | null
+  scope_match: number | null
+  semantic_similarity: number | null
+  provenance_confidence: number | null
+  verified_effect: number | null
+  recency: number | null
+  final_score: number | null
+  reason_codes: RetrievalReasonCode[]
+}
+
+export interface RetrievalTrace {
+  request_id: RequestId
+  retrieval_trace_id: RetrievalTraceId
+  task_id: TaskId
+  run_id: RunId
+  retrieval_mode: 'tfidf' | 'tfidf_degraded'
+  algorithm_version: 'char_tfidf_v1'
+  threshold: number
+  top_k: number
+  candidate_count: number
+  retrieved_count: number
+  selected_count: number
+  injected_count: number
+  decisions: RetrievalDecision[]
+  retrieval_ms: number
+  memory_chars: number
+  memory_tokens_estimated: number
+  provider_prompt_tokens_actual: number | null
+  prompt_section_hash: string | null
+  reason_codes: RetrievalReasonCode[]
+  created_at: string
+  updated_at: string
+}
+
+export interface MemoryUsage {
+  request_id: RequestId
+  usage_id: UsageId
+  retrieval_trace_id: RetrievalTraceId
+  task_id: TaskId
+  run_id: RunId
+  memory_id: MemoryId
+  memory_version_id: MemoryVersionId
+  rank: number
+  retrieved: boolean
+  selected: boolean
+  injected: boolean
+  estimated_tokens: number
+  verification_status: VerificationStatus
+  verification_method: 'exact_substring' | 'structured_provider' | null
+  evidence_excerpt: string | null
+  user_effect: UserEffect | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MemoryUsageListResponse {
+  request_id: RequestId
+  items: MemoryUsage[]
+  next_cursor: string | null
+}
+
+export interface ActiveMemoryEditRequest {
+  expected_current_version_id: MemoryVersionId
+  patch: MemoryCardPatch
 }
 
 export interface MemoryDetailResponse {
@@ -656,6 +825,10 @@ export type G0SseEvent =
   | TaskStageEvent
   | TaskFingerprintedEvent
   | MemoryRetrievalStartedEvent
+  | MemoryRetrievalCompletedEvent
+  | MemoryInjectedEvent
+  | MemoryUsageVerifiedEvent
+  | MemoryUsageFeedbackRecordedEvent
   | AgentPlanPublishedEvent
   | ToolCalledEvent
   | ToolResultEvent
@@ -678,6 +851,10 @@ export const G0_EVENT_TYPES: readonly G0EventType[] = [
   'task.stage',
   'task.fingerprinted',
   'memory.retrieval.started',
+  'memory.retrieval.completed',
+  'memory.injected',
+  'memory.usage.verified',
+  'memory.usage.feedback.recorded',
   'agent.plan.published',
   'tool.called',
   'tool.result',

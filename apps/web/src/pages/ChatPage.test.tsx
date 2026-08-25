@@ -565,8 +565,7 @@ function fingerprinted(eventSeq: number): TaskFingerprintedEvent {
 
 function memoryStarted(): MemoryRetrievalStartedEvent {
   return envelope('memory.retrieval.started', null, {
-    memory_count: 0,
-    summary: 'no_long_term_memory_day2',
+    retrieval_mode: 'tfidf',
   })
 }
 
@@ -574,7 +573,7 @@ function planPublished(eventSeq: number): AgentPlanPublishedEvent {
   return envelope('agent.plan.published', eventSeq, {
     plan_id: PLAN_ID,
     goal_code: 'analyze_code',
-    memory_summary_code: 'no_long_term_memory_day2',
+    memory_summary_code: 'no_memory_selected',
     next_action_code: 'python_ast_check',
   })
 }

@@ -156,7 +156,7 @@ describe('Day 3 G2 owner flow', () => {
 
     await user.click(screen.getByRole('button', { name: '编辑后确认' }))
     expect(
-      await screen.findByText('已确认保存，但 Day 4 才接入检索。'),
+      await screen.findByText('已确认并参与 Day 4 检索。'),
     ).toBeInTheDocument()
     expect(resolveMemoryCandidate).toHaveBeenCalledTimes(2)
     expect(resolveMemoryCandidate.mock.calls[0]?.[2]).toBe(

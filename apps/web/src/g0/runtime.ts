@@ -9,6 +9,9 @@ import {
   type MemoryDetailResponse,
   type MemoryJobResponse,
   type MemoryListResponse,
+  type MemoryUsage,
+  type MemoryUsageListResponse,
+  type RetrievalTrace,
   type ResolveRequest,
   type ResolveResponse,
   type TaskCreateAccepted,
@@ -29,6 +32,8 @@ const memoryJobIdPattern = /^job_[0-9A-HJKMNP-TV-Z]{26}$/
 const memoryIdPattern = /^mem_[0-9A-HJKMNP-TV-Z]{26}$/
 const memoryVersionIdPattern = /^memver_[0-9A-HJKMNP-TV-Z]{26}$/
 const evidenceIdPattern = /^evidence_[0-9A-HJKMNP-TV-Z]{26}$/
+const retrievalTraceIdPattern = /^trace_[0-9A-HJKMNP-TV-Z]{26}$/
+const usageIdPattern = /^usage_[0-9A-HJKMNP-TV-Z]{26}$/
 const textEncoder = new TextEncoder()
 
 export class ContractError extends Error {
@@ -320,6 +325,26 @@ export function parseMemoryDetailResponse(
   return body as unknown as MemoryDetailResponse
 }
 
+export function parseRetrievalTrace(value: unknown): RetrievalTrace {
+  validateRetrievalTrace(value)
+  if (value === null) throw new ContractError('retrieval trace cannot be null')
+  return value as RetrievalTrace
+}
+
+export function parseMemoryUsage(value: unknown): MemoryUsage {
+  validateMemoryUsage(value)
+  return value as MemoryUsage
+}
+
+export function parseMemoryUsageList(value: unknown): MemoryUsageListResponse {
+  const body = record(value, 'MemoryUsageListResponse')
+  exactKeys(body, ['request_id', 'items', 'next_cursor'])
+  patternString(body.request_id, requestIdPattern, 'request_id')
+  arrayValue(body.items, 'items').forEach(validateMemoryUsage)
+  if (body.next_cursor !== null) stringValue(body.next_cursor, 'next_cursor')
+  return body as unknown as MemoryUsageListResponse
+}
+
 function validateMemoryCard(value: unknown): void {
   const body = record(value, 'MemoryCard')
   exactKeys(body, [
@@ -342,6 +367,15 @@ function validateMemoryCard(value: unknown): void {
     'evidence_count',
     'version',
     'current_version_id',
+    'valid_from',
+    'valid_to',
+    'retrieved_count',
+    'injected_count',
+    'verified_applied_count',
+    'helpful_count',
+    'harmful_count',
+    'stale_count',
+    'last_used_at',
     'created_at',
     'updated_at',
   ])
@@ -399,6 +433,15 @@ function validateMemoryCard(value: unknown): void {
     memoryVersionIdPattern,
     'current_version_id',
   )
+  nullableTimestamp(body.valid_from, 'valid_from')
+  nullableTimestamp(body.valid_to, 'valid_to')
+  nonNegativeInteger(body.retrieved_count, 'retrieved_count')
+  nonNegativeInteger(body.injected_count, 'injected_count')
+  nonNegativeInteger(body.verified_applied_count, 'verified_applied_count')
+  nonNegativeInteger(body.helpful_count, 'helpful_count')
+  nonNegativeInteger(body.harmful_count, 'harmful_count')
+  nonNegativeInteger(body.stale_count, 'stale_count')
+  nullableTimestamp(body.last_used_at, 'last_used_at')
   timestamp(body.created_at, 'created_at')
   timestamp(body.updated_at, 'updated_at')
   if (
@@ -409,7 +452,7 @@ function validateMemoryCard(value: unknown): void {
     throw new ContractError('candidate card violates admission invariants')
   }
   if (
-    status === 'active' &&
+    (status === 'active' || status === 'paused') &&
     (rejectionReason !== null || version < 1 || body.current_version_id === null ||
       body.rule_confidence === null || body.scope_confidence === null)
   ) {
@@ -456,6 +499,9 @@ function validateMemoryScope(value: unknown): void {
     'artifact_type',
     'audience',
     'project_key',
+    'language',
+    'framework',
+    'concepts',
   ])
   enumValue(
     body.level,
@@ -484,6 +530,7 @@ function validateMemoryScope(value: unknown): void {
         'environment_configuration',
         'general_question',
         'other',
+        'any',
       ] as const,
       'scope.task_type',
     )
@@ -491,18 +538,32 @@ function validateMemoryScope(value: unknown): void {
   if (body.artifact_type !== null) {
     enumValue(
       body.artifact_type,
-      ['source_code', 'configuration', 'text', 'none', 'other'] as const,
+      ['source_code', 'configuration', 'text', 'none', 'other', 'any'] as const,
       'scope.artifact_type',
     )
   }
   if (body.audience !== null) {
     enumValue(
       body.audience,
-      ['beginner', 'intermediate', 'advanced', 'unknown'] as const,
+      ['beginner', 'intermediate', 'advanced', 'unknown', 'any'] as const,
       'scope.audience',
     )
   }
   nullableBoundedString(body.project_key, 128, 'scope.project_key')
+  if (body.language !== null) {
+    enumValue(
+      body.language,
+      [
+        'python', 'javascript', 'typescript', 'java', 'c', 'cpp', 'rust', 'go',
+        'other', 'unknown', 'any',
+      ] as const,
+      'scope.language',
+    )
+  }
+  nullableBoundedString(body.framework, 64, 'scope.framework')
+  const concepts = arrayValue(body.concepts, 'scope.concepts')
+  if (concepts.length > 12) throw new ContractError('scope.concepts exceeds 12')
+  concepts.forEach((item) => nonEmptyBoundedString(item, 64, 'scope.concept'))
 }
 
 function validateExceptions(value: unknown): void {
@@ -585,7 +646,7 @@ function validateMemoryVersion(value: unknown): void {
   validateExceptions(body.exceptions)
   enumValue(
     body.created_by_action,
-    ['accept', 'edit_accept', 'reject', 'one_shot'] as const,
+    ['accept', 'edit_accept', 'edit'] as const,
     'created_by_action',
   )
   timestamp(body.created_at, 'created_at')
@@ -667,6 +728,8 @@ export function parseTaskSnapshot(value: unknown): TaskSnapshot {
     'messages',
     'final_message',
     'feedback_events',
+    'retrieval_trace',
+    'memory_usages',
     'error',
     'terminal',
     'last_persistent_event_seq',
@@ -726,6 +789,8 @@ export function parseTaskSnapshot(value: unknown): TaskSnapshot {
   validateMessage(body.final_message)
   const feedbackEvents = arrayValue(body.feedback_events, 'feedback_events')
   feedbackEvents.forEach(validateFeedbackEventRecord)
+  validateRetrievalTrace(body.retrieval_trace)
+  arrayValue(body.memory_usages, 'memory_usages').forEach(validateMemoryUsage)
   validateRunError(body.error)
   const terminal = booleanValue(body.terminal, 'terminal')
   nonNegativeInteger(
@@ -881,9 +946,56 @@ function validateEventPayload(
       validateLanguage(data.language)
       return
     case 'memory.retrieval.started':
-      exactKeys(data, ['memory_count', 'summary'])
-      constant(data.memory_count, 0, 'memory_count')
-      constant(data.summary, 'no_long_term_memory_day2', 'summary')
+      exactKeys(data, ['retrieval_mode'])
+      constant(data.retrieval_mode, 'tfidf', 'retrieval_mode')
+      return
+    case 'memory.retrieval.completed':
+      exactKeys(data, [
+        'trace_id', 'mode', 'algorithm_version', 'candidate_count',
+        'retrieved_count', 'selected_count', 'injected_count', 'threshold',
+        'top_k', 'retrieval_ms', 'memory_chars', 'estimated_tokens',
+        'prompt_section_hash',
+      ])
+      patternString(data.trace_id, retrievalTraceIdPattern, 'trace_id')
+      enumValue(data.mode, ['tfidf', 'tfidf_degraded'] as const, 'mode')
+      constant(data.algorithm_version, 'char_tfidf_v1', 'algorithm_version')
+      for (const key of ['candidate_count', 'retrieved_count', 'selected_count', 'injected_count', 'retrieval_ms', 'memory_chars', 'estimated_tokens']) {
+        nonNegativeInteger(data[key], key)
+      }
+      validateUnitInterval(data.threshold, 'threshold', false)
+      positiveInteger(data.top_k, 'top_k')
+      if (data.prompt_section_hash !== null) {
+        patternString(data.prompt_section_hash, /^[a-f0-9]{64}$/, 'prompt_section_hash')
+      }
+      return
+    case 'memory.injected':
+      exactKeys(data, ['usage_id', 'trace_id', 'memory_id', 'memory_version_id', 'rank', 'estimated_tokens', 'prompt_section_hash'])
+      patternString(data.usage_id, usageIdPattern, 'usage_id')
+      patternString(data.trace_id, retrievalTraceIdPattern, 'trace_id')
+      patternString(data.memory_id, memoryIdPattern, 'memory_id')
+      patternString(data.memory_version_id, memoryVersionIdPattern, 'memory_version_id')
+      positiveInteger(data.rank, 'rank')
+      nonNegativeInteger(data.estimated_tokens, 'estimated_tokens')
+      if (data.prompt_section_hash !== null) {
+        patternString(data.prompt_section_hash, /^[a-f0-9]{64}$/, 'prompt_section_hash')
+      }
+      return
+    case 'memory.usage.verified':
+      exactKeys(data, ['usage_id', 'memory_id', 'memory_version_id', 'verification_status', 'verification_method', 'evidence_present'])
+      patternString(data.usage_id, usageIdPattern, 'usage_id')
+      patternString(data.memory_id, memoryIdPattern, 'memory_id')
+      patternString(data.memory_version_id, memoryVersionIdPattern, 'memory_version_id')
+      enumValue(data.verification_status, ['pending', 'applied', 'violated', 'not_observable', 'unknown'] as const, 'verification_status')
+      if (data.verification_method !== null) {
+        enumValue(data.verification_method, ['exact_substring', 'structured_provider'] as const, 'verification_method')
+      }
+      booleanValue(data.evidence_present, 'evidence_present')
+      return
+    case 'memory.usage.feedback.recorded':
+      exactKeys(data, ['usage_id', 'memory_id', 'user_effect'])
+      patternString(data.usage_id, usageIdPattern, 'usage_id')
+      patternString(data.memory_id, memoryIdPattern, 'memory_id')
+      enumValue(data.user_effect, ['helpful', 'harmful', 'stale'] as const, 'user_effect')
       return
     case 'agent.plan.published':
       exactKeys(data, [
@@ -898,9 +1010,9 @@ function validateEventPayload(
         ['analyze_code', 'answer_question', 'explain_concept', 'other'] as const,
         'goal_code',
       )
-      constant(
+      enumValue(
         data.memory_summary_code,
-        'no_long_term_memory_day2',
+        ['no_memory_selected', 'memory_selected'] as const,
         'memory_summary_code',
       )
       enumValue(
@@ -1438,6 +1550,114 @@ function validateRunError(value: unknown): void {
   booleanValue(data.retryable, 'error.retryable')
 }
 
+function validateRetrievalReason(value: unknown, label: string): void {
+  enumValue(
+    value,
+    [
+      'selected_above_threshold', 'memory_mode_off', 'status_not_active',
+      'not_yet_valid', 'expired', 'scope_domain_mismatch',
+      'scope_task_type_mismatch', 'scope_artifact_mismatch',
+      'scope_audience_mismatch', 'scope_project_mismatch',
+      'scope_language_mismatch', 'scope_framework_mismatch',
+      'current_constraint_override', 'active_conflict', 'invalid_active_card',
+      'empty_vector', 'below_threshold', 'top_k_exceeded',
+      'prompt_budget_exceeded',
+    ] as const,
+    label,
+  )
+}
+
+function validateRetrievalTrace(value: unknown): void {
+  if (value === null) return
+  const body = record(value, 'retrieval_trace')
+  exactKeys(body, [
+    'request_id', 'retrieval_trace_id', 'task_id', 'run_id', 'retrieval_mode',
+    'algorithm_version', 'threshold', 'top_k', 'candidate_count',
+    'retrieved_count', 'selected_count', 'injected_count', 'decisions',
+    'retrieval_ms', 'memory_chars', 'memory_tokens_estimated',
+    'provider_prompt_tokens_actual', 'prompt_section_hash', 'reason_codes',
+    'created_at', 'updated_at',
+  ])
+  patternString(body.request_id, requestIdPattern, 'trace.request_id')
+  patternString(body.retrieval_trace_id, retrievalTraceIdPattern, 'retrieval_trace_id')
+  patternString(body.task_id, taskIdPattern, 'trace.task_id')
+  patternString(body.run_id, runIdPattern, 'trace.run_id')
+  enumValue(body.retrieval_mode, ['tfidf', 'tfidf_degraded'] as const, 'retrieval_mode')
+  constant(body.algorithm_version, 'char_tfidf_v1', 'algorithm_version')
+  validateUnitInterval(body.threshold, 'threshold', false)
+  positiveInteger(body.top_k, 'top_k')
+  for (const key of ['candidate_count', 'retrieved_count', 'selected_count', 'injected_count', 'retrieval_ms', 'memory_chars', 'memory_tokens_estimated']) {
+    nonNegativeInteger(body[key], key)
+  }
+  const decisions = arrayValue(body.decisions, 'decisions')
+  decisions.forEach(validateRetrievalDecision)
+  nullableNonNegativeNumber(body.provider_prompt_tokens_actual, 'provider_prompt_tokens_actual')
+  if (body.prompt_section_hash !== null) {
+    patternString(body.prompt_section_hash, /^[a-f0-9]{64}$/, 'prompt_section_hash')
+  }
+  arrayValue(body.reason_codes, 'reason_codes').forEach((reason) =>
+    validateRetrievalReason(reason, 'reason_code'),
+  )
+  timestamp(body.created_at, 'trace.created_at')
+  timestamp(body.updated_at, 'trace.updated_at')
+}
+
+function validateRetrievalDecision(value: unknown): void {
+  const body = record(value, 'retrieval_decision')
+  exactKeys(body, [
+    'memory_id', 'memory_version_id', 'memory_status', 'retrieved', 'selected',
+    'injected', 'rank', 'scope_match', 'semantic_similarity',
+    'provenance_confidence', 'verified_effect', 'recency', 'final_score',
+    'reason_codes',
+  ])
+  patternString(body.memory_id, memoryIdPattern, 'decision.memory_id')
+  nullablePattern(body.memory_version_id, memoryVersionIdPattern, 'decision.memory_version_id')
+  validateMemoryCardStatus(body.memory_status, 'decision.memory_status')
+  booleanValue(body.retrieved, 'decision.retrieved')
+  booleanValue(body.selected, 'decision.selected')
+  booleanValue(body.injected, 'decision.injected')
+  nullablePositiveInteger(body.rank, 'decision.rank')
+  for (const key of ['scope_match', 'semantic_similarity', 'provenance_confidence', 'verified_effect', 'recency', 'final_score']) {
+    validateUnitInterval(body[key], `decision.${key}`, true)
+  }
+  arrayValue(body.reason_codes, 'decision.reason_codes').forEach((reason) =>
+    validateRetrievalReason(reason, 'decision.reason_code'),
+  )
+}
+
+function validateMemoryUsage(value: unknown): void {
+  const body = record(value, 'memory_usage')
+  exactKeys(body, [
+    'request_id', 'usage_id', 'retrieval_trace_id', 'task_id', 'run_id',
+    'memory_id', 'memory_version_id', 'rank', 'retrieved', 'selected',
+    'injected', 'estimated_tokens', 'verification_status',
+    'verification_method', 'evidence_excerpt', 'user_effect', 'created_at',
+    'updated_at',
+  ])
+  patternString(body.request_id, requestIdPattern, 'usage.request_id')
+  patternString(body.usage_id, usageIdPattern, 'usage_id')
+  patternString(body.retrieval_trace_id, retrievalTraceIdPattern, 'usage.retrieval_trace_id')
+  patternString(body.task_id, taskIdPattern, 'usage.task_id')
+  patternString(body.run_id, runIdPattern, 'usage.run_id')
+  patternString(body.memory_id, memoryIdPattern, 'usage.memory_id')
+  patternString(body.memory_version_id, memoryVersionIdPattern, 'usage.memory_version_id')
+  positiveInteger(body.rank, 'usage.rank')
+  booleanValue(body.retrieved, 'usage.retrieved')
+  booleanValue(body.selected, 'usage.selected')
+  booleanValue(body.injected, 'usage.injected')
+  nonNegativeInteger(body.estimated_tokens, 'usage.estimated_tokens')
+  enumValue(body.verification_status, ['pending', 'applied', 'violated', 'not_observable', 'unknown'] as const, 'verification_status')
+  if (body.verification_method !== null) {
+    enumValue(body.verification_method, ['exact_substring', 'structured_provider'] as const, 'verification_method')
+  }
+  nullableBoundedString(body.evidence_excerpt, 120, 'evidence_excerpt')
+  if (body.user_effect !== null) {
+    enumValue(body.user_effect, ['helpful', 'harmful', 'stale'] as const, 'user_effect')
+  }
+  timestamp(body.created_at, 'usage.created_at')
+  timestamp(body.updated_at, 'usage.updated_at')
+}
+
 function validateCurrentConstraints(value: unknown): void {
   const data = record(value, 'current_constraints')
   exactKeys(data, ['response_policy', 'urgency', 'memory_disabled', 'source'])
@@ -1670,4 +1890,8 @@ function timestamp(value: unknown, label: string): void {
   if (!result.endsWith('Z') || Number.isNaN(Date.parse(result))) {
     throw new ContractError(`${label} must be a UTC ISO-8601 timestamp`)
   }
+}
+
+function nullableTimestamp(value: unknown, label: string): void {
+  if (value !== null) timestamp(value, label)
 }

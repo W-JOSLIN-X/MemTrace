@@ -45,7 +45,7 @@ const TASK_ID_PATTERN = /^task_[0-9A-HJKMNP-TV-Z]{26}$/
 
 const stageDefinitions = [
   { key: 'fingerprinting', label: '任务指纹', detail: '识别任务类型与编程语言' },
-  { key: 'retrieving', label: '记忆检索', detail: 'Day 3 尚未接入长期记忆检索' },
+  { key: 'retrieving', label: '记忆检索', detail: '按 G3 契约检索 active 记忆' },
   { key: 'planning', label: '公开计划', detail: '展示目标与下一步动作' },
   { key: 'tool_running', label: '静态工具', detail: '只解析 Python AST' },
   { key: 'generating', label: '生成回答', detail: '通过 SSE 接收模型正文' },
@@ -376,7 +376,7 @@ export function ChatPage({
                   onChange={(event) => setMemoryEnabled(event.target.checked)}
                   type="checkbox"
                 />
-                允许记忆流程（Day 4 才检索）
+                允许 G3 记忆检索与注入
               </label>
               <span
                 className={
@@ -428,6 +428,7 @@ export function ChatPage({
 
           <RunTimeline state={state} />
           <PlanAndTool state={state} />
+          <RetrievalPanel state={state} />
           <OutputPanel state={state} />
           <FeedbackPanel
             acceptedDecision={acceptedDecision}
@@ -625,7 +626,7 @@ function stageDescription(
   }
   const completedLabels: Record<TimelineKey, string> = {
     fingerprinting: '确定性任务指纹已生成',
-    retrieving: '检索完成：Day 3 尚未接入长期记忆检索',
+    retrieving: '检索完成：可在下方查看候选、选择与注入证据',
     planning: '公开计划已发布',
     tool_running: 'Python AST 静态检查已完成',
     generating: '模型回答已接收',
@@ -669,6 +670,45 @@ function PlanRow({ label, value }: { label: string; value: string }) {
       <dd className="mt-1 leading-6 text-slate-800">{value}</dd>
     </div>
   )
+}
+
+function RetrievalPanel({ state }: { state: G0State }) {
+  const trace = state.retrievalTrace
+  if (!trace) return null
+  return (
+    <section className="mt-6 rounded-3xl border border-violet-200 bg-violet-50 p-5" aria-labelledby="retrieval-title">
+      <p className="text-xs font-black uppercase tracking-[0.18em] text-violet-700">G3 retrieval trace</p>
+      <h2 id="retrieval-title" className="mt-2 text-base font-black text-slate-900">记忆检索与注入</h2>
+      <p className="mt-3 text-sm text-slate-700">
+        候选 {trace.candidate_count} · 已检索 {trace.retrieved_count} · 已选择 {trace.selected_count} · 已注入 {trace.injected_count}
+      </p>
+      <p className="mt-2 text-xs text-slate-600">
+        模式 {trace.retrieval_mode} · 阈值 {trace.threshold} · 估算 {trace.memory_tokens_estimated} tokens · Provider 实际 tokens {trace.provider_prompt_tokens_actual ?? '未提供'} · {trace.retrieval_ms} ms
+      </p>
+      <ol className="mt-4 space-y-3">
+        {trace.decisions.map((decision) => (
+          <li key={decision.memory_id} className="rounded-2xl bg-white p-3 text-xs text-slate-700">
+            <strong>{decision.memory_id}</strong> · retrieved={String(decision.retrieved)} · selected={String(decision.selected)} · injected={String(decision.injected)}
+            <br />scope {formatScore(decision.scope_match)} · semantic {formatScore(decision.semantic_similarity)} · provenance {formatScore(decision.provenance_confidence)} · verified {formatScore(decision.verified_effect)} · recency {formatScore(decision.recency)} · final {formatScore(decision.final_score)}
+            <br />原因：{decision.reason_codes.map(reasonLabelG3).join('、') || '无'}
+          </li>
+        ))}
+      </ol>
+      {state.memoryUsages.map((usage) => (
+        <p key={usage.usage_id} className="mt-3 text-xs font-bold text-violet-900">
+          receipt {usage.usage_id} · verification={usage.verification_status} · effect={usage.user_effect ?? '未记录'}
+        </p>
+      ))}
+    </section>
+  )
+}
+
+function formatScore(value: number | null): string {
+  return value === null ? 'unknown' : value.toFixed(3)
+}
+
+function reasonLabelG3(reason: string): string {
+  return reason === 'current_constraint_override' ? 'CURRENT_TASK_OVERRIDE' : reason
 }
 
 function ToolPanel({ state }: { state: G0State }) {
@@ -1452,7 +1492,7 @@ function memoryStatusMessage(
   disposition: G0State['memoryDispositions'][MemoryId] | null,
 ): string {
   if (status === 'candidate') return '候选记忆，尚未生效。'
-  if (status === 'active') return '已确认保存，但 Day 4 才接入检索。'
+  if (status === 'active') return '已确认并参与 Day 4 检索。'
   if (
     rejectionReason === 'episode_only' ||
     action === 'one_shot' ||
@@ -1461,7 +1501,7 @@ function memoryStatusMessage(
     return '仅本次，不进入长期记忆。'
   }
   if (status === 'rejected') return '候选已拒绝，不会进入长期记忆。'
-  return '该记忆当前不参与 Day 3 后续生成。'
+  return '该记忆当前不参与后续生成。'
 }
 
 function decisionButtonClass(active: boolean): string {
@@ -1477,11 +1517,11 @@ function RunSidebar({ state }: { state: G0State }) {
         <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">
           Memory status
         </p>
-        <h2 className="mt-3 text-lg font-black text-emerald-950">G2 候选与确认流程</h2>
+        <h2 className="mt-3 text-lg font-black text-emerald-950">G3 检索与注入流程</h2>
         <p className="mt-2 text-sm leading-6 text-emerald-900/70">
           {state.effectiveMemoryMode === 'off'
             ? '本次任务已关闭记忆。'
-            : 'Day 3 可生成并确认候选；已确认卡片要到 Day 4 才会接入检索。'}
+            : 'active 卡片会按 owner、scope、阈值和预算参与检索；selected 与 injected 会分别展示。'}
         </p>
       </section>
 

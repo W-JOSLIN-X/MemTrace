@@ -5,6 +5,9 @@ import {
   parseMemoryDetailResponse,
   parseMemoryJobResponse,
   parseMemoryListResponse,
+  parseMemoryUsage,
+  parseMemoryUsageList,
+  parseRetrievalTrace,
   parseResolveRequest,
   parseResolveResponse,
   parseTaskCreateAccepted,
@@ -22,6 +25,11 @@ import type {
   MemoryDetailResponse,
   MemoryId,
   MemoryListResponse,
+  MemoryUsage,
+  MemoryUsageListResponse,
+  RetrievalTrace,
+  UserEffect,
+  ActiveMemoryEditRequest,
   ResolveRequest,
   ResolveResponse,
   TaskCreateAccepted,
@@ -65,7 +73,7 @@ export interface G0Api {
   ): Promise<ResolveResponse>
   listMemories?(
     options?: {
-      status?: Extract<MemoryCardStatus, 'candidate' | 'active' | 'rejected'>
+      status?: Extract<MemoryCardStatus, 'candidate' | 'active' | 'paused' | 'rejected'>
       cursor?: string
     },
     signal?: AbortSignal,
@@ -74,6 +82,12 @@ export interface G0Api {
     memoryId: MemoryId,
     signal?: AbortSignal,
   ): Promise<MemoryDetailResponse>
+  getRetrievalTrace?(taskId: TaskId, signal?: AbortSignal): Promise<RetrievalTrace>
+  getTaskMemoryUsages?(taskId: TaskId, signal?: AbortSignal): Promise<MemoryUsageListResponse>
+  editMemory?(memoryId: MemoryId, request: ActiveMemoryEditRequest, idempotencyKey: string, signal?: AbortSignal): Promise<MemoryDetailResponse>
+  pauseMemory?(memoryId: MemoryId, versionId: string, idempotencyKey: string, signal?: AbortSignal): Promise<MemoryDetailResponse>
+  resumeMemory?(memoryId: MemoryId, versionId: string, idempotencyKey: string, signal?: AbortSignal): Promise<MemoryDetailResponse>
+  recordMemoryEffect?(taskId: TaskId, memoryId: MemoryId, effect: UserEffect, idempotencyKey: string, signal?: AbortSignal): Promise<MemoryUsage>
 }
 
 export class G0ApiError extends Error {
@@ -298,6 +312,69 @@ export const browserG0Api: G0Api = {
       throw invalidResponse()
     }
   },
+
+  async getRetrievalTrace(taskId, signal) {
+    const body = await apiJson(`/api/v1/tasks/${encodeURIComponent(taskId)}/retrieval-trace`, { signal })
+    return parseRetrievalTrace(body)
+  },
+
+  async getTaskMemoryUsages(taskId, signal) {
+    const body = await apiJson(`/api/v1/tasks/${encodeURIComponent(taskId)}/memory-usages`, { signal })
+    return parseMemoryUsageList(body)
+  },
+
+  async editMemory(memoryId, request, idempotencyKey, signal) {
+    const body = await apiJson(`/api/v1/memories/${encodeURIComponent(memoryId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify(request), signal,
+    })
+    return parseMemoryDetailResponse(body)
+  },
+
+  async pauseMemory(memoryId, versionId, idempotencyKey, signal) {
+    return changeMemoryState(memoryId, 'pause', versionId, idempotencyKey, signal)
+  },
+
+  async resumeMemory(memoryId, versionId, idempotencyKey, signal) {
+    return changeMemoryState(memoryId, 'resume', versionId, idempotencyKey, signal)
+  },
+
+  async recordMemoryEffect(taskId, memoryId, effect, idempotencyKey, signal) {
+    const body = await apiJson(`/api/v1/tasks/${encodeURIComponent(taskId)}/memory-usages/${encodeURIComponent(memoryId)}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ effect }), signal,
+    })
+    return parseMemoryUsage(body)
+  },
+}
+
+async function apiJson(path: string, init: RequestInit = {}): Promise<unknown> {
+  const response = await safeFetch(path, {
+    credentials: 'same-origin',
+    headers: { Accept: 'application/json', ...(init.headers ?? {}) },
+    ...init,
+  })
+  const body = await readJson(response)
+  if (!response.ok) throw responseError(response.status, body)
+  return body
+}
+
+async function changeMemoryState(
+  memoryId: MemoryId,
+  action: 'pause' | 'resume',
+  versionId: string,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+): Promise<MemoryDetailResponse> {
+  const body = await apiJson(`/api/v1/memories/${encodeURIComponent(memoryId)}/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ expected_current_version_id: versionId }),
+    signal,
+  })
+  return parseMemoryDetailResponse(body)
 }
 
 export function newIdempotencyKey(): string {

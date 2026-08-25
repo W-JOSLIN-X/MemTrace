@@ -10,6 +10,8 @@ import type {
   MemoryJobId,
   MemoryJobResponse,
   MemoryJobStage,
+  MemoryUsage,
+  RetrievalTrace,
   ResolveAction,
   ResolveResponse,
   ProviderMode,
@@ -84,6 +86,8 @@ export interface G0State {
   toolCalls: TaskSnapshot['tool_calls']
   toolActivity: ToolActivity | null
   memoryObserved: boolean
+  retrievalTrace: RetrievalTrace | null
+  memoryUsages: MemoryUsage[]
   output: string
   endOffset: number
   lastPersistentEventSeq: number
@@ -164,6 +168,8 @@ export function createInitialG0State(): G0State {
     toolCalls: [],
     toolActivity: null,
     memoryObserved: false,
+    retrievalTrace: null,
+    memoryUsages: [],
     output: '',
     endOffset: 0,
     lastPersistentEventSeq: 0,
@@ -408,6 +414,31 @@ function reduceSseEvent(state: G0State, event: G0SseEvent): G0State {
       }
     case 'memory.retrieval.started':
       return { ...next, memoryObserved: true }
+    case 'memory.retrieval.completed':
+    case 'memory.injected':
+      return { ...next, memoryObserved: true }
+    case 'memory.usage.verified':
+      return {
+        ...next,
+        memoryUsages: next.memoryUsages.map((usage) =>
+          usage.usage_id === event.data.usage_id
+            ? {
+                ...usage,
+                verification_status: event.data.verification_status,
+                verification_method: event.data.verification_method,
+              }
+            : usage,
+        ),
+      }
+    case 'memory.usage.feedback.recorded':
+      return {
+        ...next,
+        memoryUsages: next.memoryUsages.map((usage) =>
+          usage.usage_id === event.data.usage_id
+            ? { ...usage, user_effect: event.data.user_effect }
+            : usage,
+        ),
+      }
     case 'agent.plan.published':
       return { ...next, planCodes: event.data }
     case 'tool.called':
@@ -587,6 +618,8 @@ function mergeSnapshot(
     toolCalls: mergeToolCalls(state.toolCalls, snapshot.tool_calls),
     messages: snapshot.messages,
     feedbackEvents: snapshot.feedback_events,
+    retrievalTrace: snapshot.retrieval_trace,
+    memoryUsages: snapshot.memory_usages,
     feedbackJobIds: {
       ...state.feedbackJobIds,
       ...Object.fromEntries(
