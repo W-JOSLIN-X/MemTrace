@@ -64,23 +64,6 @@ def upgrade() -> None:
             "import_source_version IS NULL OR import_source_version >= 1",
         )
 
-    # Create index on import_batch_id
-    op.create_index(
-        'ix_memory_cards_import_batch',
-        'memory_cards',
-        ['import_batch_id'],
-    )
-
-    # Create foreign key for import_batch_id (must be separate from batch_alter_table)
-    with op.batch_alter_table('memory_cards', schema=None) as batch_op:
-        batch_op.create_foreign_key(
-            'fk_memory_cards_import_batch',
-            'import_batches',
-            ['import_batch_id'],
-            ['id'],
-            ondelete='SET NULL',
-        )
-
     # --- MemoryRelation G4 columns ---
     with op.batch_alter_table('memory_relations', schema=None) as batch_op:
         batch_op.add_column(sa.Column('status', sa.String(32), nullable=False, server_default='resolved'))
