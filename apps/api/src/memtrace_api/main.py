@@ -999,8 +999,8 @@ def create_app(
                         content=json.loads(existing.response_json),
                     )
 
-                card_repo = MemoryCardRepository(user_ctx, session)
-                card = card_repo.get_candidate(memory_id)
+                card_repo = MemoryCardG4Repository(user_ctx, session)
+                card = card_repo._get(memory_id)
                 if card is None:
                     raise _memory_not_found()
                 if card.status != MemoryCardStatus.CANDIDATE.value:
@@ -1178,17 +1178,34 @@ def create_app(
     )
     async def list_memories(
         request: Request,
-        status_filter: Literal["candidate", "active", "rejected", "paused"] | None = Query(
-            default=None,
-            alias="status",
-        ),
+        query: str | None = Query(default=None, min_length=1, max_length=100),
+        kind: str | None = Query(default=None),
+        status: str | None = Query(default=None),
+        domain: str | None = Query(default=None),
+        task_type: str | None = Query(default=None),
+        source_type: str | None = Query(default=None),
+        used_after: datetime | None = Query(default=None),
+        sort: Literal[
+            "updated_desc", "created_desc", "last_used_desc", "title_asc"
+        ] = Query(default="updated_desc"),
         cursor: str | None = Query(default=None, pattern=MEMORY_ID_PATTERN),
         user_ctx: UserContext = Depends(get_current_user),
     ) -> MemoryListResponse:
         session_factory = request.app.state.db_session_factory
         with session_scope(session_factory) as session:
-            card_repo = MemoryCardRepository(user_ctx, session)
-            cards = card_repo.list_cards(status=status_filter, cursor=cursor, limit=51)
+            card_repo = MemoryCardG4Repository(user_ctx, session)
+            cards = card_repo.list_memories(
+                query=query,
+                kind=kind,
+                status=status,
+                domain=domain,
+                task_type=task_type,
+                source_type=source_type,
+                used_after=used_after,
+                sort=sort,
+                cursor=cursor,
+                limit=51,
+            )
             page = cards[:50]
             return MemoryListResponse(
                 request_id=request.state.request_id,
@@ -1208,17 +1225,32 @@ def create_app(
     ) -> MemoryDetailResponse:
         session_factory = request.app.state.db_session_factory
         with session_scope(session_factory) as session:
-            card_repo = MemoryCardRepository(user_ctx, session)
-            card = card_repo.get_candidate(memory_id)
+            card_repo = MemoryCardG4Repository(user_ctx, session)
+            card = card_repo.get_detail(memory_id)
             if card is None:
                 raise _memory_not_found()
             evidence = card_repo.list_evidence(memory_id=memory_id)
             versions = card_repo.list_versions(memory_id=memory_id)
+            relations = card_repo.list_relations(memory_id=memory_id)
             return MemoryDetailResponse(
                 request_id=request.state.request_id,
                 card=_card_projection(card),
                 evidence=[_evidence_projection(item) for item in evidence],
                 versions=[_version_projection(item) for item in versions],
+                relations=[
+                    MemoryRelationProjection(
+                        relation_id=rel.id,
+                        from_memory_id=rel.from_memory_id,
+                        to_memory_id=rel.to_memory_id,
+                        relation_type=rel.relation_type,
+                        status=rel.status,
+                        resolution_action=rel.resolution_action,
+                        resolution_memory_id=rel.resolution_memory_id,
+                        created_at=rel.created_at,
+                        resolved_at=rel.resolved_at,
+                    )
+                    for rel in relations
+                ],
             )
 
     # ------------------------------------------------------------------
@@ -1316,8 +1348,8 @@ def create_app(
                         status_code=existing.response_status,
                         content=json.loads(existing.response_json),
                     )
-                card_repo = MemoryCardRepository(user_ctx, session)
-                card = card_repo.get_candidate(memory_id)
+                card_repo = MemoryCardG4Repository(user_ctx, session)
+                card = card_repo._get(memory_id)
                 if card is None:
                     raise _memory_not_found()
                 if card.status != MemoryCardStatus.ACTIVE.value:
@@ -1411,8 +1443,8 @@ def create_app(
                         status_code=existing.response_status,
                         content=json.loads(existing.response_json),
                     )
-                card_repo = MemoryCardRepository(user_ctx, session)
-                card = card_repo.get_candidate(memory_id)
+                card_repo = MemoryCardG4Repository(user_ctx, session)
+                card = card_repo._get(memory_id)
                 if card is None:
                     raise _memory_not_found()
                 if card.status != old_status.value:
@@ -1518,7 +1550,7 @@ def create_app(
         user_ctx: UserContext = Depends(get_current_user),
     ) -> MemoryVersionListResponse:
         with session_scope(request.app.state.db_session_factory) as session:
-            card_repo = MemoryCardRepository(user_ctx, session)
+            card_repo = MemoryCardG4Repository(user_ctx, session)
             if card_repo.get_candidate(memory_id) is None:
                 raise _memory_not_found()
             query = select(MemoryVersionModel).where(
@@ -1553,7 +1585,7 @@ def create_app(
         user_ctx: UserContext = Depends(get_current_user),
     ) -> MemoryUsageListResponse:
         with session_scope(request.app.state.db_session_factory) as session:
-            card_repo = MemoryCardRepository(user_ctx, session)
+            card_repo = MemoryCardG4Repository(user_ctx, session)
             if card_repo.get_candidate(memory_id) is None:
                 raise _memory_not_found()
             rows = MemoryUsageRepository(user_ctx, session).list_by_memory(
@@ -1616,7 +1648,7 @@ def create_app(
                     raise _memory_state_conflict("该 usage 当前不能记录效果反馈。")
                 usage.user_effect = body.effect.value
                 usage.updated_at = utc_now()
-                card = MemoryCardRepository(user_ctx, session).get_candidate(memory_id)
+                card = MemoryCardG4Repository(user_ctx, session).get_candidate(memory_id)
                 if card is None:
                     raise _memory_not_found()
                 setattr(
