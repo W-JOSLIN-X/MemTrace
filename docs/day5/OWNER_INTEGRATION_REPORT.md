@@ -101,8 +101,8 @@ canonicalization 和 Admission Guard 测试构造错误。修复后结果将在�
   readiness 已由迁移/应用测试覆盖并通过。
 - Pydantic、JSON Schema、examples、OpenAPI 与 TypeScript strict parser 已同步；OpenAPI 和
   G0 schema 连续导出两次均为零 diff。最终 SHA-256 分别为
-  `F5867C4FEE957CCDC59067C59B67728C76A8F65432675F83B7181899477FB622` 和
-  `F6A7D2D74F6E4A96219E97B30A2CB63EE93D2875BD1D3FC85D1124063224A9FF`。
+  `F5867C723C27FEFF5177E92C978ACC91473201A7A8B21C1A4E4E0F2BAACFB622` 和
+  `F6A7D2FC25A41496441A2F2CB2F64092791F757ADA03EBBF28DE586C72B1A9FF`。
 - 本地真实 REST API 上 Day 3 Eval 为 30/30 + 2/2、Day 4 为 30/30、Day 5 为 20/20；
   runner 只输出 ID、受控状态/计数/分数和失败码，不输出正文或 token。
 - 并发幂等、冲突、事务回滚、event seq/SSE、worker recovery、cross-owner 与
