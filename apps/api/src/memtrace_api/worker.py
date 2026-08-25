@@ -719,6 +719,10 @@ def _canonical_scope(fingerprint: TaskFingerprint) -> MemoryScope:
         task_type=fingerprint.task_type,
         artifact_type=fingerprint.artifact_type,
         audience=fingerprint.audience,
+        project_key=fingerprint.project_key,
+        language=fingerprint.language,
+        framework=fingerprint.framework,
+        concepts=fingerprint.concepts,
     )
 
 

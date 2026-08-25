@@ -119,6 +119,8 @@ def test_lifespan_worker_creates_candidate_and_accepts_v1(tmp_path: Path) -> Non
         assert detail.status_code == 200, detail.text
         assert detail.json()["card"]["status"] == "candidate"
         assert detail.json()["card"]["current_version_id"] is None
+        assert detail.json()["card"]["scope"]["language"] == "python"
+        assert "debugging" in detail.json()["card"]["scope"]["concepts"]
         assert len(detail.json()["evidence"]) == 1
 
         resolved = client.post(
@@ -132,6 +134,14 @@ def test_lifespan_worker_creates_candidate_and_accepts_v1(tmp_path: Path) -> Non
         assert body["memory_version_id"] is not None
         assert body["card"]["version"] == 1
         assert body["card"]["current_version_id"] == body["memory_version_id"]
+
+        recalled = _task_to_terminal(client, key="g3-task-recall-active-v1-0001")
+        trace = client.get(
+            f"/api/v1/tasks/{recalled['task_id']}/retrieval-trace"
+        )
+        assert trace.status_code == 200, trace.text
+        assert trace.json()["selected_count"] == 1
+        assert trace.json()["injected_count"] == 1
 
         replay = client.post(
             f"/api/v1/memory-candidates/{memory_id}/resolve",
