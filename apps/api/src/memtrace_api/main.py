@@ -63,11 +63,17 @@ from memtrace_api.readiness import (
     ensure_directory_writable,
 )
 from memtrace_api.repositories import (
+    ConflictRepository,
     FeedbackRepository,
     IdempotencyRepository,
+    ImportBatchRepository,
+    MemoryCardG4Repository,
     MemoryCardRepository,
     MemoryJobRepository,
+    MemoryMergeRepository,
+    MemoryRelationRepository,
     MemoryUsageRepository,
+    PackRepository,
     SessionRepository,
     TaskRepository,
     UserContext,
