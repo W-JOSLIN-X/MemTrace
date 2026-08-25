@@ -2,13 +2,13 @@
   "schema_ref": "memtrace-memory-pack@1.0.0",
   "format": "memtrace-memory-pack",
   "format_version": "1.0.0",
-  "pack_id": "pack_01JQY2H3K4L5M6N7O8P9Q0R1S2T3U4V5",
+  "pack_id": "pack_01J00000000000000000000000",
   "name": "socratic-programming-learning",
   "description": "Programming learning preferences emphasizing step-by-step debugging guidance",
   "created_at": "2026-08-25T12:00:00Z",
   "producer": {
     "name": "MemTrace",
-    "version": "0.1.0"
+    "version": "1.4.0"
   },
   "source": {
     "kind": "user_export",
@@ -89,6 +89,6 @@
   ],
   "integrity": {
     "algorithm": "sha256",
-    "canonical_payload_sha256": "PLACEHOLDER_REPLACED_BY_EXPORTER"
+    "canonical_payload_sha256": "6fc6dc5cd7a0c33dd17a54f59b4cbbfe8124b85bf9a9f2ed561936bb81907422"
   }
 }

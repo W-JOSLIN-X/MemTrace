@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://memtrace.local/contracts/schemas/g0-api.schema.json",
   "title": "MemTrace G0 REST bodies",
-  "description": "Normative Day 1 schemas for REST JSON bodies and the SSE cursor query represented as JSON.",
+  "description": "Normative MemTrace G1-G4 REST request and response bodies.",
   "oneOf": [
     {
       "$ref": "#/$defs/HealthResponse"
@@ -54,6 +54,63 @@
     },
     {
       "$ref": "#/$defs/MemoryDetailResponse"
+    },
+    {
+      "$ref": "#/$defs/ImportBatchResponse"
+    },
+    {
+      "$ref": "#/$defs/ImportCommitRequest"
+    },
+    {
+      "$ref": "#/$defs/ImportCommitResponse"
+    },
+    {
+      "$ref": "#/$defs/MemoryConflictDetailResponse"
+    },
+    {
+      "$ref": "#/$defs/MemoryConflictDetectRequest"
+    },
+    {
+      "$ref": "#/$defs/MemoryConflictDetectResponse"
+    },
+    {
+      "$ref": "#/$defs/MemoryConflictResolveRequest"
+    },
+    {
+      "$ref": "#/$defs/MemoryConflictResolveResponse"
+    },
+    {
+      "$ref": "#/$defs/MemoryDeleteRequest"
+    },
+    {
+      "$ref": "#/$defs/MemoryDeleteResponse"
+    },
+    {
+      "$ref": "#/$defs/MemoryMergeRequest"
+    },
+    {
+      "$ref": "#/$defs/MemoryMergeResponse"
+    },
+    {
+      "$ref": "#/$defs/MemoryPackDocument"
+    },
+    {
+      "$ref": "#/$defs/MemoryRelationListResponse"
+    },
+    {
+      "$ref": "#/$defs/MemoryVersionDiffResponse"
+    },
+    {
+      "$ref": "#/$defs/PackExportRequest"
+    },
+    {
+      "$ref": "#/$defs/PackPreviewResponse"
+    },
+    {
+      "$ref": "#/$defs/TaskDeleteRequest"
+    },
+    {
+      "$ref": "#/$defs/TaskDeleteResponse"
     }
   ],
   "$defs": {
@@ -2711,6 +2768,1346 @@
         "versions"
       ],
       "additionalProperties": false
+    },
+    "MemoryDeleteResponse": {
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Memory Id"
+        },
+        "status": {
+          "type": "string",
+          "const": "deleted",
+          "title": "Status",
+          "default": "deleted"
+        },
+        "deleted_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Deleted At"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "memory_id",
+        "deleted_at"
+      ],
+      "title": "MemoryDeleteResponse"
+    },
+    "MemoryConflictDetectResponse": {
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "relation_id": {
+          "type": "string",
+          "pattern": "^rel_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Relation Id"
+        },
+        "left_memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Left Memory Id"
+        },
+        "right_memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Right Memory Id"
+        },
+        "relation_type": {
+          "type": "string",
+          "const": "conflicts_with",
+          "title": "Relation Type",
+          "default": "conflicts_with"
+        },
+        "status": {
+          "type": "string",
+          "const": "unresolved",
+          "title": "Status",
+          "default": "unresolved"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "relation_id",
+        "left_memory_id",
+        "right_memory_id"
+      ],
+      "title": "MemoryConflictDetectResponse"
+    },
+    "MemoryRelationListResponse": {
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/MemoryRelationProjection"
+          },
+          "type": "array",
+          "maxItems": 50,
+          "title": "Items"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id"
+      ],
+      "title": "MemoryRelationListResponse"
+    },
+    "MemoryRelationProjection": {
+      "properties": {
+        "relation_id": {
+          "type": "string",
+          "pattern": "^rel_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Relation Id"
+        },
+        "from_memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "From Memory Id"
+        },
+        "to_memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "To Memory Id"
+        },
+        "relation_type": {
+          "type": "string",
+          "enum": [
+            "duplicate_of",
+            "reinforces",
+            "conflicts_with",
+            "supersedes",
+            "merged_into",
+            "related_to"
+          ],
+          "title": "Relation Type"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "unresolved",
+            "resolved"
+          ],
+          "title": "Status"
+        },
+        "resolution_action": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "prefer",
+                "separate_scopes",
+                "merge",
+                "pause_both"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resolution Action"
+        },
+        "resolution_memory_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resolution Memory Id"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        },
+        "resolved_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resolved At"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "relation_id",
+        "from_memory_id",
+        "to_memory_id",
+        "relation_type",
+        "status",
+        "created_at"
+      ],
+      "title": "MemoryRelationProjection"
+    },
+    "MemoryPackDocument": {
+      "properties": {
+        "schema_ref": {
+          "type": "string",
+          "const": "memtrace-memory-pack@1.0.0",
+          "title": "Schema Ref"
+        },
+        "format": {
+          "type": "string",
+          "const": "memtrace-memory-pack",
+          "title": "Format"
+        },
+        "format_version": {
+          "type": "string",
+          "const": "1.0.0",
+          "title": "Format Version"
+        },
+        "pack_id": {
+          "type": "string",
+          "pattern": "^pack_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Pack Id"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "title": "Description"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        },
+        "producer": {
+          "$ref": "#/$defs/PackProducer"
+        },
+        "source": {
+          "$ref": "#/$defs/PackSource"
+        },
+        "privacy": {
+          "$ref": "#/$defs/PackPrivacy"
+        },
+        "cards": {
+          "items": {
+            "$ref": "#/$defs/MemoryPackCard"
+          },
+          "type": "array",
+          "maxItems": 200,
+          "minItems": 1,
+          "title": "Cards"
+        },
+        "relations": {
+          "items": {
+            "$ref": "#/$defs/MemoryPackRelation"
+          },
+          "type": "array",
+          "maxItems": 400,
+          "title": "Relations"
+        },
+        "integrity": {
+          "$ref": "#/$defs/PackIntegrity"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "schema_ref",
+        "format",
+        "format_version",
+        "pack_id",
+        "name",
+        "description",
+        "created_at",
+        "producer",
+        "source",
+        "privacy",
+        "cards",
+        "relations",
+        "integrity"
+      ],
+      "title": "MemoryPackDocument"
+    },
+    "PackIntegrity": {
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "const": "sha256",
+          "title": "Algorithm"
+        },
+        "canonical_payload_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Canonical Payload Sha256"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "algorithm",
+        "canonical_payload_sha256"
+      ],
+      "title": "PackIntegrity"
+    },
+    "PackSource": {
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "user_export",
+            "external_import"
+          ],
+          "title": "Kind"
+        },
+        "trust": {
+          "type": "string",
+          "enum": [
+            "self_asserted",
+            "unverified"
+          ],
+          "title": "Trust"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "trust"
+      ],
+      "title": "PackSource"
+    },
+    "MemoryPackRelation": {
+      "properties": {
+        "from_external_id": {
+          "type": "string",
+          "pattern": "^card_[A-Za-z0-9_-]{1,64}$",
+          "title": "From External Id"
+        },
+        "to_external_id": {
+          "type": "string",
+          "pattern": "^card_[A-Za-z0-9_-]{1,64}$",
+          "title": "To External Id"
+        },
+        "relation_type": {
+          "type": "string",
+          "enum": [
+            "duplicate_of",
+            "reinforces",
+            "conflicts_with",
+            "supersedes",
+            "merged_into"
+          ],
+          "title": "Relation Type"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "from_external_id",
+        "to_external_id",
+        "relation_type"
+      ],
+      "title": "MemoryPackRelation"
+    },
+    "PackProducer": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 80,
+          "title": "Name"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "title": "Version"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "PackProducer"
+    },
+    "MemoryPackCard": {
+      "properties": {
+        "external_id": {
+          "type": "string",
+          "pattern": "^card_[A-Za-z0-9_-]{1,64}$",
+          "title": "External Id"
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "1.0",
+          "title": "Schema Version"
+        },
+        "kind": {
+          "$ref": "#/$defs/MemoryKind"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 40,
+          "minLength": 4,
+          "title": "Title"
+        },
+        "rule": {
+          "type": "string",
+          "maxLength": 300,
+          "minLength": 20,
+          "title": "Rule"
+        },
+        "avoid": {
+          "type": "string",
+          "maxLength": 400,
+          "title": "Avoid"
+        },
+        "trigger_text": {
+          "type": "string",
+          "maxLength": 240,
+          "title": "Trigger Text"
+        },
+        "scope": {
+          "$ref": "#/$defs/MemoryScope"
+        },
+        "exceptions": {
+          "items": {
+            "$ref": "#/$defs/AllowedException"
+          },
+          "type": "array",
+          "maxItems": 8,
+          "title": "Exceptions"
+        },
+        "claimed_origin": {
+          "$ref": "#/$defs/PackClaimedOrigin"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1.0,
+          "title": "Version"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Updated At"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "external_id",
+        "schema_version",
+        "kind",
+        "title",
+        "rule",
+        "avoid",
+        "trigger_text",
+        "scope",
+        "exceptions",
+        "claimed_origin",
+        "version",
+        "updated_at"
+      ],
+      "title": "MemoryPackCard"
+    },
+    "PackClaimedOrigin": {
+      "properties": {
+        "source_type": {
+          "$ref": "#/$defs/SourceType"
+        },
+        "trust_level": {
+          "type": "string",
+          "enum": [
+            "user_confirmed",
+            "self_asserted",
+            "imported_unverified"
+          ],
+          "title": "Trust Level"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        },
+        "source_task_exported": {
+          "type": "boolean",
+          "title": "Source Task Exported"
+        },
+        "source_version": {
+          "type": "integer",
+          "minimum": 1.0,
+          "title": "Source Version"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "source_type",
+        "trust_level",
+        "created_at",
+        "source_task_exported",
+        "source_version"
+      ],
+      "title": "PackClaimedOrigin"
+    },
+    "PackPrivacy": {
+      "properties": {
+        "contains_raw_evidence": {
+          "type": "boolean",
+          "const": false,
+          "title": "Contains Raw Evidence"
+        },
+        "anonymized": {
+          "type": "boolean",
+          "const": true,
+          "title": "Anonymized"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "contains_raw_evidence",
+        "anonymized"
+      ],
+      "title": "PackPrivacy"
+    },
+    "MemoryConflictResolveResponse": {
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "relation_id": {
+          "type": "string",
+          "pattern": "^rel_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Relation Id"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "prefer",
+            "separate_scopes",
+            "merge",
+            "pause_both"
+          ],
+          "title": "Action"
+        },
+        "status": {
+          "type": "string",
+          "const": "resolved",
+          "title": "Status",
+          "default": "resolved"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "relation_id",
+        "action"
+      ],
+      "title": "MemoryConflictResolveResponse"
+    },
+    "TaskDeleteResponse": {
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Task Id"
+        },
+        "status": {
+          "type": "string",
+          "const": "deleted",
+          "title": "Status",
+          "default": "deleted"
+        },
+        "memory_policy": {
+          "type": "string",
+          "const": "preserve_and_mark_evidence_missing",
+          "title": "Memory Policy"
+        },
+        "affected_card_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Affected Card Count"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "task_id",
+        "memory_policy",
+        "affected_card_count"
+      ],
+      "title": "TaskDeleteResponse"
+    },
+    "PackExportRequest": {
+      "properties": {
+        "memory_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string",
+                "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              "type": "array",
+              "maxItems": 200,
+              "minItems": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Memory Ids"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 80,
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Name"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 500
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Description"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "title": "PackExportRequest"
+    },
+    "MemoryMergeRequest": {
+      "properties": {
+        "left_memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Left Memory Id"
+        },
+        "left_expected_current_version_id": {
+          "type": "string",
+          "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Left Expected Current Version Id"
+        },
+        "right_memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Right Memory Id"
+        },
+        "right_expected_current_version_id": {
+          "type": "string",
+          "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Right Expected Current Version Id"
+        },
+        "merged_card": {
+          "$ref": "#/$defs/MergedMemoryCardInput"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "left_memory_id",
+        "left_expected_current_version_id",
+        "right_memory_id",
+        "right_expected_current_version_id",
+        "merged_card"
+      ],
+      "title": "MemoryMergeRequest"
+    },
+    "MergedMemoryCardInput": {
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/MemoryKind"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 40,
+          "minLength": 4,
+          "title": "Title"
+        },
+        "rule": {
+          "type": "string",
+          "maxLength": 300,
+          "minLength": 20,
+          "title": "Rule"
+        },
+        "avoid": {
+          "type": "string",
+          "maxLength": 400,
+          "title": "Avoid",
+          "default": ""
+        },
+        "trigger_text": {
+          "type": "string",
+          "maxLength": 240,
+          "title": "Trigger Text",
+          "default": ""
+        },
+        "scope": {
+          "$ref": "#/$defs/MemoryScope"
+        },
+        "exceptions": {
+          "items": {
+            "$ref": "#/$defs/AllowedException"
+          },
+          "type": "array",
+          "maxItems": 8,
+          "title": "Exceptions"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "title",
+        "rule",
+        "scope"
+      ],
+      "title": "MergedMemoryCardInput"
+    },
+    "MemoryMergeResponse": {
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "merged_memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Merged Memory Id"
+        },
+        "left_memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Left Memory Id"
+        },
+        "right_memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Right Memory Id"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "merged_memory_id",
+        "left_memory_id",
+        "right_memory_id"
+      ],
+      "title": "MemoryMergeResponse"
+    },
+    "TaskDeleteRequest": {
+      "properties": {
+        "confirm_task_id": {
+          "type": "string",
+          "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Confirm Task Id"
+        },
+        "memory_policy": {
+          "type": "string",
+          "const": "preserve_and_mark_evidence_missing",
+          "title": "Memory Policy",
+          "default": "preserve_and_mark_evidence_missing"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "confirm_task_id"
+      ],
+      "title": "TaskDeleteRequest"
+    },
+    "MemoryConflictDetectRequest": {
+      "properties": {
+        "left_memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Left Memory Id"
+        },
+        "left_expected_current_version_id": {
+          "type": "string",
+          "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Left Expected Current Version Id"
+        },
+        "right_memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Right Memory Id"
+        },
+        "right_expected_current_version_id": {
+          "type": "string",
+          "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Right Expected Current Version Id"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "left_memory_id",
+        "left_expected_current_version_id",
+        "right_memory_id",
+        "right_expected_current_version_id"
+      ],
+      "title": "MemoryConflictDetectRequest"
+    },
+    "MemoryConflictDetailResponse": {
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "relation": {
+          "$ref": "#/$defs/MemoryRelationProjection"
+        },
+        "left": {
+          "$ref": "#/$defs/MemoryCard"
+        },
+        "right": {
+          "$ref": "#/$defs/MemoryCard"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "relation",
+        "left",
+        "right"
+      ],
+      "title": "MemoryConflictDetailResponse"
+    },
+    "MemoryDeleteRequest": {
+      "properties": {
+        "expected_current_version_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Current Version Id"
+        },
+        "confirm_title": {
+          "type": "string",
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Confirm Title"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "confirm_title"
+      ],
+      "title": "MemoryDeleteRequest"
+    },
+    "ImportCommitResponse": {
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "batch_id": {
+          "type": "string",
+          "pattern": "^batch_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Batch Id"
+        },
+        "inserted_count": {
+          "type": "integer",
+          "title": "Inserted Count"
+        },
+        "skipped_count": {
+          "type": "integer",
+          "title": "Skipped Count"
+        },
+        "warning_count": {
+          "type": "integer",
+          "title": "Warning Count"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "batch_id",
+        "inserted_count",
+        "skipped_count",
+        "warning_count"
+      ],
+      "title": "ImportCommitResponse"
+    },
+    "PackPreviewResponse": {
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "batch_id": {
+          "type": "string",
+          "pattern": "^batch_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Batch Id"
+        },
+        "pack_metadata": {
+          "$ref": "#/$defs/PackMetadata"
+        },
+        "legal_new_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Legal New Count"
+        },
+        "duplicate_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Duplicate Count"
+        },
+        "potential_conflict_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Potential Conflict Count"
+        },
+        "suspicious_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Suspicious Count"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/PackPreviewItem"
+          },
+          "type": "array",
+          "maxItems": 200,
+          "minItems": 1,
+          "title": "Items"
+        },
+        "preview_token": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{43}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Preview Token"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "batch_id",
+        "pack_metadata",
+        "legal_new_count",
+        "duplicate_count",
+        "potential_conflict_count",
+        "suspicious_count",
+        "items"
+      ],
+      "title": "PackPreviewResponse"
+    },
+    "PackPreviewItem": {
+      "properties": {
+        "external_id": {
+          "type": "string",
+          "pattern": "^card_[A-Za-z0-9_-]{1,64}$",
+          "title": "External Id"
+        },
+        "kind": {
+          "$ref": "#/$defs/MemoryKind"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 40,
+          "minLength": 4,
+          "title": "Title"
+        },
+        "rule": {
+          "type": "string",
+          "maxLength": 300,
+          "minLength": 20,
+          "title": "Rule"
+        },
+        "avoid": {
+          "type": "string",
+          "maxLength": 400,
+          "title": "Avoid"
+        },
+        "scope": {
+          "$ref": "#/$defs/MemoryScope"
+        },
+        "classification": {
+          "type": "string",
+          "enum": [
+            "legal_new",
+            "duplicate",
+            "potential_conflict",
+            "suspicious"
+          ],
+          "title": "Classification"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "exact_duplicate",
+                "declared_conflict",
+                "scope_overlap_similarity",
+                "suspicious_text"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "external_id",
+        "kind",
+        "title",
+        "rule",
+        "avoid",
+        "scope",
+        "classification"
+      ],
+      "title": "PackPreviewItem"
+    },
+    "PackMetadata": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "title": "Description"
+        },
+        "format": {
+          "type": "string",
+          "const": "memtrace-memory-pack",
+          "title": "Format"
+        },
+        "format_version": {
+          "type": "string",
+          "const": "1.0.0",
+          "title": "Format Version"
+        },
+        "producer": {
+          "$ref": "#/$defs/PackProducer"
+        },
+        "source": {
+          "$ref": "#/$defs/PackSource"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "description",
+        "format",
+        "format_version",
+        "producer",
+        "source"
+      ],
+      "title": "PackMetadata"
+    },
+    "MemoryVersionDiffResponse": {
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "from_version": {
+          "$ref": "#/$defs/MemoryVersionProjection"
+        },
+        "to_version": {
+          "$ref": "#/$defs/MemoryVersionProjection"
+        },
+        "changed_fields": {
+          "items": {
+            "type": "string",
+            "enum": [
+              "title",
+              "rule",
+              "avoid",
+              "trigger_text",
+              "scope",
+              "exceptions"
+            ]
+          },
+          "type": "array",
+          "title": "Changed Fields"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "from_version",
+        "to_version",
+        "changed_fields"
+      ],
+      "title": "MemoryVersionDiffResponse"
+    },
+    "ImportBatchResponse": {
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "batch_id": {
+          "type": "string",
+          "pattern": "^batch_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Batch Id"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "quarantined",
+            "committed",
+            "expired",
+            "cancelled"
+          ],
+          "title": "Status"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "inserted_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Inserted Count"
+        },
+        "skipped_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Skipped Count"
+        },
+        "warning_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Warning Count"
+        },
+        "error_message": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Message"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "batch_id",
+        "status",
+        "created_at",
+        "inserted_count",
+        "skipped_count",
+        "warning_count"
+      ],
+      "title": "ImportBatchResponse"
+    },
+    "ImportCommitRequest": {
+      "properties": {
+        "batch_id": {
+          "type": "string",
+          "pattern": "^batch_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Batch Id"
+        },
+        "preview_token": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$",
+          "title": "Preview Token"
+        },
+        "mode": {
+          "type": "string",
+          "const": "import_all_paused",
+          "title": "Mode",
+          "default": "import_all_paused"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "batch_id",
+        "preview_token"
+      ],
+      "title": "ImportCommitRequest"
+    },
+    "MemoryConflictResolveRequest": {
+      "properties": {
+        "expected_relation_status": {
+          "type": "string",
+          "const": "unresolved",
+          "title": "Expected Relation Status",
+          "default": "unresolved"
+        },
+        "left_expected_current_version_id": {
+          "type": "string",
+          "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Left Expected Current Version Id"
+        },
+        "right_expected_current_version_id": {
+          "type": "string",
+          "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Right Expected Current Version Id"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "prefer",
+            "separate_scopes",
+            "merge",
+            "pause_both"
+          ],
+          "title": "Action"
+        },
+        "preferred_memory_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Preferred Memory Id"
+        },
+        "left_scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "right_scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "merged_card": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MergedMemoryCardInput"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "left_expected_current_version_id",
+        "right_expected_current_version_id",
+        "action"
+      ],
+      "title": "MemoryConflictResolveRequest"
     }
   }
 }

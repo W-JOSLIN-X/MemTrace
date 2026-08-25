@@ -2,7 +2,7 @@ name: memtrace
 
 services:
   app:
-    image: memtrace:day4-g3
+    image: memtrace:day5-g4
     build:
       context: .
       dockerfile: Dockerfile
@@ -16,6 +16,7 @@ services:
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
       MOCK_MODE: "${MOCK_MODE:-true}"
       MOCK_CHUNK_DELAY_MS: "${MOCK_CHUNK_DELAY_MS:-250}"
+      IMPORT_PREVIEW_TTL_SECONDS: "${IMPORT_PREVIEW_TTL_SECONDS:-1800}"
       SSE_HEARTBEAT_SECONDS: "${SSE_HEARTBEAT_SECONDS:-15}"
       MAX_TASKS: "${MAX_TASKS:-100}"
       MAX_SUBSCRIBERS_PER_TASK: "${MAX_SUBSCRIBERS_PER_TASK:-8}"

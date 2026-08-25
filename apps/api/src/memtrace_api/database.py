@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import unicodedata
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -30,6 +31,12 @@ def create_db_engine(database_url: str) -> Engine:
 
     @event.listens_for(engine, "connect")
     def _set_sqlite_pragmas(dbapi_connection: Any, connection_record: Any) -> None:
+        def _nfkc_casefold(value: str | None) -> str:
+            if value is None:
+                return ""
+            return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+
+        dbapi_connection.create_function("memtrace_nfkc_cf", 1, _nfkc_casefold, deterministic=True)
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.execute("PRAGMA journal_mode=WAL")

@@ -29,7 +29,7 @@ WORKDIR /app
 
 RUN groupadd --gid 10001 memtrace \
     && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin memtrace \
-    && mkdir -p /app/apps/api/src /app/static /app/data /app/exports /app/eval-results \
+    && mkdir -p /app/apps/api/src /app/contracts/schemas /app/static /app/data /app/exports /app/eval-results \
     && chown -R memtrace:memtrace /app
 
 COPY apps/api/requirements.lock /tmp/requirements.lock
@@ -41,6 +41,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY --chown=memtrace:memtrace apps/api/src/ /app/apps/api/src/
 COPY --chown=memtrace:memtrace apps/api/alembic.ini /app/apps/api/alembic.ini
 COPY --chown=memtrace:memtrace apps/api/alembic/ /app/apps/api/alembic/
+COPY --chown=memtrace:memtrace contracts/schemas/memory-pack.schema.json /app/contracts/schemas/memory-pack.schema.json
 COPY --from=web-builder --chown=memtrace:memtrace /build/apps/web/dist/ /app/static/
 
 USER memtrace

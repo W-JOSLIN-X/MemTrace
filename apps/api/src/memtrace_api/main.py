@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
+import hashlib
 import inspect
 import json
 import logging
+import re
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
 from fastapi import Cookie, Depends, FastAPI, Header, Path, Query, Request, Response, status
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import and_, select, text, update
+from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -23,10 +28,13 @@ from memtrace_api.compiler import StructuredProvider
 from memtrace_api.config import Settings, get_settings
 from memtrace_api.database import create_db_engine, create_session_factory, session_scope
 from memtrace_api.db_models import (
+    EventLogModel,
     FeedbackEventModel,
+    ImportBatchModel,
     MemoryCardModel,
     MemoryEvidenceModel,
     MemoryJobModel,
+    MemoryRelationModel,
     MemoryVersionModel,
     MessageModel,
     TaskFingerprintModel,
@@ -56,6 +64,7 @@ from memtrace_api.logging_config import configure_logging
 from memtrace_api.logic import analyze_task
 from memtrace_api.middleware import RequestIdMiddleware
 from memtrace_api.orchestrator import AgentOrchestrator
+from memtrace_api.pack_service import PackValidationError, analyze_pack
 from memtrace_api.providers import DeepSeekProvider, MockProvider, StreamingProvider
 from memtrace_api.readiness import (
     DatabaseRevisionError,
@@ -68,7 +77,6 @@ from memtrace_api.repositories import (
     IdempotencyRepository,
     ImportBatchRepository,
     MemoryCardG4Repository,
-    MemoryCardRepository,
     MemoryJobRepository,
     MemoryMergeRepository,
     MemoryRelationRepository,
@@ -84,26 +92,32 @@ from memtrace_api.schemas import (
     DemoAlias,
     DemoSessionCreateRequest,
     DemoSessionResponse,
+    Domain,
     FeedbackCreateAccepted,
     FeedbackCreateRequest,
     HealthResponse,
-    ImportBatchId,
     ImportBatchResponse,
+    ImportCommitRequest,
     ImportCommitResponse,
     MemoryCard,
     MemoryCardStatus,
+    MemoryConflictDetailResponse,
     MemoryConflictDetectRequest,
     MemoryConflictDetectResponse,
     MemoryConflictResolveRequest,
     MemoryConflictResolveResponse,
     MemoryDeleteRequest,
+    MemoryDeleteResponse,
     MemoryDetailResponse,
     MemoryEvidenceProjection,
     MemoryJobResponse,
+    MemoryKind,
     MemoryListFilter,
     MemoryListResponse,
     MemoryMergeRequest,
     MemoryMergeResponse,
+    MemoryPackDocument,
+    MemoryRelationListResponse,
     MemoryRelationProjection,
     MemoryScope,
     MemoryStateRequest,
@@ -115,7 +129,6 @@ from memtrace_api.schemas import (
     MemoryVersionProjection,
     MessageRole,
     PackExportRequest,
-    PackExportResponse,
     PackPreviewItem,
     PackPreviewResponse,
     ProviderMode,
@@ -126,11 +139,14 @@ from memtrace_api.schemas import (
     ResolveResponse,
     RetrievalTraceResponse,
     RunStatus,
+    SourceType,
     TaskCreateAccepted,
     TaskCreateRequest,
     TaskDeleteRequest,
+    TaskDeleteResponse,
     TaskFingerprint,
     TaskSnapshot,
+    TaskType,
     derive_feedback_type,
     utc_now,
 )
@@ -159,6 +175,7 @@ API_PREFIX = "/api/v1"
 TASK_ID_PATTERN = r"^task_[0-9A-HJKMNP-TV-Z]{26}$"
 JOB_ID_PATTERN = r"^job_[0-9A-HJKMNP-TV-Z]{26}$"
 MEMORY_ID_PATTERN = r"^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+MEMORY_VERSION_ID_PATTERN = r"^memver_[0-9A-HJKMNP-TV-Z]{26}$"
 RELATION_ID_PATTERN = r"^rel_[0-9A-HJKMNP-TV-Z]{26}$"
 BATCH_ID_PATTERN = r"^batch_[0-9A-HJKMNP-TV-Z]{26}$"
 PACK_ID_PATTERN = r"^pack_[0-9A-HJKMNP-TV-Z]{26}$"
@@ -1200,18 +1217,36 @@ def create_app(
     async def list_memories(
         request: Request,
         query: str | None = Query(default=None, min_length=1, max_length=100),
-        kind: str | None = Query(default=None),
-        status: str | None = Query(default=None),
-        domain: str | None = Query(default=None),
-        task_type: str | None = Query(default=None),
-        source_type: str | None = Query(default=None),
-        used_after: datetime | None = Query(default=None),
-        sort: Literal[
-            "updated_desc", "created_desc", "last_used_desc", "title_asc"
-        ] = Query(default="updated_desc"),
-        cursor: str | None = Query(default=None, pattern=MEMORY_ID_PATTERN),
+        kind: Annotated[MemoryKind | None, Query()] = None,
+        status: Annotated[MemoryCardStatus | None, Query()] = None,
+        domain: Annotated[Domain | None, Query()] = None,
+        task_type: Annotated[TaskType | None, Query()] = None,
+        source_type: Annotated[SourceType | None, Query()] = None,
+        used_after: Annotated[datetime | None, Query()] = None,
+        sort: Annotated[
+            Literal["updated_desc", "created_desc", "last_used_desc", "title_asc"], Query()
+        ] = "updated_desc",
+        cursor: Annotated[str | None, Query(max_length=1024)] = None,
         user_ctx: UserContext = Depends(get_current_user),
     ) -> MemoryListResponse:
+        filters = MemoryListFilter(
+            query=query,
+            kind=kind,
+            status=status,
+            domain=domain,
+            task_type=task_type,
+            source_type=source_type,
+            used_after=used_after,
+            sort=sort,
+            cursor=cursor,
+        )
+        if status is MemoryCardStatus.DELETED:
+            raise ApiError(
+                status_code=422,
+                code=ErrorCode.VALIDATION_ERROR,
+                message="deleted tombstone 不属于公开 Memory Center 查询范围。",
+            )
+        cursor_value, cursor_id = _decode_memory_cursor(filters)
         session_factory = request.app.state.db_session_factory
         with session_scope(session_factory) as session:
             card_repo = MemoryCardG4Repository(user_ctx, session)
@@ -1224,14 +1259,15 @@ def create_app(
                 source_type=source_type,
                 used_after=used_after,
                 sort=sort,
-                cursor=cursor,
+                cursor_value=cursor_value,
+                cursor_id=cursor_id,
                 limit=51,
             )
             page = cards[:50]
             return MemoryListResponse(
                 request_id=request.state.request_id,
                 items=[_card_projection(card) for card in page],
-                next_cursor=page[-1].id if len(cards) > 50 else None,
+                next_cursor=(_encode_memory_cursor(filters, page[-1]) if len(cards) > 50 else None),
             )
 
     @application.get(
@@ -1373,8 +1409,13 @@ def create_app(
                 card = card_repo._get(memory_id)
                 if card is None:
                     raise _memory_not_found()
-                if card.status != MemoryCardStatus.ACTIVE.value:
-                    raise _memory_state_conflict("只有 active MemoryCard 可以编辑。")
+                if card.status not in {
+                    MemoryCardStatus.ACTIVE.value,
+                    MemoryCardStatus.PAUSED.value,
+                    MemoryCardStatus.ARCHIVED.value,
+                    MemoryCardStatus.CONFLICTED.value,
+                }:
+                    raise _memory_state_conflict("当前 MemoryCard 状态不允许内容编辑。")
                 if card.current_version_id != body.expected_current_version_id:
                     raise _memory_version_conflict()
                 values = _active_edit_values(card, body)
@@ -1442,7 +1483,7 @@ def create_app(
         idem_key_raw: str | None,
         user_ctx: UserContext,
         *,
-        old_status: MemoryCardStatus,
+        old_statuses: frozenset[MemoryCardStatus],
         new_status: MemoryCardStatus,
         action: str,
     ) -> Response:
@@ -1468,14 +1509,46 @@ def create_app(
                 card = card_repo._get(memory_id)
                 if card is None:
                     raise _memory_not_found()
-                if card.status != old_status.value:
+                if card.status not in {item.value for item in old_statuses}:
                     raise _memory_state_conflict(f"MemoryCard 当前不能执行 {action}。")
                 if card.current_version_id != body.expected_current_version_id:
                     raise _memory_version_conflict()
                 if new_status is MemoryCardStatus.ACTIVE:
                     _enforce_active_invariants(card)
+                    unresolved = session.execute(
+                        select(MemoryRelationModel.id).where(
+                            and_(
+                                MemoryRelationModel.owner_id == user_ctx.user_id,
+                                MemoryRelationModel.relation_type == "conflicts_with",
+                                MemoryRelationModel.status == "unresolved",
+                                or_(
+                                    MemoryRelationModel.from_memory_id == memory_id,
+                                    MemoryRelationModel.to_memory_id == memory_id,
+                                ),
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    if unresolved is not None:
+                        raise _memory_state_conflict(
+                            "MemoryCard 存在未解决冲突，不能恢复为 active。"
+                        )
+                previous_status = card.status
                 card.status = new_status.value
                 card.updated_at = utc_now()
+                event_seq = _allocate_memory_event_seq(session, user_ctx.user_id, memory_id)
+                TaskRepository(user_ctx, session).append_event(
+                    stream_type="memory",
+                    stream_id=memory_id,
+                    seq=event_seq,
+                    event_type=EventType.MEMORY_LIFECYCLE_CHANGED.value,
+                    metadata={
+                        "memory_id": memory_id,
+                        "action": action,
+                        "old_status": previous_status,
+                        "new_status": new_status.value,
+                        "version_id": card.current_version_id,
+                    },
+                )
                 session.flush()
                 payload = MemoryDetailResponse(
                     request_id=request.state.request_id,
@@ -1527,7 +1600,7 @@ def create_app(
             memory_id,
             idempotency_key_raw,
             user_ctx,
-            old_status=MemoryCardStatus.ACTIVE,
+            old_statuses=frozenset({MemoryCardStatus.ACTIVE}),
             new_status=MemoryCardStatus.PAUSED,
             action="pause",
         )
@@ -1554,9 +1627,63 @@ def create_app(
             memory_id,
             idempotency_key_raw,
             user_ctx,
-            old_status=MemoryCardStatus.PAUSED,
+            old_statuses=frozenset({MemoryCardStatus.PAUSED}),
             new_status=MemoryCardStatus.ACTIVE,
             action="resume",
+        )
+
+    @application.post(
+        f"{API_PREFIX}/memories/{{memory_id}}/archive",
+        response_model=MemoryDetailResponse,
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            409: {"model": ErrorEnvelope},
+        },
+    )
+    async def archive_memory(
+        request: Request,
+        body: MemoryStateRequest,
+        memory_id: str = Path(pattern=MEMORY_ID_PATTERN),
+        idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        return await _change_memory_status(
+            request,
+            body,
+            memory_id,
+            idempotency_key_raw,
+            user_ctx,
+            old_statuses=frozenset({MemoryCardStatus.ACTIVE, MemoryCardStatus.PAUSED}),
+            new_status=MemoryCardStatus.ARCHIVED,
+            action="archive",
+        )
+
+    @application.post(
+        f"{API_PREFIX}/memories/{{memory_id}}/restore",
+        response_model=MemoryDetailResponse,
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            409: {"model": ErrorEnvelope},
+        },
+    )
+    async def restore_memory(
+        request: Request,
+        body: MemoryStateRequest,
+        memory_id: str = Path(pattern=MEMORY_ID_PATTERN),
+        idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        return await _change_memory_status(
+            request,
+            body,
+            memory_id,
+            idempotency_key_raw,
+            user_ctx,
+            old_statuses=frozenset({MemoryCardStatus.ARCHIVED}),
+            new_status=MemoryCardStatus.PAUSED,
+            action="restore",
         )
 
     @application.get(
@@ -1592,6 +1719,60 @@ def create_app(
                 request_id=request.state.request_id,
                 items=[_version_projection(row) for row in page],
                 next_cursor=page[-1].id if len(rows) > 50 else None,
+            )
+
+    @application.get(
+        f"{API_PREFIX}/memories/{{memory_id}}/version-diff",
+        response_model=MemoryVersionDiffResponse,
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            422: {"model": ErrorEnvelope},
+        },
+    )
+    async def get_memory_version_diff(
+        request: Request,
+        memory_id: str = Path(pattern=MEMORY_ID_PATTERN),
+        from_version_id: str = Query(pattern=MEMORY_VERSION_ID_PATTERN),
+        to_version_id: str = Query(pattern=MEMORY_VERSION_ID_PATTERN),
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> MemoryVersionDiffResponse:
+        with session_scope(request.app.state.db_session_factory) as session:
+            card_repo = MemoryCardG4Repository(user_ctx, session)
+            if card_repo.get_detail(memory_id) is None:
+                raise _memory_not_found()
+            rows = list(
+                session.execute(
+                    select(MemoryVersionModel).where(
+                        and_(
+                            MemoryVersionModel.owner_id == user_ctx.user_id,
+                            MemoryVersionModel.memory_id == memory_id,
+                            MemoryVersionModel.id.in_([from_version_id, to_version_id]),
+                        )
+                    )
+                ).scalars()
+            )
+            by_id = {row.id: row for row in rows}
+            if from_version_id not in by_id or to_version_id not in by_id:
+                raise _memory_not_found()
+            before = by_id[from_version_id]
+            after = by_id[to_version_id]
+            changed_fields: list[str] = []
+            for public_name, attr_name in (
+                ("title", "title"),
+                ("rule", "rule"),
+                ("avoid", "avoid"),
+                ("trigger_text", "trigger_text"),
+                ("scope", "scope_json"),
+                ("exceptions", "exceptions_json"),
+            ):
+                if getattr(before, attr_name) != getattr(after, attr_name):
+                    changed_fields.append(public_name)
+            return MemoryVersionDiffResponse(
+                request_id=request.state.request_id,
+                from_version=_version_projection(before),
+                to_version=_version_projection(after),
+                changed_fields=changed_fields,
             )
 
     @application.get(
@@ -1722,7 +1903,7 @@ def create_app(
 
     @application.delete(
         f"{API_PREFIX}/memories/{{memory_id}}",
-        response_model=MemoryDetailResponse,
+        response_model=MemoryDeleteResponse,
         responses={
             401: {"model": ErrorEnvelope},
             404: {"model": ErrorEnvelope},
@@ -1758,15 +1939,20 @@ def create_app(
                 card = card_repo.get_detail(memory_id)
                 if card is None:
                     raise _memory_not_found()
-                # Candidate: expected version is None
-                expected_version_id = (
-                    body.expected_current_version_id
-                    if card.status != "candidate"
-                    else None
-                )
+                if card.current_version_id != body.expected_current_version_id:
+                    raise _memory_version_conflict()
+                if card.title != body.confirm_title:
+                    raise _error_response(
+                        request,
+                        status_code=409,
+                        code=ErrorCode.CONFIRMATION_MISMATCH,
+                        message="确认标题与当前 MemoryCard 标题不一致。",
+                    )
+                old_status = card.status
+                old_version_id = card.current_version_id
                 result = card_repo.permanent_delete(
                     memory_id=memory_id,
-                    expected_version_id=expected_version_id,
+                    expected_version_id=body.expected_current_version_id,
                     confirm_title=body.confirm_title,
                 )
                 event_seq = _allocate_memory_event_seq(session, user_ctx.user_id, memory_id)
@@ -1779,9 +1965,9 @@ def create_app(
                     metadata={
                         "memory_id": memory_id,
                         "action": "permanent_delete",
-                        "old_status": card.status,
+                        "old_status": old_status,
                         "new_status": "deleted",
-                        "version_id": card.current_version_id,
+                        "version_id": old_version_id,
                     },
                 )
                 session.flush()
@@ -1813,6 +1999,7 @@ def create_app(
 
     @application.delete(
         f"{API_PREFIX}/tasks/{{task_id}}",
+        response_model=TaskDeleteResponse,
         status_code=200,
         responses={
             401: {"model": ErrorEnvelope},
@@ -1898,37 +2085,103 @@ def create_app(
 
     @application.get(
         f"{API_PREFIX}/memories/{{memory_id}}/relations",
-        response_model=list[MemoryRelationProjection],
+        response_model=MemoryRelationListResponse,
         responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}},
     )
     async def get_memory_relations(
         request: Request,
         memory_id: str = Path(pattern=MEMORY_ID_PATTERN),
         user_ctx: UserContext = Depends(get_current_user),
-    ) -> list[MemoryRelationProjection]:
+        cursor: str | None = Query(default=None),
+    ) -> MemoryRelationListResponse:
         session_factory = request.app.state.db_session_factory
         with session_scope(session_factory) as session:
             card_repo = MemoryCardG4Repository(user_ctx, session)
-            relations = card_repo.list_relations(memory_id)
-            return [
-                MemoryRelationProjection(
-                    relation_id=rel.id,
-                    from_memory_id=rel.from_memory_id,
-                    to_memory_id=rel.to_memory_id,
-                    relation_type=rel.relation_type,
-                    status=rel.status,
-                    resolution_action=rel.resolution_action,
-                    resolution_memory_id=rel.resolution_memory_id,
-                    created_at=rel.created_at,
-                    resolved_at=rel.resolved_at,
+            if card_repo.get_detail(memory_id) is None:
+                raise _memory_not_found()
+            rows = MemoryRelationRepository(user_ctx, session).list_relations(
+                memory_id=memory_id,
+                cursor=cursor,
+            )
+            page = rows[:50]
+            return MemoryRelationListResponse(
+                request_id=request.state.request_id,
+                items=[_relation_projection(rel) for rel in page],
+                next_cursor=page[-1].id if len(rows) > 50 else None,
+            )
+
+    @application.get(
+        f"{API_PREFIX}/memory-conflicts",
+        response_model=MemoryRelationListResponse,
+        responses={401: {"model": ErrorEnvelope}},
+    )
+    async def list_memory_conflicts(
+        request: Request,
+        status_filter: Literal["unresolved", "resolved"] | None = Query(
+            default=None, alias="status"
+        ),
+        cursor: str | None = Query(default=None),
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> MemoryRelationListResponse:
+        with session_scope(request.app.state.db_session_factory) as session:
+            rows = ConflictRepository(user_ctx, session).list_conflicts(
+                status=status_filter,
+                cursor=cursor,
+            )
+            page = rows[:50]
+            return MemoryRelationListResponse(
+                request_id=request.state.request_id,
+                items=[_relation_projection(row) for row in page],
+                next_cursor=page[-1].id if len(rows) > 50 else None,
+            )
+
+    @application.get(
+        f"{API_PREFIX}/memory-conflicts/{{relation_id}}",
+        response_model=MemoryConflictDetailResponse,
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+        },
+    )
+    async def get_memory_conflict(
+        request: Request,
+        relation_id: str = Path(pattern=RELATION_ID_PATTERN),
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> MemoryConflictDetailResponse:
+        with session_scope(request.app.state.db_session_factory) as session:
+            relation = ConflictRepository(user_ctx, session).get(relation_id)
+            if relation is None:
+                raise _error_response(
+                    request,
+                    status_code=404,
+                    code=ErrorCode.MEMORY_RELATION_NOT_FOUND,
+                    message="冲突关系不存在或不属于当前用户。",
                 )
-                for rel in relations
-            ]
+            card_repo = MemoryCardG4Repository(user_ctx, session)
+            left = card_repo.get_detail(relation.from_memory_id)
+            right = card_repo.get_detail(relation.to_memory_id)
+            if left is None or right is None:
+                raise _error_response(
+                    request,
+                    status_code=404,
+                    code=ErrorCode.MEMORY_RELATION_NOT_FOUND,
+                    message="冲突关系不存在或不属于当前用户。",
+                )
+            return MemoryConflictDetailResponse(
+                request_id=request.state.request_id,
+                relation=_relation_projection(relation),
+                left=_card_projection(left),
+                right=_card_projection(right),
+            )
 
     @application.post(
         f"{API_PREFIX}/memory-conflicts",
         response_model=MemoryConflictDetectResponse,
-        responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}, 409: {"model": ErrorEnvelope}},
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            409: {"model": ErrorEnvelope},
+        },
     )
     async def detect_memory_conflict(
         request: Request,
@@ -1959,7 +2212,10 @@ def create_app(
                 right_card = card_repo.get_detail(body.right_memory_id)
                 if left_card is None or right_card is None:
                     raise _memory_not_found()
-                if left_card.owner_id != user_ctx.user_id or right_card.owner_id != user_ctx.user_id:
+                if (
+                    left_card.owner_id != user_ctx.user_id
+                    or right_card.owner_id != user_ctx.user_id
+                ):
                     raise _memory_not_found()
                 if body.left_expected_current_version_id != left_card.current_version_id:
                     raise _memory_version_conflict()
@@ -1980,6 +2236,15 @@ def create_app(
                         code=ErrorCode.MEMORY_MERGE_CONFLICT,
                         message="不能对同一 memory 创建冲突。",
                     )
+                left_scope = MemoryScope.model_validate_json(left_card.scope_json)
+                right_scope = MemoryScope.model_validate_json(right_card.scope_json)
+                if not _scope_overlap_v1(left_scope, right_scope):
+                    raise _error_response(
+                        request,
+                        status_code=409,
+                        code=ErrorCode.MEMORY_MERGE_CONFLICT,
+                        message="两端 scope 明确不重叠，不能创建冲突。",
+                    )
                 # Create canonical pair (left_memory_id < right_memory_id)
                 if body.left_memory_id > body.right_memory_id:
                     left_id, right_id = body.right_memory_id, body.left_memory_id
@@ -1987,31 +2252,32 @@ def create_app(
                     left_id, right_id = body.left_memory_id, body.right_memory_id
                 relation_id = new_prefixed_ulid("rel")
                 conflict_repo = ConflictRepository(user_ctx, session)
-                relation = conflict_repo.create_conflict(
+                conflict_repo.create_conflict(
                     relation_id=relation_id,
                     left_memory_id=left_id,
                     right_memory_id=right_id,
                 )
                 # Set both cards to conflicted
-                card_repo.set_status(body.left_memory_id, body.left_expected_current_version_id, "conflicted")
-                card_repo.set_status(body.right_memory_id, body.right_expected_current_version_id, "conflicted")
-                # Create supersedes relations for both
-                supersedes_id_1 = new_prefixed_ulid("rel")
-                supersedes_id_2 = new_prefixed_ulid("rel")
-                for src_id, tgt_id, rel_id in [
-                    (body.left_memory_id, body.right_memory_id, supersedes_id_1),
-                    (body.right_memory_id, body.left_memory_id, supersedes_id_2),
-                ]:
-                    session.add(
-                        MemoryRelationModel(
-                            id=rel_id,
-                            owner_id=user_ctx.user_id,
-                            from_memory_id=src_id,
-                            to_memory_id=tgt_id,
-                            relation_type="conflicts_with",
-                            status="unresolved",
-                            created_at=utc_now(),
-                        )
+                card_repo.set_status(
+                    body.left_memory_id, body.left_expected_current_version_id, "conflicted"
+                )
+                card_repo.set_status(
+                    body.right_memory_id, body.right_expected_current_version_id, "conflicted"
+                )
+                for memory_id in (left_id, right_id):
+                    TaskRepository(user_ctx, session).append_event(
+                        stream_type="memory",
+                        stream_id=memory_id,
+                        seq=_next_metadata_event_seq(
+                            session, user_ctx.user_id, "memory", memory_id
+                        ),
+                        event_type=EventType.MEMORY_CONFLICT_DETECTED.value,
+                        metadata={
+                            "relation_id": relation_id,
+                            "left_memory_id": left_id,
+                            "right_memory_id": right_id,
+                            "status": "unresolved",
+                        },
                     )
                 response_data = MemoryConflictDetectResponse(
                     request_id=request.state.request_id,
@@ -2093,18 +2359,19 @@ def create_app(
                 right_card = card_repo.get_detail(relation.to_memory_id)
                 if left_card is None or right_card is None:
                     raise _memory_not_found()
+                if left_card.status != "conflicted" or right_card.status != "conflicted":
+                    raise _memory_state_conflict("冲突两端当前必须保持 conflicted。")
                 if (
                     left_card.current_version_id != body.left_expected_current_version_id
                     or right_card.current_version_id != body.right_expected_current_version_id
                 ):
                     raise _memory_version_conflict()
-                resolved = conflict_repo.resolve(
-                    relation_id,
-                    action=body.action,
-                    resolution_memory_id=body.preferred_memory_id,
-                )
+                resolution_memory_id: str | None = None
                 if body.action == "prefer":
-                    if body.preferred_memory_id not in (relation.from_memory_id, relation.to_memory_id):
+                    if body.preferred_memory_id not in (
+                        relation.from_memory_id,
+                        relation.to_memory_id,
+                    ):
                         raise _error_response(
                             request,
                             status_code=409,
@@ -2112,13 +2379,30 @@ def create_app(
                             message="preferred_memory_id 必须是冲突两端之一。",
                         )
                     winner_id = body.preferred_memory_id
+                    resolution_memory_id = winner_id
                     loser_id = (
                         relation.to_memory_id
                         if body.preferred_memory_id == relation.from_memory_id
                         else relation.from_memory_id
                     )
-                    card_repo.set_status(winner_id, body.preferred_memory_id == relation.from_memory_id and body.left_expected_current_version_id or body.right_expected_current_version_id, "active")
-                    card_repo.set_status(loser_id, loser_id == relation.from_memory_id and body.left_expected_current_version_id or body.right_expected_current_version_id, "superseded")
+                    card_repo.set_status(
+                        winner_id,
+                        (
+                            body.left_expected_current_version_id
+                            if body.preferred_memory_id == relation.from_memory_id
+                            else body.right_expected_current_version_id
+                        ),
+                        "active",
+                    )
+                    card_repo.set_status(
+                        loser_id,
+                        (
+                            body.left_expected_current_version_id
+                            if loser_id == relation.from_memory_id
+                            else body.right_expected_current_version_id
+                        ),
+                        "superseded",
+                    )
                     supersedes_id = new_prefixed_ulid("rel")
                     session.add(
                         MemoryRelationModel(
@@ -2128,17 +2412,36 @@ def create_app(
                             to_memory_id=loser_id,
                             relation_type="supersedes",
                             status="resolved",
+                            resolved_at=utc_now(),
                             created_at=utc_now(),
                         )
                     )
                 elif body.action == "separate_scopes":
-                    for card_id, scope, ver_id in [
-                        (relation.from_memory_id, body.left_scope, body.left_expected_current_version_id),
-                        (relation.to_memory_id, body.right_scope, body.right_expected_current_version_id),
+                    assert body.left_scope is not None and body.right_scope is not None
+                    if _scope_overlap_v1(body.left_scope, body.right_scope):
+                        raise _error_response(
+                            request,
+                            status_code=409,
+                            code=ErrorCode.MEMORY_MERGE_CONFLICT,
+                            message="新的两个 scope 仍然重叠。",
+                        )
+                    for card_id, scope in [
+                        (
+                            relation.from_memory_id,
+                            body.left_scope,
+                        ),
+                        (
+                            relation.to_memory_id,
+                            body.right_scope,
+                        ),
                     ]:
-                        if scope is None:
-                            continue
-                        scope_json = json.dumps(scope, separators=(",", ":"), ensure_ascii=False)
+                        assert scope is not None
+                        scope_data = scope.model_dump(mode="json")
+                        scope_json = json.dumps(
+                            scope_data,
+                            separators=(",", ":"),
+                            ensure_ascii=False,
+                        )
                         card = card_repo.get_detail(card_id)
                         if card is None:
                             raise _memory_not_found()
@@ -2162,18 +2465,18 @@ def create_app(
                         )
                         card_repo._update(
                             card_id,
-                            scope_level=scope.get("level", card.scope_level),
-                            domain=scope.get("domain", card.domain),
-                            task_type=scope.get("task_type", card.task_type),
-                            artifact_type=scope.get("artifact_type", card.artifact_type),
-                            audience=scope.get("audience", card.audience),
-                            project_key=scope.get("project_key", card.project_key),
+                            scope_level=scope_data["level"],
+                            domain=scope_data["domain"],
+                            task_type=scope_data.get("task_type"),
+                            artifact_type=scope_data.get("artifact_type"),
+                            audience=scope_data.get("audience"),
+                            project_key=scope_data.get("project_key"),
                             scope_json=scope_json,
                             current_version_id=new_ver_id,
                             version=next_ver,
+                            status="active",
                             updated_at=utc_now(),
                         )
-                        card_repo.set_status(card_id, ver_id, "active")
                 elif body.action == "merge":
                     if body.merged_card is None:
                         raise _error_response(
@@ -2182,20 +2485,22 @@ def create_app(
                             code=ErrorCode.MEMORY_MERGE_CONFLICT,
                             message="merge action 需要 merged_card。",
                         )
-                    scope = body.merged_card.scope if body.merged_card else {}
+                    scope = body.merged_card.scope.model_dump(mode="json")
                     scope_json = json.dumps(scope, separators=(",", ":"), ensure_ascii=False)
                     exc_json = json.dumps(
-                        body.merged_card.exceptions if body.merged_card else [],
+                        [item.value for item in body.merged_card.exceptions],
                         separators=(",", ":"),
                         ensure_ascii=False,
                     )
                     merged_id = new_prefixed_ulid("mem")
+                    new_ver_id = new_prefixed_ulid("memver")
+                    resolution_memory_id = merged_id
                     new_card = MemoryCardModel(
                         id=merged_id,
                         owner_id=user_ctx.user_id,
                         status="active",
                         kind=body.merged_card.kind,
-                        source_type="import",
+                        source_type="accept",
                         save_preselected=False,
                         title=body.merged_card.title,
                         rule=body.merged_card.rule,
@@ -2209,16 +2514,17 @@ def create_app(
                         project_key=scope.get("project_key"),
                         scope_json=scope_json,
                         exceptions_json=exc_json,
-                        source_trust=0.50,
+                        source_trust=1.0,
                         rule_confidence=1.0,
                         scope_confidence=1.0,
                         evidence_count=0,
-                        version=0,
+                        version=1,
+                        current_version_id=new_ver_id,
+                        valid_from=utc_now(),
                         created_at=utc_now(),
                         updated_at=utc_now(),
                     )
                     session.add(new_card)
-                    new_ver_id = new_prefixed_ulid("memver")
                     session.add(
                         MemoryVersionModel(
                             id=new_ver_id,
@@ -2236,7 +2542,13 @@ def create_app(
                         )
                     )
                     for src_id in (relation.from_memory_id, relation.to_memory_id):
-                        card_repo.set_status(src_id, body.left_expected_current_version_id if src_id == relation.from_memory_id else body.right_expected_current_version_id, "merged")
+                        card_repo.set_status(
+                            src_id,
+                            body.left_expected_current_version_id
+                            if src_id == relation.from_memory_id
+                            else body.right_expected_current_version_id,
+                            "merged",
+                        )
                         merged_into_id = new_prefixed_ulid("rel")
                         session.add(
                             MemoryRelationModel(
@@ -2246,6 +2558,7 @@ def create_app(
                                 to_memory_id=merged_id,
                                 relation_type="merged_into",
                                 status="resolved",
+                                resolved_at=utc_now(),
                                 created_at=utc_now(),
                             )
                         )
@@ -2255,6 +2568,26 @@ def create_app(
                         (relation.to_memory_id, body.right_expected_current_version_id),
                     ]:
                         card_repo.set_status(card_id, ver_id, "paused")
+                conflict_repo.resolve(
+                    relation_id,
+                    action=body.action,
+                    resolution_memory_id=resolution_memory_id,
+                )
+                for memory_id in (relation.from_memory_id, relation.to_memory_id):
+                    TaskRepository(user_ctx, session).append_event(
+                        stream_type="memory",
+                        stream_id=memory_id,
+                        seq=_next_metadata_event_seq(
+                            session, user_ctx.user_id, "memory", memory_id
+                        ),
+                        event_type=EventType.MEMORY_CONFLICT_RESOLVED.value,
+                        metadata={
+                            "relation_id": relation_id,
+                            "action": body.action,
+                            "resolution_memory_id": resolution_memory_id,
+                            "status": "resolved",
+                        },
+                    )
                 session.flush()
                 response_data = MemoryConflictResolveResponse(
                     request_id=request.state.request_id,
@@ -2312,30 +2645,23 @@ def create_app(
                         status_code=existing.response_status,
                         content=json.loads(existing.response_json),
                     )
-                merge_repo = MemoryMergeRepository(user_ctx, session)
-                conflict_repo = ConflictRepository(user_ctx, session)
-                merged_id = new_prefixed_ulid("mem")
-                result = merge_repo.manual_merge(
-                    merged_memory_id=merged_id,
-                    left_memory_id=body.left_memory_id,
-                    right_memory_id=body.right_memory_id,
-                    merged_card_data=body.merged_card.model_dump(mode="json"),
-                )
-                # Add merged_into relations
-                for src_id in (body.left_memory_id, body.right_memory_id):
-                    merged_into_id = new_prefixed_ulid("rel")
-                    session.add(
-                        MemoryRelationModel(
-                            id=merged_into_id,
-                            owner_id=user_ctx.user_id,
-                            from_memory_id=src_id,
-                            to_memory_id=merged_id,
-                            relation_type="merged_into",
-                            status="resolved",
-                            created_at=utc_now(),
-                        )
-                    )
-                # Check for existing unresolved conflict between left/right
+                if body.left_memory_id == body.right_memory_id:
+                    raise _memory_state_conflict("不能合并同一张 MemoryCard。")
+                card_repo = MemoryCardG4Repository(user_ctx, session)
+                left = card_repo.get_detail(body.left_memory_id)
+                right = card_repo.get_detail(body.right_memory_id)
+                if left is None or right is None:
+                    raise _memory_not_found()
+                if (
+                    left.current_version_id != body.left_expected_current_version_id
+                    or right.current_version_id != body.right_expected_current_version_id
+                ):
+                    raise _memory_version_conflict()
+                if left.status not in {"active", "paused"} or right.status not in {
+                    "active",
+                    "paused",
+                }:
+                    raise _memory_state_conflict("只有 active 或 paused MemoryCard 可以合并。")
                 existing_conflict = session.execute(
                     select(MemoryRelationModel).where(
                         and_(
@@ -2360,8 +2686,17 @@ def create_app(
                         request,
                         status_code=409,
                         code=ErrorCode.MEMORY_MERGE_CONFLICT,
-                        message="两端存在未解决冲突，请先通过 /memory-conflicts/{id}/resolve 解决。",
+                        message=(
+                            "两端存在未解决冲突，请先通过 /memory-conflicts/{id}/resolve 解决。"
+                        ),
                     )
+                merged_id = new_prefixed_ulid("mem")
+                MemoryMergeRepository(user_ctx, session).manual_merge(
+                    merged_memory_id=merged_id,
+                    left_memory_id=body.left_memory_id,
+                    right_memory_id=body.right_memory_id,
+                    merged_card_data=body.merged_card.model_dump(mode="json"),
+                )
                 response_data = MemoryMergeResponse(
                     request_id=request.state.request_id,
                     merged_memory_id=merged_id,
@@ -2389,7 +2724,7 @@ def create_app(
 
     @application.post(
         f"{API_PREFIX}/memory-packs/export",
-        response_model=PackExportResponse,
+        response_model=MemoryPackDocument,
         responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}},
     )
     async def export_memory_pack(
@@ -2402,213 +2737,158 @@ def create_app(
             pack_repo = PackRepository(user_ctx, session)
             pack_id = new_prefixed_ulid("pack")
             name = body.name or f"memtrace-export-{pack_id[5:]}"
-            pack = pack_repo.export_memories(
-                pack_id=pack_id,
-                name=name,
-                description=body.description or "",
-                memory_ids=body.memory_ids,
-            )
-            return PackExportResponse(
-                request_id=request.state.request_id,
-                pack_id=pack["pack_id"],
-                name=pack["name"],
-                description=pack.get("description"),
-                created_at=pack["created_at"],
-                producer=pack["producer"],
-                card_count=len(pack["cards"]),
-                relation_count=len(pack["relations"]),
-                canonical_payload_sha256=pack["integrity"]["canonical_payload_sha256"],
+            try:
+                pack = pack_repo.export_memories(
+                    pack_id=pack_id,
+                    name=name,
+                    description=body.description or "",
+                    memory_ids=body.memory_ids,
+                )
+            except ValueError as exc:
+                raise _memory_not_found() from exc
+            if not pack["cards"]:
+                raise _memory_not_found()
+            payload = PackRepository.canonical_bytes(pack)
+            return Response(
+                content=payload,
+                media_type="application/json",
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="memtrace-{pack_id}.mempack.json"'
+                    )
+                },
             )
 
     @application.post(
         f"{API_PREFIX}/memory-packs/import/preview",
         response_model=PackPreviewResponse,
-        responses={401: {"model": ErrorEnvelope}, 413: {"model": ErrorEnvelope}, 422: {"model": ErrorEnvelope}},
+        responses={
+            401: {"model": ErrorEnvelope},
+            413: {"model": ErrorEnvelope},
+            422: {"model": ErrorEnvelope},
+        },
     )
     async def preview_memory_pack(
         request: Request,
         idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
         user_ctx: UserContext = Depends(get_current_user),
     ) -> Response:
-        # Simplified preview - basic file size check and JSON parse
         idem_key = validate_idempotency_key(idempotency_key_raw)
         path = f"{API_PREFIX}/memory-packs/import/preview"
         route = f"POST:{path}"
         factory = request.app.state.db_session_factory
+        body_bytes = await request.body()
+        req_hash = compute_request_hash(method="POST", path=path, body=body_bytes.hex())
         try:
-            body_bytes = await request.body()
-            if len(body_bytes) > PackRepository.MAX_PACK_SIZE:
-                raise _error_response(
-                    request,
-                    status_code=413,
-                    code=ErrorCode.MEMORY_PACK_TOO_LARGE,
-                    message=f"文件大小超过 {PackRepository.MAX_PACK_SIZE} 字节上限。",
-                )
-            try:
-                body_str = body_bytes.decode("utf-8")
-            except UnicodeDecodeError:
-                raise _error_response(
-                    request,
-                    status_code=422,
-                    code=ErrorCode.MEMORY_PACK_INVALID,
-                    message="文件必须为有效 UTF-8 编码。",
-                )
-            try:
-                pack_data = json.loads(body_str)
-            except json.JSONDecodeError as exc:
-                raise _error_response(
-                    request,
-                    status_code=422,
-                    code=ErrorCode.MEMORY_PACK_INVALID,
-                    message=f"无效 JSON: {exc}",
-                )
-            schema_ref = pack_data.get("schema_ref", "")
-            if not schema_ref.startswith("memtrace-memory-pack@"):
-                raise _error_response(
-                    request,
-                    status_code=422,
-                    code=ErrorCode.MEMORY_PACK_UNSUPPORTED_VERSION,
-                    message=f"不支持的 schema_ref: {schema_ref}",
-                )
-            cards = pack_data.get("cards", [])
-            if not isinstance(cards, list) or len(cards) == 0:
-                raise _error_response(
-                    request,
-                    status_code=422,
-                    code=ErrorCode.MEMORY_PACK_INVALID,
-                    message="pack 必须包含至少 1 张卡片。",
-                )
-            if len(cards) > PackRepository.MAX_CARDS:
-                raise _error_response(
-                    request,
-                    status_code=413,
-                    code=ErrorCode.MEMORY_PACK_TOO_LARGE,
-                    message=f"卡片数量超过 {PackRepository.MAX_CARDS} 上限。",
-                )
-            # Create batch and analyze items
             with session_scope(factory) as session:
                 session.execute(text("BEGIN IMMEDIATE"))
                 idem_repo = IdempotencyRepository(user_ctx, session)
                 existing = idem_repo.get_record(route, idem_key)
                 if existing is not None:
+                    if existing.request_hash != req_hash:
+                        raise _idempotency_conflict()
+                    locator = json.loads(existing.response_json)
+                    batch = ImportBatchRepository(user_ctx, session).get_batch(locator["batch_id"])
+                    if batch is None:
+                        raise ApiError(
+                            status_code=500,
+                            code=ErrorCode.INTERNAL_ERROR,
+                            message="预览幂等记录已失去批次。",
+                        )
                     return JSONResponse(
-                        status_code=existing.response_status,
-                        content=json.loads(existing.response_json),
+                        status_code=200,
+                        content=_pack_preview_response(
+                            request_id=locator["request_id"],
+                            batch=batch,
+                            secret=get_session_secret(resolved_settings),
+                        ),
                     )
-                file_hash = hashlib.sha256(body_bytes).hexdigest()
-                batch_id = new_prefixed_ulid("batch")
-                canonical_payload = json.dumps(
-                    {k: v for k, v in pack_data.items() if k != "integrity"},
-                    sort_keys=True,
-                    separators=(",", ":"),
-                    ensure_ascii=False,
-                )
-                canonical_hash = hashlib.sha256(canonical_payload.encode()).hexdigest()
-                integrity_hash = pack_data.get("integrity", {}).get("canonical_payload_sha256", "")
-                if integrity_hash and integrity_hash != canonical_hash:
-                    raise _error_response(
-                        request,
-                        status_code=422,
-                        code=ErrorCode.MEMORY_PACK_INTEGRITY_MISMATCH,
-                        message="Pack integrity hash 与内容不匹配。",
-                    )
-                # Analyze each card
-                import json as _json
                 pack_repo = PackRepository(user_ctx, session)
-                existing_cards = pack_repo._get_existing_cards_for_duplicate_check()
-                existing_hashes = {c["hash"] for c in existing_cards}
-                items = []
-                legal_new = 0
-                duplicates = 0
-                conflicts = 0
-                suspicious = 0
-                for card_data in cards:
-                    card_json = _json.dumps(card_data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-                    card_hash = hashlib.sha256(card_json.encode()).hexdigest()
-                    if card_hash in existing_hashes:
-                        items.append(
-                            PackPreviewItem(
-                                external_id=card_data.get("external_id", "unknown"),
-                                kind=card_data.get("kind", ""),
-                                title=card_data.get("title", ""),
-                                rule=card_data.get("rule", ""),
-                                avoid=card_data.get("avoid", ""),
-                                scope=card_data.get("scope", {}),
-                                classification="duplicate",
-                                reason="与现有卡片内容完全一致",
-                            )
-                        )
-                        duplicates += 1
-                    else:
-                        items.append(
-                            PackPreviewItem(
-                                external_id=card_data.get("external_id", "unknown"),
-                                kind=card_data.get("kind", ""),
-                                title=card_data.get("title", ""),
-                                rule=card_data.get("rule", ""),
-                                avoid=card_data.get("avoid", ""),
-                                scope=card_data.get("scope", {}),
-                                classification="legal_new",
-                                reason=None,
-                            )
-                        )
-                        legal_new += 1
-                batch_repo = ImportBatchRepository(user_ctx, session)
-                exp_ts = int((utc_now().timestamp() + 1800))
+                analysis = analyze_pack(body_bytes, pack_repo.existing_cards_for_preview())
+                counts = analysis.counts
+                batch_id = new_prefixed_ulid("batch")
+                expires_at = utc_now() + timedelta(
+                    seconds=resolved_settings.import_preview_ttl_seconds
+                )
+                exp_ts = _as_utc_timestamp(expires_at)
                 preview_token = PackRepository.encode_preview_token(
-                    get_session_secret(), batch_id, file_hash, exp_ts
+                    get_session_secret(resolved_settings),
+                    user_ctx.user_id,
+                    batch_id,
+                    analysis.file_hash,
+                    exp_ts,
                 )
-                preview_token_hash = hashlib.sha256(preview_token.encode()).hexdigest()
-                batch = batch_repo.create_batch(
-                    batch_id=batch_id,
-                    file_hash=file_hash,
-                    pack_name=pack_data.get("name"),
-                    format_version=pack_data.get("format_version"),
-                    canonical_payload_json=canonical_payload,
-                    preview_json=json.dumps(pack_data),
-                    preview_token_hash=preview_token_hash,
-                    expires_at=utc_now() + __import__('datetime').timedelta(minutes=30),
-                    legal_new_count=legal_new,
-                    duplicate_count=duplicates,
-                    conflict_count=conflicts,
-                    suspicious_count=suspicious,
-                )
-                session.flush()
-                response_data = PackPreviewResponse(
-                    request_id=request.state.request_id,
-                    batch_id=batch_id,
-                    pack_metadata={
-                        "name": pack_data.get("name"),
-                        "description": pack_data.get("description"),
-                        "format": pack_data.get("format"),
-                        "format_version": pack_data.get("format_version"),
-                        "producer": pack_data.get("producer"),
-                        "source": pack_data.get("source"),
+                preview_data = {
+                    "pack_metadata": {
+                        "name": analysis.pack["name"],
+                        "description": analysis.pack["description"],
+                        "format": analysis.pack["format"],
+                        "format_version": analysis.pack["format_version"],
+                        "producer": analysis.pack["producer"],
+                        "source": analysis.pack["source"],
                     },
-                    legal_new_count=legal_new,
-                    duplicate_count=duplicates,
-                    potential_conflict_count=conflicts,
-                    suspicious_count=suspicious,
-                    items=items,
-                    preview_token=preview_token,
-                ).model_dump(mode="json")
+                    "items": analysis.items,
+                    "frozen_legal_ids": [
+                        item["external_id"]
+                        for item in analysis.items
+                        if item["classification"] == "legal_new"
+                    ],
+                }
+                batch = ImportBatchRepository(user_ctx, session).create_batch(
+                    batch_id=batch_id,
+                    file_hash=analysis.file_hash,
+                    pack_name=analysis.pack["name"],
+                    format_version=analysis.pack["format_version"],
+                    canonical_payload_json=analysis.canonical_json,
+                    preview_json=json.dumps(
+                        preview_data, ensure_ascii=False, separators=(",", ":")
+                    ),
+                    preview_token_hash=hashlib.sha256(preview_token.encode()).hexdigest(),
+                    expires_at=expires_at,
+                    legal_new_count=counts["legal_new"],
+                    duplicate_count=counts["duplicate"],
+                    conflict_count=counts["potential_conflict"],
+                    suspicious_count=counts["suspicious"],
+                )
+                TaskRepository(user_ctx, session).append_event(
+                    stream_type="import",
+                    stream_id=batch_id,
+                    seq=1,
+                    event_type=EventType.MEMORY_PACK_PREVIEWED.value,
+                    metadata={"batch_id": batch_id, **counts, "expires_at": exp_ts},
+                )
+                response_data = _pack_preview_response(
+                    request_id=request.state.request_id,
+                    batch=batch,
+                    secret=get_session_secret(resolved_settings),
+                    token=preview_token,
+                )
                 idem_repo.save_record(
                     route=route,
                     key=idem_key,
                     request_hash=req_hash,
                     response_status=200,
-                    response_json=json.dumps(response_data),
+                    response_json=json.dumps(
+                        {"request_id": request.state.request_id, "batch_id": batch_id}
+                    ),
                     expires_at=utc_now() + SESSION_DURATION * 2,
                 )
-                session.flush()
         except IntegrityError:
-            return _replay_idempotent_response(
+            return _replay_pack_preview(
                 factory,
                 user_ctx,
-                route=route,
-                idem_key=idem_key,
-                req_hash=req_hash,
+                route,
+                idem_key,
+                req_hash,
+                get_session_secret(resolved_settings),
             )
+        except PackValidationError as exc:
+            raise _error_response(
+                request,
+                status_code=exc.status_code,
+                code=ErrorCode(exc.code),
+                message=exc.message,
+            ) from exc
         except ApiError:
             raise
         return JSONResponse(content=response_data, status_code=200)
@@ -2625,14 +2905,26 @@ def create_app(
     async def commit_memory_pack_import(
         request: Request,
         body: ImportCommitRequest,
+        idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
         user_ctx: UserContext = Depends(get_current_user),
     ) -> Response:
         path = f"{API_PREFIX}/memory-packs/import/commit"
         route = f"POST:{path}"
+        idem_key = validate_idempotency_key(idempotency_key_raw)
+        req_hash = compute_request_hash(method="POST", path=path, body=body.model_dump(mode="json"))
         factory = request.app.state.db_session_factory
         try:
             with session_scope(factory) as session:
                 session.execute(text("BEGIN IMMEDIATE"))
+                idem_repo = IdempotencyRepository(user_ctx, session)
+                existing_idem = idem_repo.get_record(route, idem_key)
+                if existing_idem is not None:
+                    if existing_idem.request_hash != req_hash:
+                        raise _idempotency_conflict()
+                    return JSONResponse(
+                        status_code=existing_idem.response_status,
+                        content=json.loads(existing_idem.response_json),
+                    )
                 batch_repo = ImportBatchRepository(user_ctx, session)
                 batch = batch_repo.get_batch(body.batch_id)
                 if batch is None:
@@ -2649,74 +2941,65 @@ def create_app(
                         code=ErrorCode.IMPORT_BATCH_STATE_CONFLICT,
                         message=f"批次状态为 {batch.status}，无法提交。",
                     )
-                if batch.expires_at and batch.expires_at < utc_now():
+                if _as_utc_timestamp(batch.expires_at) < _as_utc_timestamp(utc_now()):
+                    batch.status = "expired"
+                    batch.canonical_payload_json = None
+                    batch.preview_json = None
+                    batch.preview_token_hash = None
+                    batch.updated_at = utc_now()
+                    session.commit()
                     raise _error_response(
                         request,
                         status_code=409,
                         code=ErrorCode.IMPORT_BATCH_EXPIRED,
                         message="预览批次已过期，请重新预览。",
                     )
-                # Verify token
-                secret = get_session_secret()
-                token_info = PackRepository.decode_preview_token(secret, body.preview_token)
-                if token_info is None:
-                    raise _error_response(
-                        request,
-                        status_code=409,
-                        code=ErrorCode.IMPORT_PREVIEW_TOKEN_INVALID,
-                        message="预览 token 无效或已篡改。",
-                    )
-                batch_id_from_token, file_hash_from_token, _ = token_info
-                if batch_id_from_token != body.batch_id:
-                    raise _error_response(
-                        request,
-                        status_code=409,
-                        code=ErrorCode.IMPORT_PREVIEW_TOKEN_INVALID,
-                        message="预览 token 与批次不匹配。",
-                    )
-                if batch.file_hash != file_hash_from_token:
+                secret = get_session_secret(resolved_settings)
+                exp_ts = _as_utc_timestamp(batch.expires_at)
+                token_valid = PackRepository.verify_preview_token(
+                    secret,
+                    body.preview_token,
+                    user_ctx.user_id,
+                    body.batch_id,
+                    batch.file_hash,
+                    exp_ts,
+                )
+                token_hash_valid = secrets.compare_digest(
+                    hashlib.sha256(body.preview_token.encode()).hexdigest(),
+                    batch.preview_token_hash or "",
+                )
+                if not token_valid or not token_hash_valid:
                     raise _error_response(
                         request,
                         status_code=409,
                         code=ErrorCode.IMPORT_PREVIEW_TOKEN_INVALID,
                         message="预览 token 文件哈希不匹配。",
                     )
-                # Re-validate canonical payload and schema
-                if not batch.canonical_payload_json:
+                if not batch.canonical_payload_json or not batch.preview_json:
                     raise _error_response(
                         request,
                         status_code=409,
                         code=ErrorCode.IMPORT_BATCH_STATE_CONFLICT,
                         message="批次数据已清除，请重新预览。",
                     )
-                try:
-                    pack_data = json.loads(batch.canonical_payload_json)
-                except json.JSONDecodeError:
-                    raise _error_response(
-                        request,
-                        status_code=422,
-                        code=ErrorCode.MEMORY_PACK_INVALID,
-                        message="canonical payload 无效。",
-                    )
-                cards_data = pack_data.get("cards", [])
-                inserted = 0
-                skipped = 0
-                card_repo = MemoryCardG4Repository(user_ctx, session)
-                for card_data in cards_data:
-                    external_id = card_data.get("external_id")
-                    if not external_id:
-                        skipped += 1
-                        continue
-                    existing = session.execute(
-                        select(MemoryCardModel.id).where(
-                            and_(
-                                MemoryCardModel.owner_id == user_ctx.user_id,
-                                MemoryCardModel.id == external_id,
-                            )
-                        )
-                    ).scalar_one_or_none()
-                    if existing:
-                        skipped += 1
+                pack_repo = PackRepository(user_ctx, session)
+                analysis = analyze_pack(
+                    batch.canonical_payload_json.encode("utf-8"),
+                    pack_repo.existing_cards_for_preview(),
+                )
+                preview_data = json.loads(batch.preview_json)
+                frozen_legal = set(preview_data["frozen_legal_ids"])
+                current_legal = {
+                    item["external_id"]
+                    for item in analysis.items
+                    if item["classification"] == "legal_new"
+                }
+                import_ids = frozen_legal & current_legal
+                external_to_local: dict[str, str] = {}
+                now = utc_now()
+                for card_data in analysis.pack["cards"]:
+                    external_id = card_data["external_id"]
+                    if external_id not in import_ids:
                         continue
                     scope = card_data.get("scope", {})
                     scope_json = json.dumps(scope, separators=(",", ":"), ensure_ascii=False)
@@ -2725,7 +3008,9 @@ def create_app(
                         separators=(",", ":"),
                         ensure_ascii=False,
                     )
-                    memory_id = external_id
+                    memory_id = new_prefixed_ulid("mem")
+                    ver_id = new_prefixed_ulid("memver")
+                    external_to_local[external_id] = memory_id
                     card = MemoryCardModel(
                         id=memory_id,
                         owner_id=user_ctx.user_id,
@@ -2749,14 +3034,15 @@ def create_app(
                         rule_confidence=1.0,
                         scope_confidence=1.0,
                         evidence_count=0,
-                        version=0,
+                        version=1,
+                        current_version_id=ver_id,
+                        valid_from=now,
                         import_batch_id=body.batch_id,
                         import_source_version=card_data.get("version", 1),
-                        created_at=utc_now(),
-                        updated_at=utc_now(),
+                        created_at=now,
+                        updated_at=now,
                     )
                     session.add(card)
-                    ver_id = new_prefixed_ulid("memver")
                     session.add(
                         MemoryVersionModel(
                             id=ver_id,
@@ -2770,28 +3056,84 @@ def create_app(
                             scope_json=scope_json,
                             exceptions_json=exc_json,
                             created_by_action="import",
-                            created_at=utc_now(),
+                            created_at=now,
                         )
                     )
-                    inserted += 1
-                batch_repo.commit(body.batch_id, inserted, skipped)
                 session.flush()
+                for relation_data in analysis.pack["relations"]:
+                    source = external_to_local.get(relation_data["from_external_id"])
+                    target = external_to_local.get(relation_data["to_external_id"])
+                    if source is None or target is None:
+                        continue
+                    session.add(
+                        MemoryRelationModel(
+                            id=new_prefixed_ulid("rel"),
+                            owner_id=user_ctx.user_id,
+                            from_memory_id=source,
+                            to_memory_id=target,
+                            relation_type=relation_data["relation_type"],
+                            status="resolved",
+                            resolved_at=now,
+                            created_at=now,
+                        )
+                    )
+                inserted = len(external_to_local)
+                skipped = len(analysis.pack["cards"]) - inserted
+                batch_repo.commit(body.batch_id, inserted, skipped)
+                TaskRepository(user_ctx, session).append_event(
+                    stream_type="import",
+                    stream_id=body.batch_id,
+                    seq=2,
+                    event_type=EventType.MEMORY_PACK_COMMITTED.value,
+                    metadata={
+                        "batch_id": body.batch_id,
+                        "inserted_count": inserted,
+                        "skipped_count": skipped,
+                    },
+                )
                 response_data = ImportCommitResponse(
                     request_id=request.state.request_id,
                     batch_id=body.batch_id,
                     inserted_count=inserted,
                     skipped_count=skipped,
-                    warning_count=0,
+                    warning_count=skipped,
                 ).model_dump(mode="json")
+                idem_repo.save_record(
+                    route=route,
+                    key=idem_key,
+                    request_hash=req_hash,
+                    response_status=200,
+                    response_json=json.dumps(response_data),
+                    expires_at=utc_now() + SESSION_DURATION * 2,
+                )
+        except IntegrityError:
+            return _replay_idempotent_response(
+                factory, user_ctx, route=route, idem_key=idem_key, req_hash=req_hash
+            )
+        except PackValidationError as exc:
+            raise _error_response(
+                request,
+                status_code=exc.status_code,
+                code=ErrorCode(exc.code),
+                message=exc.message,
+            ) from exc
         except ApiError:
             raise
         except Exception as exc:
+            traceback_node = exc.__traceback__
+            while traceback_node is not None and traceback_node.tb_next is not None:
+                traceback_node = traceback_node.tb_next
+            logger.error(
+                "memory_pack.commit_failed type=%s line=%s",
+                type(exc).__name__,
+                traceback_node.tb_lineno if traceback_node is not None else 0,
+            )
             raise _error_response(
                 request,
                 status_code=500,
                 code=ErrorCode.INTERNAL_ERROR,
-                message=f"提交导入时发生错误: {exc}",
-            )
+                message="提交导入时发生内部错误。",
+            ) from None
         return JSONResponse(content=response_data, status_code=200)
 
     @application.get(
@@ -2906,6 +3248,9 @@ def _card_projection(card: MemoryCardModel) -> MemoryCard:
         harmful_count=card.harmful_count,
         stale_count=card.stale_count,
         last_used_at=card.last_used_at,
+        evidence_missing=card.evidence_missing,
+        import_batch_id=card.import_batch_id,
+        import_source_version=card.import_source_version,
         created_at=card.created_at,
         updated_at=card.updated_at,
     )
@@ -2940,11 +3285,26 @@ def _version_projection(version: MemoryVersionModel) -> MemoryVersionProjection:
     )
 
 
+def _relation_projection(relation: MemoryRelationModel) -> MemoryRelationProjection:
+    return MemoryRelationProjection(
+        relation_id=relation.id,
+        from_memory_id=relation.from_memory_id,
+        to_memory_id=relation.to_memory_id,
+        relation_type=relation.relation_type,
+        status=relation.status,
+        resolution_action=relation.resolution_action,
+        resolution_memory_id=relation.resolution_memory_id,
+        created_at=relation.created_at,
+        resolved_at=relation.resolved_at,
+    )
+
+
 def _resolved_card_values(card: MemoryCardModel, body: ResolveRequest) -> dict[str, object]:
     scope = MemoryScope.model_validate_json(card.scope_json)
     title = card.title
     rule = card.rule
     avoid = card.avoid
+    trigger_text = card.trigger_text
     exceptions = json.loads(card.exceptions_json)
     if body.action is ResolveAction.EDIT_ACCEPT:
         assert body.patch is not None
@@ -2954,6 +3314,8 @@ def _resolved_card_values(card: MemoryCardModel, body: ResolveRequest) -> dict[s
             rule = body.patch.rule
         if body.patch.avoid is not None:
             avoid = body.patch.avoid
+        if body.patch.trigger_text is not None:
+            trigger_text = body.patch.trigger_text
         if body.patch.scope is not None:
             scope = body.patch.scope
         if body.patch.exceptions is not None:
@@ -2963,7 +3325,7 @@ def _resolved_card_values(card: MemoryCardModel, body: ResolveRequest) -> dict[s
         "title": title,
         "rule": rule,
         "avoid": avoid,
-        "trigger_text": card.trigger_text,
+        "trigger_text": trigger_text,
         "scope_level": scope_json["level"],
         "domain": scope_json["domain"],
         "task_type": scope_json.get("task_type"),
@@ -3060,35 +3422,26 @@ def _memory_not_found() -> ApiError:
 
 
 def _allocate_memory_event_seq(session: Session, owner_id: str, stream_id: str) -> int:
-    """Allocate next event_seq for a memory/import stream."""
-    from memtrace_api.db_models import EventLogModel
+    return _next_metadata_event_seq(session, owner_id, "memory", stream_id)
 
-    next_value = session.execute(
-        update(EventLogModel.__table__)
-        .where(
+
+def _next_metadata_event_seq(
+    session: Session,
+    owner_id: str,
+    stream_type: str,
+    stream_id: str,
+) -> int:
+    """Allocate a stream-local sequence while the caller holds BEGIN IMMEDIATE."""
+    value = session.execute(
+        select(func.coalesce(func.max(EventLogModel.seq), 0)).where(
             and_(
                 EventLogModel.owner_id == owner_id,
-                EventLogModel.stream_type == "memory",
+                EventLogModel.stream_type == stream_type,
                 EventLogModel.stream_id == stream_id,
             )
         )
-        .values(seq=EventLogModel.seq + 1)
-        .returning(EventLogModel.seq)
-    ).scalar_one_or_none()
-    if next_value is None:
-        next_value = 1
-        session.add(
-            EventLogModel(
-                id=new_prefixed_ulid("evt"),
-                owner_id=owner_id,
-                stream_type="memory",
-                stream_id=stream_id,
-                seq=next_value,
-                event_type="memory.lifecycle.changed",
-                created_at=utc_now(),
-            )
-        )
-    return next_value
+    ).scalar_one()
+    return int(value) + 1
 
 
 def _memory_state_conflict(message: str) -> ApiError:
@@ -3117,6 +3470,29 @@ def _enforce_active_invariants(card: MemoryCardModel) -> None:
         raise _memory_state_conflict("MemoryCard 不满足 active 状态不变量。")
 
 
+def _scope_overlap_v1(left: MemoryScope, right: MemoryScope) -> bool:
+    left_data = left.model_dump(mode="json")
+    right_data = right.model_dump(mode="json")
+    for field in (
+        "domain",
+        "task_type",
+        "artifact_type",
+        "audience",
+        "project_key",
+        "language",
+        "framework",
+    ):
+        left_value = left_data.get(field)
+        right_value = right_data.get(field)
+        if (
+            left_value not in {None, "any"}
+            and right_value not in {None, "any"}
+            and left_value != right_value
+        ):
+            return False
+    return True
+
+
 def _active_edit_values(
     card: MemoryCardModel,
     body: ActiveMemoryEditRequest,
@@ -3125,6 +3501,7 @@ def _active_edit_values(
     title = card.title
     rule = card.rule
     avoid = card.avoid
+    trigger_text = card.trigger_text
     exceptions = json.loads(card.exceptions_json)
     if body.patch.title is not None:
         title = body.patch.title
@@ -3132,6 +3509,8 @@ def _active_edit_values(
         rule = body.patch.rule
     if body.patch.avoid is not None:
         avoid = body.patch.avoid
+    if body.patch.trigger_text is not None:
+        trigger_text = body.patch.trigger_text
     if body.patch.scope is not None:
         scope = body.patch.scope
     if body.patch.exceptions is not None:
@@ -3141,7 +3520,7 @@ def _active_edit_values(
         "title": title,
         "rule": rule,
         "avoid": avoid,
-        "trigger_text": card.trigger_text,
+        "trigger_text": trigger_text,
         "scope_level": scope_data["level"],
         "domain": scope_data["domain"],
         "task_type": scope_data.get("task_type"),
@@ -3163,6 +3542,191 @@ def _idempotency_conflict() -> ApiError:
         code=ErrorCode.IDEMPOTENCY_CONFLICT,
         message="Idempotency-Key 已用于不同的请求载荷。",
     )
+
+
+def _memory_cursor_filter_hash(filters: MemoryListFilter) -> str:
+    payload = filters.model_dump(mode="json", exclude={"cursor"})
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _encode_memory_cursor(filters: MemoryListFilter, card: MemoryCardModel) -> str:
+    sort_value: datetime | str | None
+    if filters.sort == "title_asc":
+        sort_value = card.title
+    elif filters.sort == "created_desc":
+        sort_value = card.created_at
+    elif filters.sort == "last_used_desc":
+        sort_value = card.last_used_at
+    else:
+        sort_value = card.updated_at
+    if isinstance(sort_value, datetime):
+        if sort_value.tzinfo is None:
+            sort_value = sort_value.replace(tzinfo=UTC)
+        encoded_value: str | None = sort_value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    else:
+        encoded_value = sort_value
+    payload = {
+        "v": 1,
+        "f": _memory_cursor_filter_hash(filters),
+        "s": filters.sort,
+        "k": encoded_value,
+        "i": card.id,
+    }
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _decode_memory_cursor(
+    filters: MemoryListFilter,
+) -> tuple[datetime | str | None, str | None]:
+    if filters.cursor is None:
+        return None, None
+    try:
+        padding = "=" * (-len(filters.cursor) % 4)
+        raw = base64.urlsafe_b64decode(filters.cursor + padding)
+        payload = json.loads(raw)
+        if not isinstance(payload, dict) or set(payload) != {"v", "f", "s", "k", "i"}:
+            raise ValueError("shape")
+        if payload["v"] != 1 or payload["s"] != filters.sort:
+            raise ValueError("version or sort")
+        if payload["f"] != _memory_cursor_filter_hash(filters):
+            raise ValueError("filter")
+        memory_id = payload["i"]
+        if not isinstance(memory_id, str) or re.fullmatch(MEMORY_ID_PATTERN, memory_id) is None:
+            raise ValueError("memory id")
+        value = payload["k"]
+        if filters.sort == "title_asc":
+            if not isinstance(value, str):
+                raise ValueError("title")
+            return value, memory_id
+        if filters.sort == "last_used_desc" and value is None:
+            return None, memory_id
+        if not isinstance(value, str):
+            raise ValueError("datetime")
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            raise ValueError("timezone")
+        return parsed.astimezone(UTC), memory_id
+    except (
+        binascii.Error,
+        UnicodeDecodeError,
+        ValueError,
+        TypeError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise ApiError(
+            status_code=422,
+            code=ErrorCode.INVALID_CURSOR,
+            message="Memory Center cursor 无效或与当前筛选条件不匹配。",
+        ) from exc
+
+
+def _as_utc_timestamp(value: datetime) -> int:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return int(value.astimezone(UTC).timestamp())
+
+
+def _error_response(
+    request: Request,
+    *,
+    status_code: int,
+    code: ErrorCode,
+    message: str,
+    retryable: bool = False,
+    details: dict[str, object] | None = None,
+) -> ApiError:
+    """Create a typed API error; the installed handler renders the JSON envelope."""
+    return ApiError(
+        status_code=status_code,
+        code=code,
+        message=message,
+        retryable=retryable,
+        details=details,
+    )
+
+
+def _pack_preview_response(
+    *,
+    request_id: str,
+    batch: ImportBatchModel,
+    secret: str,
+    token: str | None = None,
+) -> dict[str, object]:
+    if batch.status != "quarantined" or not batch.preview_json:
+        raise ApiError(
+            status_code=409,
+            code=ErrorCode.IMPORT_BATCH_STATE_CONFLICT,
+            message="预览批次已不可重放。",
+        )
+    preview = json.loads(batch.preview_json)
+    items = preview["items"]
+    counts = {
+        name: sum(item["classification"] == name for item in items)
+        for name in ("legal_new", "duplicate", "potential_conflict", "suspicious")
+    }
+    if token is None:
+        token = PackRepository.encode_preview_token(
+            secret,
+            batch.owner_id,
+            batch.id,
+            batch.file_hash,
+            _as_utc_timestamp(batch.expires_at),
+        )
+        if not secrets.compare_digest(
+            hashlib.sha256(token.encode()).hexdigest(), batch.preview_token_hash or ""
+        ):
+            raise ApiError(
+                status_code=409,
+                code=ErrorCode.IMPORT_PREVIEW_TOKEN_INVALID,
+                message="会话密钥已变化，请重新预览 Memory Pack。",
+            )
+    return PackPreviewResponse(
+        request_id=request_id,
+        batch_id=batch.id,
+        pack_metadata=preview["pack_metadata"],
+        legal_new_count=counts["legal_new"],
+        duplicate_count=counts["duplicate"],
+        potential_conflict_count=counts["potential_conflict"],
+        suspicious_count=counts["suspicious"],
+        items=[PackPreviewItem.model_validate(item) for item in items],
+        preview_token=token,
+    ).model_dump(mode="json")
+
+
+def _replay_pack_preview(
+    session_factory: sessionmaker[Session],
+    user_ctx: UserContext,
+    route: str,
+    idem_key: str,
+    req_hash: str,
+    secret: str,
+) -> JSONResponse:
+    with session_scope(session_factory) as session:
+        record = IdempotencyRepository(user_ctx, session).get_record(route, idem_key)
+        if record is None:
+            raise ApiError(
+                status_code=500,
+                code=ErrorCode.INTERNAL_ERROR,
+                message="预览幂等竞态后未找到记录。",
+            )
+        if record.request_hash != req_hash:
+            raise _idempotency_conflict()
+        locator = json.loads(record.response_json)
+        batch = ImportBatchRepository(user_ctx, session).get_batch(locator["batch_id"])
+        if batch is None:
+            raise ApiError(
+                status_code=500,
+                code=ErrorCode.INTERNAL_ERROR,
+                message="预览批次不可恢复。",
+            )
+        return JSONResponse(
+            status_code=record.response_status,
+            content=_pack_preview_response(
+                request_id=locator["request_id"], batch=batch, secret=secret
+            ),
+        )
 
 
 def _replay_idempotent_response(

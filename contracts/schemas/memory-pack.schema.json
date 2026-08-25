@@ -237,7 +237,7 @@
           },
           "relation_type": {
             "type": "string",
-            "enum": ["duplicate_of", "reinforces", "conflicts_with", "supersedes", "merged_into", "related_to"]
+            "enum": ["duplicate_of", "reinforces", "conflicts_with", "supersedes", "merged_into"]
           }
         }
       }
@@ -284,16 +284,16 @@
           "enum": ["programming_learning", "software_development", "general_text", "other", "any"]
         },
         "task_type": {
-          "type": "string",
-          "enum": ["debugging_guidance", "code_review", "code_explanation", "code_generation", "environment_configuration", "general_question", "other", "any"]
+          "type": ["string", "null"],
+          "enum": ["debugging_guidance", "code_review", "code_explanation", "code_generation", "environment_configuration", "general_question", "other", "any", null]
         },
         "artifact_type": {
-          "type": "string",
-          "enum": ["source_code", "configuration", "text", "none", "other", "any"]
+          "type": ["string", "null"],
+          "enum": ["source_code", "configuration", "text", "none", "other", "any", null]
         },
         "audience": {
-          "type": "string",
-          "enum": ["beginner", "intermediate", "advanced", "unknown", "any"]
+          "type": ["string", "null"],
+          "enum": ["beginner", "intermediate", "advanced", "unknown", "any", null]
         },
         "project_key": {
           "type": ["string", "null"],
@@ -301,7 +301,7 @@
         },
         "language": {
           "type": ["string", "null"],
-          "enum": ["python", "javascript", "typescript", "java", "c", "cpp", "rust", "go", "other", "unknown", "any"]
+          "enum": ["python", "javascript", "typescript", "java", "c", "cpp", "rust", "go", "other", "unknown", "any", null]
         },
         "framework": {
           "type": ["string", "null"]

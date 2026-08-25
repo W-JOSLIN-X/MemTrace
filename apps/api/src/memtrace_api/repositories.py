@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import secrets
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import and_, func, or_, select, update
@@ -215,6 +216,7 @@ class TaskRepository:
                 and_(
                     TaskModel.id == task_id,
                     TaskModel.owner_id == self.user_ctx.user_id,
+                    TaskModel.status != "deleted",
                 )
             )
         ).scalar_one_or_none()
@@ -1023,8 +1025,7 @@ def _rfc8785_canonical_bytes(data: dict[str, Any]) -> bytes:
     """
     import rfc8785
 
-    # rfc8785.dumps returns a str; encode to UTF-8 bytes
-    return rfc8785.dumps(data).encode("utf-8")
+    return rfc8785.dumps(data)
 
 
 def _sha256_hex(data: bytes) -> str:
@@ -1088,7 +1089,8 @@ class MemoryCardG4Repository(MemoryCardRepository):
         source_type: str | None = None,
         used_after: datetime | None = None,
         sort: str = "updated_desc",
-        cursor: str | None = None,
+        cursor_value: datetime | str | None = None,
+        cursor_id: str | None = None,
         limit: int = 51,
     ) -> list[MemoryCardModel]:
         q = select(MemoryCardModel).where(self._q())
@@ -1106,36 +1108,50 @@ class MemoryCardG4Repository(MemoryCardRepository):
             q = q.where(MemoryCardModel.last_used_at >= used_after)
         if query:
             norm = _query_token(query)
-            parts = norm.split()
-            conds: list[Any] = []
-            for p in parts:
-                conds.append(func.lower(MemoryCardModel.title).like(func.lower(f"%{p}%")))
-                conds.append(func.lower(MemoryCardModel.rule).like(func.lower(f"%{p}%")))
-                conds.append(func.lower(MemoryCardModel.trigger_text).like(func.lower(f"%{p}%")))
-            q = q.where(and_(*conds))
-        sort_map: dict[str, Any] = {
-            "updated_desc": MemoryCardModel.updated_at.desc(),
-            "created_desc": MemoryCardModel.created_at.desc(),
-            "last_used_desc": MemoryCardModel.last_used_at.desc(),
-            "title_asc": MemoryCardModel.title.asc(),
-        }
-        order = sort_map.get(sort, MemoryCardModel.updated_at.desc())
-        if cursor:
+            pattern = f"%{norm}%"
+            q = q.where(
+                or_(
+                    func.memtrace_nfkc_cf(MemoryCardModel.title).like(pattern),
+                    func.memtrace_nfkc_cf(MemoryCardModel.rule).like(pattern),
+                    func.memtrace_nfkc_cf(MemoryCardModel.trigger_text).like(pattern),
+                )
+            )
+        sort_column = {
+            "updated_desc": MemoryCardModel.updated_at,
+            "created_desc": MemoryCardModel.created_at,
+            "last_used_desc": MemoryCardModel.last_used_at,
+            "title_asc": MemoryCardModel.title,
+        }[sort]
+        if cursor_id is not None:
             if sort == "title_asc":
-                q = q.where(MemoryCardModel.title > cursor)
-            elif sort == "last_used_desc":
+                assert isinstance(cursor_value, str)
                 q = q.where(
                     or_(
-                        MemoryCardModel.last_used_at < cursor,
-                        and_(
-                            MemoryCardModel.last_used_at == cursor,
-                            MemoryCardModel.id > cursor,
-                        ),
+                        sort_column > cursor_value,
+                        and_(sort_column == cursor_value, MemoryCardModel.id > cursor_id),
                     )
                 )
+            elif sort == "last_used_desc":
+                if cursor_value is None:
+                    q = q.where(and_(sort_column.is_(None), MemoryCardModel.id > cursor_id))
+                else:
+                    q = q.where(
+                        or_(
+                            sort_column < cursor_value,
+                            sort_column.is_(None),
+                            and_(sort_column == cursor_value, MemoryCardModel.id > cursor_id),
+                        )
+                    )
             else:
-                q = q.where(MemoryCardModel.updated_at < cursor)
-        q = q.order_by(order, MemoryCardModel.id.asc()).limit(limit)
+                assert isinstance(cursor_value, datetime)
+                q = q.where(
+                    or_(
+                        sort_column < cursor_value,
+                        and_(sort_column == cursor_value, MemoryCardModel.id > cursor_id),
+                    )
+                )
+        direction = sort_column.asc() if sort == "title_asc" else sort_column.desc()
+        q = q.order_by(direction, MemoryCardModel.id.asc()).limit(limit)
         return list(self.session.execute(q).scalars().all())
 
     # ── G4 detail / versions / usages / relations ──────────────────────────
@@ -1272,36 +1288,77 @@ class MemoryCardG4Repository(MemoryCardRepository):
             .scalars()
             .all()
         ]
-        # 1. Delete versions
-        self.session.execute(
-            MemoryVersionModel.__table__.delete().where(MemoryVersionModel.memory_id == memory_id)
+        version_ids = list(
+            self.session.execute(
+                select(MemoryVersionModel.id).where(
+                    and_(
+                        MemoryVersionModel.owner_id == self.user_ctx.user_id,
+                        MemoryVersionModel.memory_id == memory_id,
+                    )
+                )
+            ).scalars()
         )
-        # 2. Delete relations
-        self.session.execute(
-            MemoryRelationModel.__table__.delete().where(
-                MemoryRelationModel.from_memory_id == memory_id
+        usage_ids = list(
+            self.session.execute(
+                select(MemoryUsageModel.id).where(
+                    and_(
+                        MemoryUsageModel.owner_id == self.user_ctx.user_id,
+                        MemoryUsageModel.memory_id == memory_id,
+                    )
+                )
+            ).scalars()
+        )
+        if usage_ids:
+            self.session.execute(
+                MemoryVerificationJobModel.__table__.delete().where(
+                    and_(
+                        MemoryVerificationJobModel.owner_id == self.user_ctx.user_id,
+                        MemoryVerificationJobModel.memory_usage_id.in_(usage_ids),
+                    )
+                )
             )
-        )
         self.session.execute(
-            MemoryRelationModel.__table__.delete().where(
-                MemoryRelationModel.to_memory_id == memory_id
-            )
-        )
-        # 3. Delete retrieval decisions/traces/usages
-        for tbl in (RetrievalDecisionModel, RetrievalTraceModel, MemoryUsageModel):
-            self.session.execute(tbl.__table__.delete().where(tbl.memory_id == memory_id))
-        # 4. Delete verification jobs
-        self.session.execute(
-            MemoryVerificationJobModel.__table__.delete().where(
-                MemoryVerificationJobModel.memory_usage_id.in_(
-                    select(MemoryUsageModel.id).where(MemoryUsageModel.memory_id == memory_id)
+            MemoryUsageModel.__table__.delete().where(
+                and_(
+                    MemoryUsageModel.owner_id == self.user_ctx.user_id,
+                    MemoryUsageModel.memory_id == memory_id,
                 )
             )
         )
-        # 5. Delete evidence links + orphan evidence
+        self.session.execute(
+            RetrievalDecisionModel.__table__.delete().where(
+                and_(
+                    RetrievalDecisionModel.owner_id == self.user_ctx.user_id,
+                    RetrievalDecisionModel.memory_id == memory_id,
+                )
+            )
+        )
+        self.session.execute(
+            MemoryRelationModel.__table__.delete().where(
+                and_(
+                    MemoryRelationModel.owner_id == self.user_ctx.user_id,
+                    or_(
+                        MemoryRelationModel.from_memory_id == memory_id,
+                        MemoryRelationModel.to_memory_id == memory_id,
+                        MemoryRelationModel.resolution_memory_id == memory_id,
+                    ),
+                )
+            )
+        )
+        self.session.execute(
+            MemoryVersionModel.__table__.delete().where(
+                and_(
+                    MemoryVersionModel.owner_id == self.user_ctx.user_id,
+                    MemoryVersionModel.memory_id == memory_id,
+                )
+            )
+        )
         self.session.execute(
             MemoryEvidenceLinkModel.__table__.delete().where(
-                MemoryEvidenceLinkModel.memory_id == memory_id
+                and_(
+                    MemoryEvidenceLinkModel.owner_id == self.user_ctx.user_id,
+                    MemoryEvidenceLinkModel.memory_id == memory_id,
+                )
             )
         )
         for eid in linked_ids:
@@ -1310,9 +1367,36 @@ class MemoryCardG4Repository(MemoryCardRepository):
             ).scalar_one_or_none()
             if remaining is None:
                 self.session.execute(
-                    MemoryEvidenceModel.__table__.delete().where(MemoryEvidenceModel.id == eid)
+                    MemoryEvidenceModel.__table__.delete().where(
+                        and_(
+                            MemoryEvidenceModel.id == eid,
+                            MemoryEvidenceModel.owner_id == self.user_ctx.user_id,
+                        )
+                    )
                 )
-        # 6. Tombstone card
+        resource_ids = [memory_id, *version_ids, *usage_ids, *linked_ids]
+        _clear_idempotency_snapshots(self.session, self.user_ctx.user_id, resource_ids)
+        self.session.execute(
+            update(ImportBatchModel)
+            .where(
+                and_(
+                    ImportBatchModel.owner_id == self.user_ctx.user_id,
+                    ImportBatchModel.status == "quarantined",
+                    or_(
+                        ImportBatchModel.canonical_payload_json.like(f"%{memory_id}%"),
+                        ImportBatchModel.preview_json.like(f"%{memory_id}%"),
+                    ),
+                )
+            )
+            .values(
+                status="cancelled",
+                canonical_payload_json=None,
+                preview_json=None,
+                preview_token_hash=None,
+                error_message="RESOURCE_DELETED",
+                updated_at=now,
+            )
+        )
         self._update(
             memory_id,
             status="deleted",
@@ -1327,12 +1411,12 @@ class MemoryCardG4Repository(MemoryCardRepository):
             artifact_type=None,
             audience=None,
             project_key=None,
-            scope_json="{}",
-            exceptions_json="[]",
+            scope_json=None,
+            exceptions_json=None,
             source_type=None,
             save_preselected=False,
             rejection_reason=None,
-            source_trust=0.0,
+            source_trust=None,
             rule_confidence=None,
             scope_confidence=None,
             evidence_count=0,
@@ -1359,32 +1443,215 @@ class MemoryCardG4Repository(MemoryCardRepository):
     # ── source task delete ──────────────────────────────────────────────────
 
     def delete_source_task(self, task_id: str) -> dict[str, Any]:
-        affected_card_ids = [
-            r[0]
-            for r in self.session.execute(
-                select(MemoryCardModel.id).where(MemoryCardModel.owner_id == self.user_ctx.user_id)
-            ).all()
-        ]
-        _clear_idempotency_snapshots(
-            self.session, self.user_ctx.user_id, [task_id] + affected_card_ids
+        task = self.session.execute(
+            select(TaskModel).where(
+                and_(
+                    TaskModel.id == task_id,
+                    TaskModel.owner_id == self.user_ctx.user_id,
+                    TaskModel.status != "deleted",
+                )
+            )
+        ).scalar_one_or_none()
+        if task is None:
+            raise ValueError("TASK_NOT_FOUND")
+        evidence_ids = list(
+            self.session.execute(
+                select(MemoryEvidenceModel.id).where(
+                    and_(
+                        MemoryEvidenceModel.owner_id == self.user_ctx.user_id,
+                        MemoryEvidenceModel.task_id == task_id,
+                    )
+                )
+            ).scalars()
         )
-        evidence_missing_count = 0
-        for cid in affected_card_ids:
-            has_links = self.session.execute(
-                select(MemoryEvidenceLinkModel.id).where(MemoryEvidenceLinkModel.memory_id == cid)
-            ).scalar_one_or_none()
-            if has_links is None:
+        affected_card_ids: list[str] = []
+        if evidence_ids:
+            affected_card_ids = list(
                 self.session.execute(
-                    update(MemoryCardModel)
+                    select(MemoryEvidenceLinkModel.memory_id)
                     .where(
                         and_(
-                            MemoryCardModel.id == cid,
-                            MemoryCardModel.owner_id == self.user_ctx.user_id,
+                            MemoryEvidenceLinkModel.owner_id == self.user_ctx.user_id,
+                            MemoryEvidenceLinkModel.evidence_id.in_(evidence_ids),
                         )
                     )
-                    .values(evidence_missing=True)
+                    .distinct()
+                ).scalars()
+            )
+        run_ids = list(
+            self.session.execute(
+                select(AgentRunModel.id).where(
+                    and_(
+                        AgentRunModel.owner_id == self.user_ctx.user_id,
+                        AgentRunModel.task_id == task_id,
+                    )
                 )
-                evidence_missing_count += 1
+            ).scalars()
+        )
+        feedback_ids = list(
+            self.session.execute(
+                select(FeedbackEventModel.id).where(
+                    and_(
+                        FeedbackEventModel.owner_id == self.user_ctx.user_id,
+                        FeedbackEventModel.task_id == task_id,
+                    )
+                )
+            ).scalars()
+        )
+        job_ids: list[str] = []
+        if feedback_ids:
+            job_ids = list(
+                self.session.execute(
+                    select(MemoryJobModel.id).where(
+                        and_(
+                            MemoryJobModel.owner_id == self.user_ctx.user_id,
+                            MemoryJobModel.feedback_id.in_(feedback_ids),
+                        )
+                    )
+                ).scalars()
+            )
+        usage_ids = list(
+            self.session.execute(
+                select(MemoryUsageModel.id).where(
+                    and_(
+                        MemoryUsageModel.owner_id == self.user_ctx.user_id,
+                        MemoryUsageModel.task_id == task_id,
+                    )
+                )
+            ).scalars()
+        )
+        trace_ids = list(
+            self.session.execute(
+                select(RetrievalTraceModel.id).where(
+                    and_(
+                        RetrievalTraceModel.owner_id == self.user_ctx.user_id,
+                        RetrievalTraceModel.task_id == task_id,
+                    )
+                )
+            ).scalars()
+        )
+        if usage_ids:
+            self.session.execute(
+                MemoryVerificationJobModel.__table__.delete().where(
+                    and_(
+                        MemoryVerificationJobModel.owner_id == self.user_ctx.user_id,
+                        MemoryVerificationJobModel.memory_usage_id.in_(usage_ids),
+                    )
+                )
+            )
+        self.session.execute(
+            MemoryUsageModel.__table__.delete().where(
+                and_(
+                    MemoryUsageModel.owner_id == self.user_ctx.user_id,
+                    MemoryUsageModel.task_id == task_id,
+                )
+            )
+        )
+        if trace_ids:
+            self.session.execute(
+                RetrievalDecisionModel.__table__.delete().where(
+                    and_(
+                        RetrievalDecisionModel.owner_id == self.user_ctx.user_id,
+                        RetrievalDecisionModel.retrieval_trace_id.in_(trace_ids),
+                    )
+                )
+            )
+            self.session.execute(
+                RetrievalTraceModel.__table__.delete().where(
+                    and_(
+                        RetrievalTraceModel.owner_id == self.user_ctx.user_id,
+                        RetrievalTraceModel.id.in_(trace_ids),
+                    )
+                )
+            )
+        if evidence_ids:
+            self.session.execute(
+                MemoryEvidenceLinkModel.__table__.delete().where(
+                    and_(
+                        MemoryEvidenceLinkModel.owner_id == self.user_ctx.user_id,
+                        MemoryEvidenceLinkModel.evidence_id.in_(evidence_ids),
+                    )
+                )
+            )
+            self.session.execute(
+                MemoryEvidenceModel.__table__.delete().where(
+                    and_(
+                        MemoryEvidenceModel.owner_id == self.user_ctx.user_id,
+                        MemoryEvidenceModel.id.in_(evidence_ids),
+                    )
+                )
+            )
+        if job_ids:
+            self.session.execute(
+                update(MemoryCardModel)
+                .where(
+                    and_(
+                        MemoryCardModel.owner_id == self.user_ctx.user_id,
+                        MemoryCardModel.memory_job_id.in_(job_ids),
+                    )
+                )
+                .values(memory_job_id=None, evidence_missing=True)
+            )
+            self.session.execute(
+                MemoryJobModel.__table__.delete().where(
+                    and_(
+                        MemoryJobModel.owner_id == self.user_ctx.user_id,
+                        MemoryJobModel.id.in_(job_ids),
+                    )
+                )
+            )
+        self.session.execute(
+            FeedbackEventModel.__table__.delete().where(
+                and_(
+                    FeedbackEventModel.owner_id == self.user_ctx.user_id,
+                    FeedbackEventModel.task_id == task_id,
+                )
+            )
+        )
+        for table_model in (MessageModel, ToolCallModel, TaskFingerprintModel):
+            self.session.execute(
+                table_model.__table__.delete().where(
+                    and_(
+                        table_model.owner_id == self.user_ctx.user_id,
+                        table_model.task_id == task_id,
+                    )
+                )
+            )
+        for card_id in affected_card_ids:
+            remaining_count = self.session.execute(
+                select(func.count(MemoryEvidenceLinkModel.id)).where(
+                    and_(
+                        MemoryEvidenceLinkModel.owner_id == self.user_ctx.user_id,
+                        MemoryEvidenceLinkModel.memory_id == card_id,
+                    )
+                )
+            ).scalar_one()
+            self.session.execute(
+                update(MemoryCardModel)
+                .where(
+                    and_(
+                        MemoryCardModel.id == card_id,
+                        MemoryCardModel.owner_id == self.user_ctx.user_id,
+                        MemoryCardModel.status != "deleted",
+                    )
+                )
+                .values(evidence_count=remaining_count, evidence_missing=True, updated_at=utc_now())
+            )
+        _clear_idempotency_snapshots(
+            self.session,
+            self.user_ctx.user_id,
+            [
+                task_id,
+                *run_ids,
+                *feedback_ids,
+                *job_ids,
+                *evidence_ids,
+                *usage_ids,
+                *trace_ids,
+                *affected_card_ids,
+            ],
+        )
+        now = utc_now()
         self.session.execute(
             update(TaskModel)
             .where(
@@ -1396,16 +1663,17 @@ class MemoryCardG4Repository(MemoryCardRepository):
             .values(
                 status="deleted",
                 task_text="",
-                deleted_at=utc_now(),
+                deleted_at=now,
+                deleted_by="owner",
                 deletion_reason="source_task_delete",
-                updated_at=utc_now(),
+                updated_at=now,
             )
         )
         self.session.flush()
         return {
             "task_id": task_id,
-            "affected_memory_cards": len(affected_card_ids),
-            "evidence_missing_cards": evidence_missing_count,
+            "affected_card_count": len(affected_card_ids),
+            "evidence_missing_cards": len(affected_card_ids),
         }
 
 
@@ -1428,6 +1696,22 @@ class MemoryRelationRepository:
         resolution_action: str | None = None,
         resolution_memory_id: str | None = None,
     ) -> MemoryRelationModel:
+        referenced_ids = {from_memory_id, to_memory_id}
+        if resolution_memory_id is not None:
+            referenced_ids.add(resolution_memory_id)
+        owned_ids = set(
+            self.session.execute(
+                select(MemoryCardModel.id).where(
+                    and_(
+                        MemoryCardModel.owner_id == self.user_ctx.user_id,
+                        MemoryCardModel.id.in_(referenced_ids),
+                        MemoryCardModel.status != "deleted",
+                    )
+                )
+            ).scalars()
+        )
+        if owned_ids != referenced_ids or from_memory_id == to_memory_id:
+            raise ValueError("MEMORY_NOT_FOUND")
         rel = MemoryRelationModel(
             id=relation_id,
             owner_id=self.user_ctx.user_id,
@@ -1462,7 +1746,12 @@ class MemoryRelationRepository:
     ) -> list[MemoryRelationModel]:
         q = select(MemoryRelationModel).where(MemoryRelationModel.owner_id == self.user_ctx.user_id)
         if memory_id:
-            q = q.where(MemoryRelationModel.from_memory_id == memory_id)
+            q = q.where(
+                or_(
+                    MemoryRelationModel.from_memory_id == memory_id,
+                    MemoryRelationModel.to_memory_id == memory_id,
+                )
+            )
         if status:
             q = q.where(MemoryRelationModel.status == status)
         if cursor:
@@ -1503,6 +1792,22 @@ class ConflictRepository:
         left_memory_id: str,
         right_memory_id: str,
     ) -> MemoryRelationModel:
+        if left_memory_id == right_memory_id:
+            raise ValueError("MEMORY_MERGE_CONFLICT")
+        cards = list(
+            self.session.execute(
+                select(MemoryCardModel).where(
+                    and_(
+                        MemoryCardModel.owner_id == self.user_ctx.user_id,
+                        MemoryCardModel.id.in_([left_memory_id, right_memory_id]),
+                        MemoryCardModel.status.in_(("active", "paused")),
+                        MemoryCardModel.current_version_id.is_not(None),
+                    )
+                )
+            ).scalars()
+        )
+        if len(cards) != 2:
+            raise ValueError("MEMORY_NOT_FOUND")
         if left_memory_id > right_memory_id:
             left_memory_id, right_memory_id = right_memory_id, left_memory_id
         rel = MemoryRelationModel(
@@ -1593,7 +1898,7 @@ class MemoryMergeRepository:
             owner_id=self.user_ctx.user_id,
             status="active",
             kind=merged_card_data["kind"],
-            source_type="import",
+            source_type="accept",
             save_preselected=False,
             title=merged_card_data["title"],
             rule=merged_card_data["rule"],
@@ -1607,7 +1912,7 @@ class MemoryMergeRepository:
             project_key=scope.get("project_key"),
             scope_json=scope_json,
             exceptions_json=exc_json,
-            source_trust=0.50,
+            source_trust=1.0,
             rule_confidence=1.0,
             scope_confidence=1.0,
             evidence_count=0,
@@ -1704,6 +2009,8 @@ class ImportBatchRepository:
             id=batch_id,
             owner_id=self.user_ctx.user_id,
             file_hash=file_hash,
+            pack_name=pack_name,
+            format_version=format_version,
             status="quarantined",
             canonical_payload_json=canonical_payload_json,
             preview_json=preview_json,
@@ -1743,7 +2050,7 @@ class ImportBatchRepository:
         batch.canonical_payload_json = None
         batch.preview_json = None
         batch.preview_token_hash = None
-        batch.expires_at = None
+        batch.updated_at = batch.committed_at
         self.session.flush()
         return batch
 
@@ -1752,6 +2059,9 @@ class ImportBatchRepository:
         if batch is None:
             return None
         batch.status = "cancelled"
+        batch.canonical_payload_json = None
+        batch.preview_json = None
+        batch.preview_token_hash = None
         batch.updated_at = utc_now()
         self.session.flush()
         return batch
@@ -1793,6 +2103,8 @@ class PackRepository:
                 .scalars()
                 .all()
             )
+            if len(cards) != len(set(memory_ids)):
+                raise ValueError("memory selection is missing or cross-owner")
         else:
             cards = list(
                 self.session.execute(
@@ -1807,6 +2119,8 @@ class PackRepository:
                 .scalars()
                 .all()
             )
+        cards.sort(key=lambda card: card.id)
+        local_to_external = {card.id: f"card_{index:03d}" for index, card in enumerate(cards, 1)}
         export_cards: list[dict[str, Any]] = []
         for card in cards:
             if card.current_version_id is None:
@@ -1824,7 +2138,7 @@ class PackRepository:
             scope_dict: dict[str, Any] = json.loads(card.scope_json)
             export_cards.append(
                 {
-                    "external_id": card.id,
+                    "external_id": local_to_external[card.id],
                     "schema_version": "1.0",
                     "kind": card.kind,
                     "title": card.title,
@@ -1835,16 +2149,20 @@ class PackRepository:
                     "exceptions": json.loads(card.exceptions_json),
                     "claimed_origin": {
                         "source_type": card.source_type,
-                        "trust_level": "user_confirmed",
-                        "created_at": card.created_at,
+                        "trust_level": (
+                            "imported_unverified"
+                            if card.source_type == "import"
+                            else "user_confirmed"
+                        ),
+                        "created_at": self._rfc3339(card.created_at),
                         "source_task_exported": False,
                         "source_version": card.version or 1,
                     },
                     "version": card.version,
-                    "updated_at": card.updated_at,
+                    "updated_at": self._rfc3339(card.updated_at),
                 }
             )
-        exported_ids = {c["external_id"] for c in export_cards}
+        exported_ids = set(local_to_external)
         relations: list[dict[str, Any]] = []
         if len(exported_ids) > 1:
             for rel in (
@@ -1862,8 +2180,8 @@ class PackRepository:
             ):
                 relations.append(
                     {
-                        "from_external_id": rel.from_memory_id,
-                        "to_external_id": rel.to_memory_id,
+                        "from_external_id": local_to_external[rel.from_memory_id],
+                        "to_external_id": local_to_external[rel.to_memory_id],
                         "relation_type": rel.relation_type,
                     }
                 )
@@ -1874,7 +2192,7 @@ class PackRepository:
             "pack_id": pack_id,
             "name": name,
             "description": description,
-            "created_at": utc_now(),
+            "created_at": self._rfc3339(utc_now()),
             "producer": {"name": "MemTrace", "version": "0.1.0"},
             "source": {"kind": "user_export", "trust": "self_asserted"},
             "privacy": {"contains_raw_evidence": False, "anonymized": True},
@@ -1889,26 +2207,62 @@ class PackRepository:
         return pack
 
     @staticmethod
-    def encode_preview_token(secret: str, batch_id: str, file_hash: str, exp_ts: int) -> str:
-        payload = f"{batch_id}|{file_hash}|{exp_ts}"
-        mac = hashlib.sha256(f"{secret}:{payload}".encode()).digest()
-        token = (
-            base64.urlsafe_b64encode(f"{payload}:{base64.urlsafe_b64encode(mac).decode()}".encode())
-            .decode()
-            .rstrip("=")
-        )
-        return token
+    def _rfc3339(value: datetime) -> str:
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
     @staticmethod
-    def decode_preview_token(secret: str, token: str) -> tuple[str, str, int] | None:
-        try:
-            raw = base64.urlsafe_b64decode(token + "==").decode()
-            payload, mac_b64 = raw.rsplit(":", 1)
-            expected_mac = base64.urlsafe_b64decode(mac_b64 + "==")
-            computed = hashlib.sha256(f"{secret}:{payload}".encode()).digest()
-            if not secrets.compare_digest(computed, expected_mac):
-                return None
-            batch_id, file_hash, exp_str = payload.split("|", 2)
-            return batch_id, file_hash, int(exp_str)
-        except Exception:
-            return None
+    def canonical_bytes(pack: dict[str, Any]) -> bytes:
+        return _rfc8785_canonical_bytes(pack)
+
+    def existing_cards_for_preview(self) -> list[dict[str, Any]]:
+        rows = self.session.execute(
+            select(MemoryCardModel).where(
+                and_(
+                    MemoryCardModel.owner_id == self.user_ctx.user_id,
+                    MemoryCardModel.status != "deleted",
+                    MemoryCardModel.current_version_id.is_not(None),
+                )
+            )
+        ).scalars()
+        return [
+            {
+                "kind": card.kind,
+                "title": card.title,
+                "rule": card.rule,
+                "avoid": card.avoid or "",
+                "trigger_text": card.trigger_text or "",
+                "scope": json.loads(card.scope_json),
+                "exceptions": json.loads(card.exceptions_json),
+            }
+            for card in rows
+        ]
+
+    @staticmethod
+    def encode_preview_token(
+        secret: str,
+        owner_id: str,
+        batch_id: str,
+        file_hash: str,
+        exp_ts: int,
+    ) -> str:
+        payload = f"{owner_id}|{batch_id}|{file_hash}|{exp_ts}".encode()
+        mac = hmac.new(secret.encode(), payload, hashlib.sha256).digest()
+        return base64.urlsafe_b64encode(mac).decode().rstrip("=")
+
+    @staticmethod
+    def verify_preview_token(
+        secret: str,
+        token: str,
+        owner_id: str,
+        batch_id: str,
+        file_hash: str,
+        exp_ts: int,
+    ) -> bool:
+        if len(token) != 43:
+            return False
+        expected = PackRepository.encode_preview_token(
+            secret, owner_id, batch_id, file_hash, exp_ts
+        )
+        return secrets.compare_digest(token, expected)

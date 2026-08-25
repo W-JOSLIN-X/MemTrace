@@ -257,10 +257,27 @@ class MemoryJobWorker:
             events = await asyncio.to_thread(self._fail_job, job, error_code, exc.retryable)
             await self._broadcast_many(events)
         except Exception as exc:
+            traceback_node = exc.__traceback__
+            while traceback_node is not None and traceback_node.tb_next is not None:
+                traceback_node = traceback_node.tb_next
             logger.error(
-                "memory.job.failed job_id=%s type=%s",
+                "memory.job.failed job_id=%s type=%s file=%s line=%s validation=%s",
                 job.job_id,
                 type(exc).__name__,
+                (
+                    traceback_node.tb_frame.f_code.co_filename.rsplit("\\", 1)[-1]
+                    if traceback_node is not None
+                    else "unknown"
+                ),
+                traceback_node.tb_lineno if traceback_node is not None else 0,
+                (
+                    ",".join(
+                        f"{'.'.join(str(part) for part in item['loc'])}:{item['type']}"
+                        for item in exc.errors(include_input=False)
+                    )
+                    if isinstance(exc, ValidationError)
+                    else "none"
+                ),
             )
             events = await asyncio.to_thread(
                 self._fail_job,

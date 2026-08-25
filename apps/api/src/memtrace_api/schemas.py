@@ -784,9 +784,9 @@ class MemoryScope(ContractModel):
     @classmethod
     def normalized_concepts(cls, value: list[str]) -> list[str]:
         normalized = [item.strip().casefold() for item in value]
-        if any(not item for item in normalized) or normalized != sorted(set(normalized)):
-            raise ValueError("concepts must be unique sorted normalized tags")
-        return normalized
+        if any(not item for item in normalized):
+            raise ValueError("concepts must not contain blank tags")
+        return sorted(set(normalized))
 
 
 class MemoryCard(ContractModel):
@@ -818,6 +818,9 @@ class MemoryCard(ContractModel):
     harmful_count: int = Field(default=0, ge=0)
     stale_count: int = Field(default=0, ge=0)
     last_used_at: datetime | None = None
+    evidence_missing: bool = False
+    import_batch_id: ImportBatchId | None = None
+    import_source_version: int | None = Field(default=None, ge=1)
     created_at: datetime
     updated_at: datetime
 
@@ -846,6 +849,7 @@ class MemoryCardPatch(ContractModel):
     title: TrimmedTitle | None = None
     rule: TrimmedRule | None = None
     avoid: Annotated[str, StringConstraints(max_length=400)] | None = None
+    trigger_text: Annotated[str, StringConstraints(max_length=240)] | None = None
     scope: MemoryScope | None = None
     exceptions: Annotated[list[AllowedException], Field(max_length=8)] | None = None
 
@@ -853,7 +857,14 @@ class MemoryCardPatch(ContractModel):
     def at_least_one_field(self) -> MemoryCardPatch:
         if all(
             value is None
-            for value in (self.title, self.rule, self.avoid, self.scope, self.exceptions)
+            for value in (
+                self.title,
+                self.rule,
+                self.avoid,
+                self.trigger_text,
+                self.scope,
+                self.exceptions,
+            )
         ):
             raise ValueError("edit_accept patch must modify at least one allowed field")
         return self
@@ -911,8 +922,24 @@ class MemoryVersionProjection(ContractModel):
     trigger_text: Annotated[str, StringConstraints(max_length=240)] = ""
     scope: MemoryScope
     exceptions: Annotated[list[AllowedException], Field(max_length=8)] = Field(default_factory=list)
-    created_by_action: Literal["accept", "edit_accept", "edit"]
+    created_by_action: Literal[
+        "accept", "edit_accept", "edit", "import", "merge", "scope_resolution"
+    ]
     created_at: datetime
+
+
+class MemoryRelationProjection(ContractModel):
+    relation_id: RelationId
+    from_memory_id: MemoryId
+    to_memory_id: MemoryId
+    relation_type: Literal[
+        "duplicate_of", "reinforces", "conflicts_with", "supersedes", "merged_into", "related_to"
+    ]
+    status: Literal["unresolved", "resolved"]
+    resolution_action: Literal["prefer", "separate_scopes", "merge", "pause_both"] | None = None
+    resolution_memory_id: MemoryId | None = None
+    created_at: datetime
+    resolved_at: datetime | None = None
 
 
 class MemoryDetailResponse(ContractModel):
@@ -920,6 +947,7 @@ class MemoryDetailResponse(ContractModel):
     card: MemoryCard
     evidence: list[MemoryEvidenceProjection] = Field(default_factory=list)
     versions: list[MemoryVersionProjection] = Field(default_factory=list)
+    relations: list[MemoryRelationProjection] = Field(default_factory=list)
 
 
 # ======================================================================================
@@ -1091,18 +1119,44 @@ class TaskDeleteRequest(ContractModel):
     )
 
 
-class MemoryRelationProjection(ContractModel):
-    relation_id: RelationId
-    from_memory_id: MemoryId
-    to_memory_id: MemoryId
-    relation_type: Literal[
-        "duplicate_of", "reinforces", "conflicts_with", "supersedes", "merged_into", "related_to"
-    ]
-    status: Literal["unresolved", "resolved"]
-    resolution_action: Literal["prefer", "separate_scopes", "merge", "pause_both"] | None = None
-    resolution_memory_id: MemoryId | None = None
-    created_at: datetime
-    resolved_at: datetime | None = None
+class MemoryDeleteResponse(ContractModel):
+    request_id: RequestId
+    memory_id: MemoryId
+    status: Literal["deleted"] = "deleted"
+    deleted_at: datetime
+
+
+class TaskDeleteResponse(ContractModel):
+    request_id: RequestId
+    task_id: TaskId
+    status: Literal["deleted"] = "deleted"
+    memory_policy: Literal["preserve_and_mark_evidence_missing"]
+    affected_card_count: int = Field(ge=0)
+
+
+class MemoryRelationListResponse(ContractModel):
+    request_id: RequestId
+    items: Annotated[list[MemoryRelationProjection], Field(max_length=50)] = Field(
+        default_factory=list
+    )
+    next_cursor: str | None = None
+
+
+class MemoryConflictDetailResponse(ContractModel):
+    request_id: RequestId
+    relation: MemoryRelationProjection
+    left: MemoryCard
+    right: MemoryCard
+
+
+class MergedMemoryCardInput(ContractModel):
+    kind: MemoryKind
+    title: TrimmedTitle
+    rule: TrimmedRule
+    avoid: Annotated[str, StringConstraints(max_length=400)] = ""
+    trigger_text: Annotated[str, StringConstraints(max_length=240)] = ""
+    scope: MemoryScope
+    exceptions: Annotated[list[AllowedException], Field(max_length=8)] = Field(default_factory=list)
 
 
 class MemoryConflictDetectRequest(ContractModel):
@@ -1129,42 +1183,44 @@ class MemoryConflictResolveRequest(ContractModel):
     preferred_memory_id: MemoryId | None = None
     left_scope: MemoryScope | None = None
     right_scope: MemoryScope | None = None
-    merged_card: MemoryCardPatch | None = None
+    merged_card: MergedMemoryCardInput | None = None
 
     @model_validator(mode="after")
     def validate_action_fields(self) -> MemoryConflictResolveRequest:
-        if self.action == "prefer" and self.preferred_memory_id is None:
-            raise ValueError("prefer action requires preferred_memory_id")
-        if self.action == "separate_scopes":
-            if self.left_scope is None or self.right_scope is None:
-                raise ValueError("separate_scopes requires left_scope and right_scope")
-        if self.action == "merge" and self.merged_card is None:
-            raise ValueError("merge action requires merged_card")
-        if self.action == "pause_both" and self.merged_card is not None:
-            raise ValueError("pause_both action must not include merged_card")
-        # Ensure mutual exclusivity
-        has_prefer = self.action == "prefer"
-        has_scopes = self.action == "separate_scopes"
-        has_merge = self.action == "merge"
-        fields = [self.preferred_memory_id, self.merged_card]
-        if not has_prefer:
-            fields = [f for f in fields if f is not None]
-        if (
-            len(
-                [
-                    f
-                    for f in [
-                        self.preferred_memory_id,
-                        self.merged_card,
-                        self.left_scope,
-                        self.right_scope,
-                    ]
-                    if f is not None
-                ]
-            )
-            > 1
-        ):
-            raise ValueError("only one action type may have fields set")
+        present = {
+            "preferred_memory_id": self.preferred_memory_id is not None,
+            "left_scope": self.left_scope is not None,
+            "right_scope": self.right_scope is not None,
+            "merged_card": self.merged_card is not None,
+        }
+        expected = {
+            "prefer": {
+                "preferred_memory_id": True,
+                "left_scope": False,
+                "right_scope": False,
+                "merged_card": False,
+            },
+            "separate_scopes": {
+                "preferred_memory_id": False,
+                "left_scope": True,
+                "right_scope": True,
+                "merged_card": False,
+            },
+            "merge": {
+                "preferred_memory_id": False,
+                "left_scope": False,
+                "right_scope": False,
+                "merged_card": True,
+            },
+            "pause_both": {
+                "preferred_memory_id": False,
+                "left_scope": False,
+                "right_scope": False,
+                "merged_card": False,
+            },
+        }[self.action]
+        if present != expected:
+            raise ValueError(f"{self.action} action fields do not match the frozen contract")
         return self
 
 
@@ -1180,7 +1236,7 @@ class MemoryMergeRequest(ContractModel):
     left_expected_current_version_id: MemoryVersionId
     right_memory_id: MemoryId
     right_expected_current_version_id: MemoryVersionId
-    merged_card: MemoryCardPatch
+    merged_card: MergedMemoryCardInput
 
 
 class MemoryMergeResponse(ContractModel):
@@ -1198,9 +1254,92 @@ class MemoryVersionDiffResponse(ContractModel):
 
 
 class PackExportRequest(ContractModel):
-    memory_ids: list[MemoryId] | None = None
+    memory_ids: Annotated[list[MemoryId], Field(min_length=1, max_length=200)] | None = None
     name: Annotated[str, StringConstraints(min_length=1, max_length=80)] | None = None
     description: Annotated[str, StringConstraints(max_length=500)] | None = None
+
+    @field_validator("memory_ids")
+    @classmethod
+    def unique_memory_ids(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None and len(value) != len(set(value)):
+            raise ValueError("memory_ids must be unique")
+        return value
+
+
+class PackProducer(ContractModel):
+    name: Annotated[str, StringConstraints(max_length=80)]
+    version: Annotated[str, StringConstraints(pattern=r"^[0-9]+\.[0-9]+\.[0-9]+$")]
+
+
+class PackSource(ContractModel):
+    kind: Literal["user_export", "external_import"]
+    trust: Literal["self_asserted", "unverified"]
+
+
+class PackPrivacy(ContractModel):
+    contains_raw_evidence: Literal[False]
+    anonymized: Literal[True]
+
+
+class PackClaimedOrigin(ContractModel):
+    source_type: SourceType
+    trust_level: Literal["user_confirmed", "self_asserted", "imported_unverified"]
+    created_at: datetime
+    source_task_exported: bool
+    source_version: int = Field(ge=1)
+
+
+class MemoryPackCard(ContractModel):
+    external_id: Annotated[str, StringConstraints(pattern=r"^card_[A-Za-z0-9_-]{1,64}$")]
+    schema_version: Literal["1.0"]
+    kind: MemoryKind
+    title: TrimmedTitle
+    rule: TrimmedRule
+    avoid: Annotated[str, StringConstraints(max_length=400)]
+    trigger_text: Annotated[str, StringConstraints(max_length=240)]
+    scope: MemoryScope
+    exceptions: Annotated[list[AllowedException], Field(max_length=8)]
+    claimed_origin: PackClaimedOrigin
+    version: int = Field(ge=1)
+    updated_at: datetime
+
+
+class MemoryPackRelation(ContractModel):
+    from_external_id: Annotated[str, StringConstraints(pattern=r"^card_[A-Za-z0-9_-]{1,64}$")]
+    to_external_id: Annotated[str, StringConstraints(pattern=r"^card_[A-Za-z0-9_-]{1,64}$")]
+    relation_type: Literal[
+        "duplicate_of", "reinforces", "conflicts_with", "supersedes", "merged_into"
+    ]
+
+
+class PackIntegrity(ContractModel):
+    algorithm: Literal["sha256"]
+    canonical_payload_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+
+
+class MemoryPackDocument(ContractModel):
+    schema_ref: Literal["memtrace-memory-pack@1.0.0"]
+    format: Literal["memtrace-memory-pack"]
+    format_version: Literal["1.0.0"]
+    pack_id: PackId
+    name: Annotated[str, StringConstraints(min_length=1, max_length=80)]
+    description: Annotated[str, StringConstraints(max_length=500)]
+    created_at: datetime
+    producer: PackProducer
+    source: PackSource
+    privacy: PackPrivacy
+    cards: Annotated[list[MemoryPackCard], Field(min_length=1, max_length=200)]
+    relations: Annotated[list[MemoryPackRelation], Field(max_length=400)]
+    integrity: PackIntegrity
+
+
+class PackMetadata(ContractModel):
+    name: Annotated[str, StringConstraints(min_length=1, max_length=80)]
+    description: Annotated[str, StringConstraints(max_length=500)]
+    format: Literal["memtrace-memory-pack"]
+    format_version: Literal["1.0.0"]
+    producer: PackProducer
+    source: PackSource
 
 
 class PackExportResponse(ContractModel):
@@ -1216,31 +1355,39 @@ class PackExportResponse(ContractModel):
 
 
 class PackPreviewItem(ContractModel):
-    external_id: str
-    kind: str
-    title: str
-    rule: str
-    avoid: str
-    scope: dict[str, object]
+    external_id: Annotated[str, StringConstraints(pattern=r"^card_[A-Za-z0-9_-]{1,64}$")]
+    kind: MemoryKind
+    title: TrimmedTitle
+    rule: TrimmedRule
+    avoid: Annotated[str, StringConstraints(max_length=400)]
+    scope: MemoryScope
     classification: Literal["legal_new", "duplicate", "potential_conflict", "suspicious"]
-    reason: str | None = None
+    reason: (
+        Literal[
+            "exact_duplicate",
+            "declared_conflict",
+            "scope_overlap_similarity",
+            "suspicious_text",
+        ]
+        | None
+    ) = None
 
 
 class PackPreviewResponse(ContractModel):
     request_id: RequestId
     batch_id: ImportBatchId
-    pack_metadata: dict[str, object]
-    legal_new_count: int
-    duplicate_count: int
-    potential_conflict_count: int
-    suspicious_count: int
-    items: list[PackPreviewItem]
-    preview_token: str | None = None
+    pack_metadata: PackMetadata
+    legal_new_count: int = Field(ge=0)
+    duplicate_count: int = Field(ge=0)
+    potential_conflict_count: int = Field(ge=0)
+    suspicious_count: int = Field(ge=0)
+    items: Annotated[list[PackPreviewItem], Field(min_length=1, max_length=200)]
+    preview_token: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{43}$")] | None = None
 
 
 class ImportCommitRequest(ContractModel):
     batch_id: ImportBatchId
-    preview_token: str
+    preview_token: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{43}$")]
     mode: Literal["import_all_paused"] = "import_all_paused"
 
 
@@ -1255,10 +1402,10 @@ class ImportCommitResponse(ContractModel):
 class ImportBatchResponse(ContractModel):
     request_id: RequestId
     batch_id: ImportBatchId
-    status: str
+    status: Literal["quarantined", "committed", "expired", "cancelled"]
     created_at: datetime
     expires_at: datetime | None = None
-    inserted_count: int
-    skipped_count: int
-    warning_count: int
-    error_message: str | None = None
+    inserted_count: int = Field(ge=0)
+    skipped_count: int = Field(ge=0)
+    warning_count: int = Field(ge=0)
+    error_message: Annotated[str, StringConstraints(max_length=64)] | None = None

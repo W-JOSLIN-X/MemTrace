@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     mock_chunk_delay_ms: int = Field(
         default=250, ge=0, le=5_000, validation_alias="MOCK_CHUNK_DELAY_MS"
     )
+    import_preview_ttl_seconds: int = Field(
+        default=1800, ge=1, le=1800, validation_alias="IMPORT_PREVIEW_TTL_SECONDS"
+    )
 
     # Day 2 G1 SQLite and Demo Session Cookie settings
     memtrace_database_url: str = Field(

@@ -33,7 +33,10 @@ tmp
 docs
 fixtures
 scripts
-contracts
+contracts/*
+!contracts/schemas/
+contracts/schemas/*
+!contracts/schemas/memory-pack.schema.json
 *.pdf
 Adaptive_MemAgent_Project_Plan.md
 Harness_MemAgent_Project_Plan.md
