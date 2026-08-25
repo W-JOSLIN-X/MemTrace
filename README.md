@@ -1,28 +1,29 @@
 # MemTrace（忆迹）
 
-MemTrace 是一个面向黑客松第四赛道的轻量 Agent 原型。当前代码达到 Day 2 G1：
-在 Day 1 的任务指纹、公开计划、只读 Python AST 工具和流式回答之上，增加 SQLite
-持久化、Demo 会话与 owner 隔离、刷新/重启恢复、显式反馈、MemoryJob 占位和
-`feedback.recorded` 持久事件。
+MemTrace 是一个面向黑客松第四赛道的轻量 Agent 原型。当前代码达到 Day 4 G3：
+在 G1 自动分类、G2 反馈学习与候选确认的基础上，增加 owner 隔离的 active 记忆检索、
+确定性 `char_tfidf_v1` 排序、受预算约束的 Prompt 注入、usage receipt、效果验证、
+pause/resume、版本历史以及刷新/重启恢复。
 
 任务类别由服务端 `auto_rule_v1` 自动识别。客户端不提交 `scenario`，继续发送旧字段
-会收到 422；界面只读显示 domain、规则置信度和受控理由。Day 2 仍不实现长期记忆
-提取、候选卡、检索或“已学习”状态：反馈只被可靠记录，等待 Day 3 处理。
+会收到 422。只有 active 卡能参与 G3 检索；candidate、retrieved、selected、injected、
+applied 和 helpful 在 API 与界面中保持不同语义。Mock 模式不需要 Provider Key，且
+`provider_prompt_tokens_actual` 明确保持 `null`。
 
 ## 当前验收状态
 
-Day 1 历史证据保留在 `docs/day1/VERIFICATION_REPORT.md`；Day 2 的实际命令、退出码、
-测试数量、容器和浏览器结果以 `docs/day2/VERIFICATION_REPORT.md` 为准。第二台电脑
-启动仍未验证，不能表述为“已完成多人环境复现”。
+Day 1–Day 3 历史证据分别保留在对应文档目录；Day 4 的实际命令、退出码、测试数量、
+容器与双浏览器结果以 `docs/day4/OWNER_INTEGRATION_REPORT.md` 为准。第二台电脑启动
+仍未验证，不能表述为“已完成多人环境复现”。
 
 | 项目 | 当前状态 |
 |---|---|
 | 前后端入口和 lock 文件 | 已存在 |
-| Fixture、Schema 与 live Mock smoke | 包含自动分类、会话 Cookie 和幂等写入；以 Day 2 核验报告为准 |
+| Fixture、Schema 与 live Mock smoke | 包含 G1+G2+G3、会话 Cookie、owner 隔离、幂等写入和 metadata-only Eval |
 | Docker/Compose 静态配置 | 本机通过；这与实际镜像构建分别验证 |
 | Docker image build | 本机已实际构建 |
 | 单容器 API/SSE/React | 本机已验证；包含 SPA fallback 和 API 404 隔离 |
-| Docker cold start/migration/restart/persistence | 本机专属空卷与保留卷流程通过；最终证据见 Day 2 核验报告 |
+| Docker cold start/migration/restart/persistence | 以 Day 4 所有者整合报告的本轮证据为准 |
 | 第二台电脑启动 | 未验证 |
 
 ## 目录
@@ -30,10 +31,12 @@ Day 1 历史证据保留在 `docs/day1/VERIFICATION_REPORT.md`；Day 2 的实际
 ```text
 apps/api/        FastAPI 后端，入口 memtrace_api.main:app
 apps/web/        React/Vite 前端，生产构建输出 apps/web/dist
-contracts/       G1 REST、自动分类和 SSE 规范
+contracts/       G1–G3 REST、事件、自动分类和检索规范
 fixtures/day1/   Day 1 确定性 QA 输入
 fixtures/day2/   24 条自动分类、反馈能力和持久事件标注
+fixtures/day4/   Day 4 draft 审阅源与 30 条 G3 可执行 fixture
 scripts/day1/    Fixture 校验和全链路 smoke
+scripts/day4/    REST-only G3 EvalRunner
 Dockerfile       Node 构建 + Alembic migration + Python 单进程运行
 compose.yaml     单容器、SQLite 持久卷和必填 SESSION_SECRET
 ```

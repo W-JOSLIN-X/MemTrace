@@ -38,6 +38,10 @@ Thumbs.db
 # Local scratch and rendered PDF artifacts
 tmp/
 
+# Local browser and evaluation gate evidence
+.playwright-cli/
+output/
+
 # Legacy planning drafts intentionally excluded from this implementation
 Adaptive_MemAgent_Project_Plan.md
 Harness_MemAgent_Project_Plan.md

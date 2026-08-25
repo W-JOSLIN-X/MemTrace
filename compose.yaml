@@ -2,7 +2,7 @@ name: memtrace
 
 services:
   app:
-    image: memtrace:day3-g2
+    image: memtrace:day4-g3
     build:
       context: .
       dockerfile: Dockerfile
