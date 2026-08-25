@@ -1,0 +1,16 @@
+{
+  "contract_version": "1.4.0",
+  "review_status": "member_b_verified_2026-08-26",
+  "transport": "rest_only",
+  "split": "g4_split_v1",
+  "cases": [
+    {"id":"d5-g4-conflict-01","operation":"resolve","action":"prefer","scope":"same","expected":{"status":"resolved","preferred_status":"active","other_status":"paused"}},
+    {"id":"d5-g4-conflict-02","operation":"resolve","action":"separate_scopes","scope":"overlap","expected":{"status":"resolved","versions_created":2}},
+    {"id":"d5-g4-conflict-03","operation":"resolve","action":"merge","scope":"same","expected":{"status":"resolved","merged_card":1,"sources_status":"merged"}},
+    {"id":"d5-g4-conflict-04","operation":"resolve","action":"pause_both","scope":"same","expected":{"status":"resolved","paused_count":2}},
+    {"id":"d5-g4-conflict-05","operation":"manual_merge","action":"merge","scope":"same","expected":{"merged_card":1,"source_type":"accept","created_by_action":"merge"}},
+    {"id":"d5-g4-conflict-06","operation":"owner_isolation","action":"prefer","scope":"same","expected":{"cross_owner_status":404}},
+    {"id":"d5-g4-conflict-07","operation":"stale_version","action":"separate_scopes","scope":"overlap","expected":{"http_status":409}},
+    {"id":"d5-g4-conflict-08","operation":"idempotent_replay","action":"pause_both","scope":"same","expected":{"same_response":true,"event_delta":1}}
+  ]
+}

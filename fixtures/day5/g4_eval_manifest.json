@@ -1,0 +1,12 @@
+{
+  "manifest_version": "1.0.0",
+  "contract_version": "1.4.0",
+  "review_status": "member_b_verified_2026-08-26",
+  "split_algorithm": "g4_split_v1",
+  "groups": [
+    {"id":"g1_classification","count":24,"sources":[{"path":"fixtures/day2/g1_classification_feedback_matrix.json","count":24,"sha256":"3971d7b8f19a48a8d10b6fa6c99cee276e520fbd4bc4a0b4403afc12f4755585"}]},
+    {"id":"g2_g3_memory_quality","count":60,"sources":[{"path":"fixtures/day3/learning_events.json","count":30,"sha256":"733abbcc07bf7fb09c3e285b9137d4f764f08301878ac326aee6ef5d1efce68d"},{"path":"fixtures/day4/g3_retrieval_cases.json","count":30,"sha256":"fe3f0cd843d97d1ae2d71210532beb37c545d448122684dd3e4908eaff37ee4d"}]},
+    {"id":"g4_pack_security","count":12,"sources":[{"path":"fixtures/day5/g4_pack_security_cases.json","count":12,"sha256":"f2e680fce03075ebf1f043d9bba189c41cf9492dec90e5834b11b60ab407ef10"}]},
+    {"id":"g4_conflict","count":8,"sources":[{"path":"fixtures/day5/g4_conflict_cases.json","count":8,"sha256":"64b55be30a02c875cafed2d43e507a465208dd34bec5251569dc56134dd7fc3a"}]}
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "contract_version": "1.4.0",
+  "review_status": "member_b_verified_2026-08-26",
+  "transport": "rest_only",
+  "privacy": "metadata_only_results",
+  "split": "g4_split_v1",
+  "cases": [
+    {"id":"d5-g4-pack-01","operation":"round_trip","expected":{"preview":"legal_new","import_status":"paused"}},
+    {"id":"d5-g4-pack-02","operation":"oversized_file","expected":{"http_status":413,"failure_code":"MEMORY_PACK_TOO_LARGE"}},
+    {"id":"d5-g4-pack-03","operation":"duplicate_keys","expected":{"http_status":422,"failure_code":"MEMORY_PACK_INVALID"}},
+    {"id":"d5-g4-pack-04","operation":"unsupported_version","expected":{"http_status":422,"failure_code":"MEMORY_PACK_UNSUPPORTED_VERSION"}},
+    {"id":"d5-g4-pack-05","operation":"integrity_mismatch","expected":{"http_status":422,"failure_code":"MEMORY_PACK_INTEGRITY_MISMATCH"}},
+    {"id":"d5-g4-pack-06","operation":"dangling_relation","expected":{"http_status":422,"failure_code":"MEMORY_PACK_INVALID"}},
+    {"id":"d5-g4-pack-07","operation":"self_relation","expected":{"http_status":422,"failure_code":"MEMORY_PACK_INVALID"}},
+    {"id":"d5-g4-pack-08","operation":"forbidden_field","expected":{"http_status":422,"failure_code":"MEMORY_PACK_INVALID"}},
+    {"id":"d5-g4-pack-09","operation":"xss_text","expected":{"classification":"suspicious","rendering":"plain_text"}},
+    {"id":"d5-g4-pack-10","operation":"cross_owner_batch","expected":{"http_status":404,"failure_code":"IMPORT_BATCH_NOT_FOUND"}},
+    {"id":"d5-g4-pack-11","operation":"expired_commit","expected":{"http_status":409,"failure_code":"IMPORT_BATCH_EXPIRED"}},
+    {"id":"d5-g4-pack-12","operation":"tampered_token","expected":{"http_status":409,"failure_code":"IMPORT_PREVIEW_TOKEN_INVALID"}}
+  ]
+}

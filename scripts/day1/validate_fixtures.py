@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import re
 import sys
@@ -14,6 +15,7 @@ FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day1"
 DAY2_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day2"
 DAY3_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day3"
 DAY4_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day4"
+DAY5_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day5"
 API_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "schemas" / "g0-api.schema.json"
 EVENT_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "schemas" / "events.schema.json"
 
@@ -352,6 +354,43 @@ def validate_day4_g3_cases() -> None:
             assert 1 <= len(case["task_text"].strip()) <= 20_000
             assert case["memory_mode"] in {"on", "off"}
             assert case["response_policy"] in {"default", "guided_hint", "direct_fix"}
+
+
+def validate_day5_g4_cases() -> None:
+    conflict = load_json(DAY5_FIXTURE_ROOT / "g4_conflict_cases.json")
+    security = load_json(DAY5_FIXTURE_ROOT / "g4_pack_security_cases.json")
+    for fixture, count, prefix in (
+        (conflict, 8, "d5-g4-conflict-"),
+        (security, 12, "d5-g4-pack-"),
+    ):
+        scan_forbidden(fixture, prefix)
+        assert fixture["contract_version"] == "1.4.0"
+        assert fixture["review_status"] == "member_b_verified_2026-08-26"
+        assert fixture["transport"] == "rest_only"
+        assert fixture["split"] == "g4_split_v1"
+        cases = fixture["cases"]
+        assert len(cases) == count, f"{prefix} expected {count} cases"
+        assert {case["id"] for case in cases} == {
+            f"{prefix}{index:02d}" for index in range(1, count + 1)
+        }
+        assert all(case["operation"] and case["expected"] for case in cases)
+    assert {case["action"] for case in conflict["cases"]} >= {
+        "prefer", "separate_scopes", "merge", "pause_both"
+    }
+    required_security = {
+        "round_trip", "oversized_file", "duplicate_keys", "unsupported_version",
+        "integrity_mismatch", "dangling_relation", "self_relation", "forbidden_field",
+        "xss_text", "cross_owner_batch", "expired_commit", "tampered_token",
+    }
+    assert {case["operation"] for case in security["cases"]} == required_security
+    manifest = load_json(DAY5_FIXTURE_ROOT / "g4_eval_manifest.json")
+    assert manifest["split_algorithm"] == "g4_split_v1"
+    assert [group["count"] for group in manifest["groups"]] == [24, 60, 12, 8]
+    for group in manifest["groups"]:
+        assert sum(source["count"] for source in group["sources"]) == group["count"]
+        for source in group["sources"]:
+            payload = (PROJECT_ROOT / source["path"]).read_bytes()
+            assert hashlib.sha256(payload).hexdigest() == source["sha256"]
 def trace_signature(events: list[dict[str, Any]]) -> list[str]:
     signature: list[str] = []
     chunk_seen = False
@@ -525,6 +564,7 @@ def main() -> int:
     validate_day2_matrix()
     validate_day3_learning_events(api_schema)
     validate_day4_g3_cases()
+    validate_day5_g4_cases()
     for path in MOCK_FIXTURES:
         validate_mock_fixture(path, api_schema, event_validator)
 
@@ -535,6 +575,7 @@ def main() -> int:
         "provider failure paths, and zh/en feedback"
     )
     print("PASS: 30 owner-verified Day 4 G3 REST-only cases and privacy metadata")
+    print("PASS: 8 Day 5 conflict and 12 Pack/security REST-only cases")
     print("PASS: python_success, no_tool_success, and run_failure SSE fixtures")
     print(
         "PASS: UTF-8 byte offsets, trace order, metadata IDs, and secret/reasoning scan"
