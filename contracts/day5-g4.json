@@ -1,0 +1,83 @@
+{
+  "contract_version": "1.4.0",
+  "document_role": "audit_manifest",
+  "gate": "G4",
+  "normative_contracts": {
+    "api_bodies": "contracts/schemas/g0-api.schema.json",
+    "sse_data": "contracts/schemas/events.schema.json",
+    "openapi_export": "contracts/openapi.json",
+    "memory_pack_schema": "contracts/schemas/memory-pack.schema.json"
+  },
+  "compatibility": {
+    "from_g3_version": "1.3.0",
+    "bump": "minor",
+    "breaking_changes": [],
+    "non_breaking_changes": [
+      "new memory center query/filter/sort/cursor parameters",
+      "new memory lifecycle: archive/restore/permanent-delete",
+      "new task tombstone deletion",
+      "new relation status/resolution fields",
+      "new relation types: reinforces, merged_into",
+      "new explicit conflict detection and 4-way resolution",
+      "new manual merge (non-conflict)",
+      "new MemoryCard extensions: evidence_missing, import_batch_id, import_source_version",
+      "new version action: import, merge, scope_resolution",
+      "new Memory Pack V1 export (RFC 8785 canonical JSON)",
+      "new Memory Pack V1 import (preview/commit with HMAC tokens)",
+      "new ImportBatch table and quarantined batch lifecycle",
+      "new persistent events: task.deleted, memory.lifecycle.changed, memory.conflict.detected, memory.conflict.resolved, memory.pack.previewed, memory.pack.committed",
+      "new HTTP error codes for pack/import/conflict/merge/delete"
+    ]
+  },
+  "new_endpoints": [
+    {"method": "GET", "path": "/api/v1/memories"},
+    {"method": "GET", "path": "/api/v1/memories/{memory_id}"},
+    {"method": "PATCH", "path": "/api/v1/memories/{memory_id}"},
+    {"method": "POST", "path": "/api/v1/memories/{memory_id}/pause"},
+    {"method": "POST", "path": "/api/v1/memories/{memory_id}/resume"},
+    {"method": "POST", "path": "/api/v1/memories/{memory_id}/archive"},
+    {"method": "POST", "path": "/api/v1/memories/{memory_id}/restore"},
+    {"method": "DELETE", "path": "/api/v1/memories/{memory_id}"},
+    {"method": "GET", "path": "/api/v1/memories/{memory_id}/versions"},
+    {"method": "GET", "path": "/api/v1/memories/{memory_id}/version-diff"},
+    {"method": "GET", "path": "/api/v1/memories/{memory_id}/usages"},
+    {"method": "GET", "path": "/api/v1/memories/{memory_id}/relations"},
+    {"method": "DELETE", "path": "/api/v1/tasks/{task_id}"},
+    {"method": "GET", "path": "/api/v1/memory-conflicts"},
+    {"method": "GET", "path": "/api/v1/memory-conflicts/{relation_id}"},
+    {"method": "POST", "path": "/api/v1/memory-conflicts"},
+    {"method": "POST", "path": "/api/v1/memory-conflicts/{relation_id}/resolve"},
+    {"method": "POST", "path": "/api/v1/memories/merge"},
+    {"method": "POST", "path": "/api/v1/memory-packs/export"},
+    {"method": "POST", "path": "/api/v1/memory-packs/import/preview"},
+    {"method": "POST", "path": "/api/v1/memory-packs/import/commit"},
+    {"method": "GET", "path": "/api/v1/memory-packs/import/{batch_id}"}
+  ],
+  "new_persistent_events": [
+    "task.deleted",
+    "memory.lifecycle.changed",
+    "memory.conflict.detected",
+    "memory.conflict.resolved",
+    "memory.pack.previewed",
+    "memory.pack.committed"
+  ],
+  "new_http_error_codes": {
+    "INVALID_CURSOR": "422",
+    "MEMORY_RELATION_NOT_FOUND": "404",
+    "MEMORY_CONFLICT_ALREADY_RESOLVED": "409",
+    "MEMORY_MERGE_CONFLICT": "409",
+    "CONFIRMATION_MISMATCH": "409",
+    "MEMORY_PACK_TOO_LARGE": "413",
+    "MEMORY_PACK_INVALID": "422",
+    "MEMORY_PACK_UNSUPPORTED_VERSION": "422",
+    "MEMORY_PACK_INTEGRITY_MISMATCH": "422",
+    "IMPORT_BATCH_NOT_FOUND": "404",
+    "IMPORT_BATCH_EXPIRED": "409",
+    "IMPORT_PREVIEW_TOKEN_INVALID": "409",
+    "IMPORT_BATCH_STATE_CONFLICT": "409"
+  },
+  "memory_version_created_by_action_extended": [
+    "accept", "edit_accept", "edit", "import", "merge", "scope_resolution"
+  ],
+  "day5_fixture_note": "fixtures/day5/conflict_events.json remains draft (0.1-draft); member A reviews in CONFLICT_FIXTURE_REVIEW.md"
+}

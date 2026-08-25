@@ -1053,12 +1053,11 @@ def _clear_idempotency_snapshots(session: Session, user_id: str, resource_ids: l
 # ── G4 MemoryCard (extended, separate class to not break G1-G3 routes) ─────
 
 
-class MemoryCardG4Repository:
+class MemoryCardG4Repository(MemoryCardRepository):
     """G4 Memory Center lifecycle operations."""
 
     def __init__(self, user_ctx: UserContext, session: Session) -> None:
-        self.user_ctx = user_ctx
-        self.session = session
+        super().__init__(user_ctx, session)
 
     def _q(self) -> Any:
         return and_(
