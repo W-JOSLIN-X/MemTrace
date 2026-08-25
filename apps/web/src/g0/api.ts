@@ -7,6 +7,7 @@ import {
   parseMemoryListResponse,
   parseMemoryUsage,
   parseMemoryUsageList,
+  parseMemoryVersionList,
   parseRetrievalTrace,
   parseResolveRequest,
   parseResolveResponse,
@@ -27,6 +28,7 @@ import type {
   MemoryListResponse,
   MemoryUsage,
   MemoryUsageListResponse,
+  MemoryVersionListResponse,
   RetrievalTrace,
   UserEffect,
   ActiveMemoryEditRequest,
@@ -84,6 +86,8 @@ export interface G0Api {
   ): Promise<MemoryDetailResponse>
   getRetrievalTrace?(taskId: TaskId, signal?: AbortSignal): Promise<RetrievalTrace>
   getTaskMemoryUsages?(taskId: TaskId, signal?: AbortSignal): Promise<MemoryUsageListResponse>
+  getMemoryVersions?(memoryId: MemoryId, cursor?: string, signal?: AbortSignal): Promise<MemoryVersionListResponse>
+  getMemoryUsages?(memoryId: MemoryId, cursor?: string, signal?: AbortSignal): Promise<MemoryUsageListResponse>
   editMemory?(memoryId: MemoryId, request: ActiveMemoryEditRequest, idempotencyKey: string, signal?: AbortSignal): Promise<MemoryDetailResponse>
   pauseMemory?(memoryId: MemoryId, versionId: string, idempotencyKey: string, signal?: AbortSignal): Promise<MemoryDetailResponse>
   resumeMemory?(memoryId: MemoryId, versionId: string, idempotencyKey: string, signal?: AbortSignal): Promise<MemoryDetailResponse>
@@ -320,6 +324,18 @@ export const browserG0Api: G0Api = {
 
   async getTaskMemoryUsages(taskId, signal) {
     const body = await apiJson(`/api/v1/tasks/${encodeURIComponent(taskId)}/memory-usages`, { signal })
+    return parseMemoryUsageList(body)
+  },
+
+  async getMemoryVersions(memoryId, cursor, signal) {
+    const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
+    const body = await apiJson(`/api/v1/memories/${encodeURIComponent(memoryId)}/versions${query}`, { signal })
+    return parseMemoryVersionList(body)
+  },
+
+  async getMemoryUsages(memoryId, cursor, signal) {
+    const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
+    const body = await apiJson(`/api/v1/memories/${encodeURIComponent(memoryId)}/usages${query}`, { signal })
     return parseMemoryUsageList(body)
   },
 

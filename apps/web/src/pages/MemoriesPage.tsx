@@ -1,17 +1,22 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { browserG0Api, newIdempotencyKey } from '../g0/api'
-import type { MemoryCard, MemoryDetailResponse, MemoryId } from '../g0/types'
+import type { MemoryCard, MemoryDetailResponse, MemoryId, MemoryUsage, MemoryVersionProjection } from '../g0/types'
 
 export function MemoriesPage() {
   const [cards, setCards] = useState<MemoryCard[]>([])
   const [detail, setDetail] = useState<MemoryDetailResponse | null>(null)
   const [draft, setDraft] = useState('')
+  const [versions, setVersions] = useState<MemoryVersionProjection[]>([])
+  const [usages, setUsages] = useState<MemoryUsage[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const detailAbortRef = useRef<AbortController | null>(null)
+  const operationKeysRef = useRef(new Map<string, string>())
 
   useEffect(() => {
     const controller = new AbortController()
+    const operationKeys = operationKeysRef.current
     void Promise.all([
       browserG0Api.listMemories?.({ status: 'active' }, controller.signal),
       browserG0Api.listMemories?.({ status: 'paused' }, controller.signal),
@@ -22,15 +27,32 @@ export function MemoriesPage() {
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) setError(publicMessage(reason))
       })
-    return () => controller.abort()
+    return () => {
+      controller.abort()
+      detailAbortRef.current?.abort()
+      operationKeys.clear()
+    }
   }, [])
 
   async function open(memoryId: MemoryId) {
     setError(null)
-    const response = await browserG0Api.getMemory?.(memoryId)
-    if (response) {
-      setDetail(response)
-      setDraft(response.card.rule)
+    detailAbortRef.current?.abort()
+    const controller = new AbortController()
+    detailAbortRef.current = controller
+    try {
+      const [response, versionPage, usagePage] = await Promise.all([
+        browserG0Api.getMemory?.(memoryId, controller.signal),
+        browserG0Api.getMemoryVersions?.(memoryId, undefined, controller.signal),
+        browserG0Api.getMemoryUsages?.(memoryId, undefined, controller.signal),
+      ])
+      if (response) {
+        setDetail(response)
+        setDraft(response.card.rule)
+        setVersions(versionPage?.items ?? response.versions)
+        setUsages(usagePage?.items ?? [])
+      }
+    } catch (reason) {
+      if (!controller.signal.aborted) setError(publicMessage(reason))
     }
   }
 
@@ -38,6 +60,9 @@ export function MemoriesPage() {
     if (!detail?.card.current_version_id || !browserG0Api.editMemory) return
     setBusy(true)
     setError(null)
+    const operationId = `${detail.card.memory_id}:edit`
+    const key = operationKeysRef.current.get(operationId) ?? newIdempotencyKey()
+    operationKeysRef.current.set(operationId, key)
     try {
       const updated = await browserG0Api.editMemory(
         detail.card.memory_id,
@@ -45,8 +70,9 @@ export function MemoriesPage() {
           expected_current_version_id: detail.card.current_version_id,
           patch: { rule: draft },
         },
-        newIdempotencyKey(),
+        key,
       )
+      operationKeysRef.current.delete(operationId)
       setDetail(updated)
       replaceCard(updated.card)
     } catch (reason) {
@@ -62,12 +88,16 @@ export function MemoriesPage() {
     if (!operation) return
     setBusy(true)
     setError(null)
+    const operationId = `${detail.card.memory_id}:${action}`
+    const key = operationKeysRef.current.get(operationId) ?? newIdempotencyKey()
+    operationKeysRef.current.set(operationId, key)
     try {
       const updated = await operation(
         detail.card.memory_id,
         detail.card.current_version_id,
-        newIdempotencyKey(),
+        key,
       )
+      operationKeysRef.current.delete(operationId)
       setDetail(updated)
       replaceCard(updated.card)
     } catch (reason) {
@@ -113,7 +143,11 @@ export function MemoriesPage() {
               </button>
             </div>
             <h3>不可变版本</h3>
-            <ol>{detail.versions.map((version) => <li key={version.memory_version_id}>v{version.version} · {version.created_by_action}</li>)}</ol>
+            <ol>{versions.map((version) => <li key={version.memory_version_id}>v{version.version} · {version.created_by_action}</li>)}</ol>
+            <h3>使用记录</h3>
+            {usages.length === 0 ? <p>暂无 usage receipt。</p> : (
+              <ol>{usages.map((usage) => <li key={usage.usage_id}>{usage.usage_id} · {usage.verification_status} · {usage.user_effect ?? '未记录'}</li>)}</ol>
+            )}
           </section>
         ) : null}
       </div>

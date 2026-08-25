@@ -808,6 +808,12 @@ export interface MemoryUsageListResponse {
   next_cursor: string | null
 }
 
+export interface MemoryVersionListResponse {
+  request_id: RequestId
+  items: MemoryVersionProjection[]
+  next_cursor: string | null
+}
+
 export interface ActiveMemoryEditRequest {
   expected_current_version_id: MemoryVersionId
   patch: MemoryCardPatch

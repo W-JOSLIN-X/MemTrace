@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import { createInitialG0State, g0Reducer } from './reducer'
-import { ContractError, parseTaskSnapshot } from './runtime'
+import { ContractError, parseMemoryVersionList, parseTaskSnapshot } from './runtime'
 import type { MemoryUsage, RetrievalTrace } from './types'
 import { AT, RUN_ID, TASK_ID, makeAccepted, makeSnapshot } from '../test/g0Fixtures'
+import { makeMemoryDetail } from '../test/day3Fixtures'
 
 const TRACE_ID = 'trace_01J00000000000000000000000' as const
 const USAGE_ID = 'usage_01J00000000000000000000000' as const
@@ -75,6 +76,33 @@ describe('Day 4 G3 contract and recovery', () => {
     const snapshot = makeSnapshot({ retrieval_trace: trace, memory_usages: [usage] })
     expect(parseTaskSnapshot(snapshot).retrieval_trace?.injected_count).toBe(1)
     expect(() => parseTaskSnapshot({ ...snapshot, leaked_body: 'forbidden' })).toThrow(ContractError)
+  })
+
+  it('strictly parses the immutable versions endpoint', () => {
+    const card = makeMemoryDetail().card
+    const version = {
+      memory_version_id: VERSION_ID,
+      version: 1,
+      title: card.title,
+      rule: card.rule,
+      avoid: card.avoid,
+      trigger_text: card.trigger_text,
+      scope: card.scope,
+      exceptions: card.exceptions,
+      created_by_action: 'accept' as const,
+      created_at: AT,
+    }
+    expect(parseMemoryVersionList({
+      request_id: 'req_01J00000000000000000000000',
+      items: [version],
+      next_cursor: null,
+    }).items).toEqual([version])
+    expect(() => parseMemoryVersionList({
+      request_id: 'req_01J00000000000000000000000',
+      items: [version],
+      next_cursor: null,
+      unknown: true,
+    })).toThrow(ContractError)
   })
 
   it('restores trace and receipt state from the authoritative snapshot', () => {

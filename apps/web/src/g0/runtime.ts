@@ -11,6 +11,7 @@ import {
   type MemoryListResponse,
   type MemoryUsage,
   type MemoryUsageListResponse,
+  type MemoryVersionListResponse,
   type RetrievalTrace,
   type ResolveRequest,
   type ResolveResponse,
@@ -343,6 +344,15 @@ export function parseMemoryUsageList(value: unknown): MemoryUsageListResponse {
   arrayValue(body.items, 'items').forEach(validateMemoryUsage)
   if (body.next_cursor !== null) stringValue(body.next_cursor, 'next_cursor')
   return body as unknown as MemoryUsageListResponse
+}
+
+export function parseMemoryVersionList(value: unknown): MemoryVersionListResponse {
+  const body = record(value, 'MemoryVersionListResponse')
+  exactKeys(body, ['request_id', 'items', 'next_cursor'])
+  patternString(body.request_id, requestIdPattern, 'request_id')
+  arrayValue(body.items, 'items').forEach(validateMemoryVersion)
+  if (body.next_cursor !== null) stringValue(body.next_cursor, 'next_cursor')
+  return body as unknown as MemoryVersionListResponse
 }
 
 function validateMemoryCard(value: unknown): void {
