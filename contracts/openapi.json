@@ -928,7 +928,8 @@
                   "enum": [
                     "candidate",
                     "active",
-                    "rejected"
+                    "rejected",
+                    "paused"
                   ],
                   "type": "string"
                 },
@@ -1091,11 +1092,822 @@
             }
           }
         }
+      },
+      "patch": {
+        "summary": "Edit Active Memory",
+        "operationId": "edit_active_memory_api_v1_memories__memory_id__patch",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActiveMemoryEditRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/retrieval-trace": {
+      "get": {
+        "summary": "Get Retrieval Trace",
+        "operationId": "get_retrieval_trace_api_v1_tasks__task_id__retrieval_trace_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetrievalTraceResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/memory-usages": {
+      "get": {
+        "summary": "Get Task Memory Usages",
+        "operationId": "get_task_memory_usages_api_v1_tasks__task_id__memory_usages_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryUsageListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/memories/{memory_id}/pause": {
+      "post": {
+        "summary": "Pause Memory",
+        "operationId": "pause_memory_api_v1_memories__memory_id__pause_post",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryStateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/memories/{memory_id}/resume": {
+      "post": {
+        "summary": "Resume Memory",
+        "operationId": "resume_memory_api_v1_memories__memory_id__resume_post",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryStateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/memories/{memory_id}/versions": {
+      "get": {
+        "summary": "List Memory Versions",
+        "operationId": "list_memory_versions_api_v1_memories__memory_id__versions_get",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryVersionListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/memories/{memory_id}/usages": {
+      "get": {
+        "summary": "List Memory Usages",
+        "operationId": "list_memory_usages_api_v1_memories__memory_id__usages_get",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryUsageListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/memory-usages/{memory_id}/feedback": {
+      "post": {
+        "summary": "Record Memory Usage Feedback",
+        "operationId": "record_memory_usage_feedback_api_v1_tasks__task_id__memory_usages__memory_id__feedback_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryUsageFeedbackRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryUsageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     }
   },
   "components": {
     "schemas": {
+      "ActiveMemoryEditRequest": {
+        "properties": {
+          "expected_current_version_id": {
+            "type": "string",
+            "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Expected Current Version Id"
+          },
+          "patch": {
+            "$ref": "#/components/schemas/MemoryCardPatch"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_current_version_id",
+          "patch"
+        ],
+        "title": "ActiveMemoryEditRequest"
+      },
       "AllowedException": {
         "type": "string",
         "enum": [
@@ -1870,6 +2682,78 @@
             ],
             "title": "Current Version Id"
           },
+          "valid_from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid From"
+          },
+          "valid_to": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid To"
+          },
+          "retrieved_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Retrieved Count",
+            "default": 0
+          },
+          "injected_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Injected Count",
+            "default": 0
+          },
+          "verified_applied_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Verified Applied Count",
+            "default": 0
+          },
+          "helpful_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Helpful Count",
+            "default": 0
+          },
+          "harmful_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Harmful Count",
+            "default": 0
+          },
+          "stale_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Stale Count",
+            "default": 0
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -2302,9 +3186,14 @@
                 "$ref": "#/components/schemas/TaskType"
               },
               {
+                "type": "string",
+                "const": "any"
+              },
+              {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Task Type"
           },
           "artifact_type": {
             "anyOf": [
@@ -2312,9 +3201,14 @@
                 "$ref": "#/components/schemas/ArtifactType"
               },
               {
+                "type": "string",
+                "const": "any"
+              },
+              {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Artifact Type"
           },
           "audience": {
             "anyOf": [
@@ -2322,9 +3216,14 @@
                 "$ref": "#/components/schemas/Audience"
               },
               {
+                "type": "string",
+                "const": "any"
+              },
+              {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Audience"
           },
           "project_key": {
             "anyOf": [
@@ -2338,6 +3237,44 @@
               }
             ],
             "title": "Project Key"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProgrammingLanguage"
+              },
+              {
+                "type": "string",
+                "const": "any"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "framework": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Framework"
+          },
+          "concepts": {
+            "items": {
+              "type": "string",
+              "maxLength": 64,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 12,
+            "title": "Concepts"
           }
         },
         "additionalProperties": false,
@@ -2347,6 +3284,233 @@
           "domain"
         ],
         "title": "MemoryScope"
+      },
+      "MemoryStateRequest": {
+        "properties": {
+          "expected_current_version_id": {
+            "type": "string",
+            "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Expected Current Version Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_current_version_id"
+        ],
+        "title": "MemoryStateRequest"
+      },
+      "MemoryUsageFeedbackRequest": {
+        "properties": {
+          "effect": {
+            "$ref": "#/components/schemas/UserEffect"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "effect"
+        ],
+        "title": "MemoryUsageFeedbackRequest"
+      },
+      "MemoryUsageListResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryUsageResponse"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id"
+        ],
+        "title": "MemoryUsageListResponse"
+      },
+      "MemoryUsageResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "usage_id": {
+            "type": "string",
+            "pattern": "^usage_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Usage Id"
+          },
+          "retrieval_trace_id": {
+            "type": "string",
+            "pattern": "^trace_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Retrieval Trace Id"
+          },
+          "task_id": {
+            "type": "string",
+            "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Task Id"
+          },
+          "run_id": {
+            "type": "string",
+            "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Run Id"
+          },
+          "memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Id"
+          },
+          "memory_version_id": {
+            "type": "string",
+            "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Version Id"
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Rank"
+          },
+          "retrieved": {
+            "type": "boolean",
+            "title": "Retrieved"
+          },
+          "selected": {
+            "type": "boolean",
+            "title": "Selected"
+          },
+          "injected": {
+            "type": "boolean",
+            "title": "Injected"
+          },
+          "estimated_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Estimated Tokens"
+          },
+          "verification_status": {
+            "$ref": "#/components/schemas/VerificationStatus"
+          },
+          "verification_method": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "exact_substring",
+                  "structured_provider"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Method"
+          },
+          "evidence_excerpt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Excerpt"
+          },
+          "user_effect": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserEffect"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "usage_id",
+          "retrieval_trace_id",
+          "task_id",
+          "run_id",
+          "memory_id",
+          "memory_version_id",
+          "rank",
+          "retrieved",
+          "selected",
+          "injected",
+          "estimated_tokens",
+          "verification_status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MemoryUsageResponse"
+      },
+      "MemoryVersionListResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryVersionProjection"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id"
+        ],
+        "title": "MemoryVersionListResponse"
       },
       "MemoryVersionProjection": {
         "properties": {
@@ -2396,7 +3560,13 @@
             "title": "Exceptions"
           },
           "created_by_action": {
-            "$ref": "#/components/schemas/ResolveAction"
+            "type": "string",
+            "enum": [
+              "accept",
+              "edit_accept",
+              "edit"
+            ],
+            "title": "Created By Action"
           },
           "created_at": {
             "type": "string",
@@ -2646,8 +3816,7 @@
           "accept",
           "edit_accept",
           "reject",
-          "one_shot",
-          "edit"
+          "one_shot"
         ],
         "title": "ResolveAction"
       },
@@ -2735,6 +3904,329 @@
           "direct_fix"
         ],
         "title": "ResponsePolicy"
+      },
+      "RetrievalDecisionResponse": {
+        "properties": {
+          "memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Id"
+          },
+          "memory_version_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Version Id"
+          },
+          "memory_status": {
+            "$ref": "#/components/schemas/MemoryCardStatus"
+          },
+          "retrieved": {
+            "type": "boolean",
+            "title": "Retrieved"
+          },
+          "selected": {
+            "type": "boolean",
+            "title": "Selected"
+          },
+          "injected": {
+            "type": "boolean",
+            "title": "Injected"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "scope_match": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Match"
+          },
+          "semantic_similarity": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semantic Similarity"
+          },
+          "provenance_confidence": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance Confidence"
+          },
+          "verified_effect": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified Effect"
+          },
+          "recency": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recency"
+          },
+          "final_score": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Score"
+          },
+          "reason_codes": {
+            "items": {
+              "$ref": "#/components/schemas/RetrievalReasonCode"
+            },
+            "type": "array",
+            "title": "Reason Codes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "memory_id",
+          "memory_status",
+          "retrieved",
+          "selected",
+          "injected"
+        ],
+        "title": "RetrievalDecisionResponse"
+      },
+      "RetrievalMode": {
+        "type": "string",
+        "enum": [
+          "tfidf",
+          "tfidf_degraded"
+        ],
+        "title": "RetrievalMode"
+      },
+      "RetrievalReasonCode": {
+        "type": "string",
+        "enum": [
+          "selected_above_threshold",
+          "memory_mode_off",
+          "status_not_active",
+          "not_yet_valid",
+          "expired",
+          "scope_domain_mismatch",
+          "scope_task_type_mismatch",
+          "scope_artifact_mismatch",
+          "scope_audience_mismatch",
+          "scope_project_mismatch",
+          "scope_language_mismatch",
+          "scope_framework_mismatch",
+          "current_constraint_override",
+          "active_conflict",
+          "invalid_active_card",
+          "empty_vector",
+          "below_threshold",
+          "top_k_exceeded",
+          "prompt_budget_exceeded"
+        ],
+        "title": "RetrievalReasonCode"
+      },
+      "RetrievalTraceResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "retrieval_trace_id": {
+            "type": "string",
+            "pattern": "^trace_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Retrieval Trace Id"
+          },
+          "task_id": {
+            "type": "string",
+            "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Task Id"
+          },
+          "run_id": {
+            "type": "string",
+            "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Run Id"
+          },
+          "retrieval_mode": {
+            "$ref": "#/components/schemas/RetrievalMode"
+          },
+          "algorithm_version": {
+            "type": "string",
+            "const": "char_tfidf_v1",
+            "title": "Algorithm Version",
+            "default": "char_tfidf_v1"
+          },
+          "threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Threshold"
+          },
+          "top_k": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Top K"
+          },
+          "candidate_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Candidate Count"
+          },
+          "retrieved_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Retrieved Count"
+          },
+          "selected_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Selected Count"
+          },
+          "injected_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Injected Count"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/RetrievalDecisionResponse"
+            },
+            "type": "array",
+            "title": "Decisions"
+          },
+          "retrieval_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Retrieval Ms"
+          },
+          "memory_chars": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Memory Chars"
+          },
+          "memory_tokens_estimated": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Memory Tokens Estimated"
+          },
+          "provider_prompt_tokens_actual": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Prompt Tokens Actual"
+          },
+          "prompt_section_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Section Hash"
+          },
+          "reason_codes": {
+            "items": {
+              "$ref": "#/components/schemas/RetrievalReasonCode"
+            },
+            "type": "array",
+            "title": "Reason Codes"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "retrieval_trace_id",
+          "task_id",
+          "run_id",
+          "retrieval_mode",
+          "threshold",
+          "top_k",
+          "candidate_count",
+          "retrieved_count",
+          "selected_count",
+          "injected_count",
+          "retrieval_ms",
+          "memory_chars",
+          "memory_tokens_estimated",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "RetrievalTraceResponse"
       },
       "RunErrorSnapshot": {
         "properties": {
@@ -3180,6 +4672,23 @@
             "type": "array",
             "title": "Feedback Events"
           },
+          "retrieval_trace": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RetrievalTraceResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "memory_usages": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryUsageResponse"
+            },
+            "type": "array",
+            "title": "Memory Usages"
+          },
           "error": {
             "anyOf": [
               {
@@ -3403,6 +4912,15 @@
         ],
         "title": "Urgency"
       },
+      "UserEffect": {
+        "type": "string",
+        "enum": [
+          "helpful",
+          "harmful",
+          "stale"
+        ],
+        "title": "UserEffect"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -3476,6 +4994,17 @@
           "type"
         ],
         "title": "ValidationFieldError"
+      },
+      "VerificationStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "applied",
+          "violated",
+          "not_observable",
+          "unknown"
+        ],
+        "title": "VerificationStatus"
       }
     }
   }

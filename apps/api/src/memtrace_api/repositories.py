@@ -444,6 +444,16 @@ class TaskRepository:
 
         terminal = run.status in (RunStatus.SUCCEEDED.value, RunStatus.FAILED.value)
 
+        from memtrace_api.g3_service import load_task_g3
+
+        retrieval_trace, memory_usages = load_task_g3(
+            self.session,
+            self.user_ctx,
+            request_id=request_id,
+            task_id=task_id,
+            run_id=run.id,
+        )
+
         # Last persistent event seq
         max_seq = self.session.execute(
             select(func.max(EventLogModel.seq)).where(
@@ -475,6 +485,8 @@ class TaskRepository:
             messages=messages,
             final_message=final_message,
             feedback_events=feedback_events,
+            retrieval_trace=retrieval_trace,
+            memory_usages=memory_usages,
             error=error_snapshot,
             terminal=terminal,
             last_persistent_event_seq=max_seq,
@@ -873,7 +885,12 @@ class RetrievalRepository:
         return list(
             self.session.execute(
                 select(RetrievalDecisionModel)
-                .where(RetrievalDecisionModel.retrieval_trace_id == trace_id)
+                .where(
+                    and_(
+                        RetrievalDecisionModel.retrieval_trace_id == trace_id,
+                        RetrievalDecisionModel.owner_id == self.user_ctx.user_id,
+                    )
+                )
                 .order_by(RetrievalDecisionModel.id.asc())
             )
             .scalars()

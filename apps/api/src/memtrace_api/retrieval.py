@@ -1,8 +1,7 @@
-"""Deterministic character n-gram TF-IDF retriever for G3."""
+"""Deterministic, owner-scoped Day 4 character TF-IDF retrieval primitives."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import re
@@ -10,324 +9,281 @@ import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any
 
-from memtrace_api.schemas import (
-    CurrentConstraints,
-    MemoryScope,
-    RetrievalDecisionResponse,
-    RetrievalReasonCode,
-    RetrievalTraceResponse,
-    TaskFingerprint,
-    utc_now,
-)
+from memtrace_api.schemas import CurrentConstraints, RetrievalReasonCode, TaskFingerprint
 
-# G3 frozen constants
 RETRIEVAL_MODE = "tfidf"
 ALGORITHM_VERSION = "char_tfidf_v1"
 THRESHOLD = 0.68
 TOP_K = 3
-
-NGRAM_MIN = 2
-NGRAM_MAX = 4
-
 SCOPE_WEIGHTS = {
     "domain": 0.25,
     "task_type": 0.25,
-    "artifact": 0.10,
+    "artifact_type": 0.10,
     "audience": 0.10,
-    "project": 0.10,
+    "project_key": 0.10,
     "language": 0.05,
     "framework": 0.05,
     "concepts": 0.10,
 }
 
-SCOPE_ANY_KEYWORDS = {"any"}
-
 
 def normalize_text(text: str) -> str:
-    text = unicodedata.normalize("NFKC", text)
-    text = text.casefold()
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def generate_ngrams(text: str) -> list[str]:
-    if len(text) < NGRAM_MIN:
+    if len(text) < 2:
         return []
-    grams = []
-    for n in range(NGRAM_MIN, min(NGRAM_MAX, len(text)) + 1):
-        for i in range(len(text) - n + 1):
-            grams.append(text[i : i + n])
-    return grams
+    return [
+        text[index : index + size]
+        for size in range(2, min(4, len(text)) + 1)
+        for index in range(len(text) - size + 1)
+    ]
 
 
 def build_vector(ngrams: list[str]) -> dict[str, float]:
-    counter = Counter(ngrams)
-    total = sum(counter.values())
-    if total == 0:
-        return {}
-    return {g: c / total for g, c in counter.items()}
+    counts = Counter(ngrams)
+    total = sum(counts.values())
+    return {} if total == 0 else {term: count / total for term, count in counts.items()}
 
 
-def compute_tfidf_vectors(docs: list[str]):
-    n = len(docs)
-    raw_vectors = []
-    all_terms = set()
-    for doc in docs:
-        vec = build_vector(generate_ngrams(doc))
-        raw_vectors.append(vec)
-        all_terms.update(vec.keys())
+def compute_tfidf_vectors(documents: list[str]) -> list[dict[str, float]]:
+    normalized = [normalize_text(document) for document in documents]
+    term_frequencies = [build_vector(generate_ngrams(document)) for document in normalized]
+    terms = set().union(*(set(vector) for vector in term_frequencies))
+    document_count = len(documents)
+    inverse_document_frequency = {
+        term: math.log(
+            (1 + document_count) / (1 + sum(1 for vector in term_frequencies if term in vector))
+        )
+        + 1
+        for term in terms
+    }
+    vectors: list[dict[str, float]] = []
+    for frequencies in term_frequencies:
+        weighted = {
+            term: frequencies[term] * inverse_document_frequency[term] for term in frequencies
+        }
+        norm = math.sqrt(sum(value * value for value in weighted.values()))
+        vectors.append(
+            {} if norm == 0 else {term: value / norm for term, value in weighted.items()}
+        )
+    return vectors
 
-    idf = {}
-    for term in all_terms:
-        df = sum(1 for v in raw_vectors if term in v)
-        idf[term] = math.log((1 + n) / (1 + df)) + 1
 
-    tfidf = []
-    for raw in raw_vectors:
-        weighted = {t: raw.get(t, 0) * idf.get(t, 1) for t in all_terms}
-        norm = math.sqrt(sum(v**2 for v in weighted.values()))
-        if norm == 0:
-            tfidf.append({})
-        else:
-            tfidf.append({t: v / norm for t, v in weighted.items()})
-    return tfidf
-
-
-def cosine_similarity(a, b) -> float:
-    if not a or not b:
+def cosine_similarity(left: dict[str, float], right: dict[str, float]) -> float:
+    if not left or not right:
         return 0.0
-    dot = sum(a.get(k, 0) * b.get(k, 0) for k in a)
-    return max(0.0, min(1.0, dot))
+    value = sum(weight * right.get(term, 0.0) for term, weight in left.items())
+    return max(0.0, min(1.0, value))
 
 
-def safe_round(value: float, digits=6) -> float:
+def safe_round(value: float, digits: int = 6) -> float:
     return round(value, digits)
 
 
-def longest_common_substring_len(s1: str, s2: str, max_len: int) -> int:
-    if not s1 or not s2:
+def longest_common_substring_len(left: str, right: str, limit: int) -> int:
+    """Return the longest contiguous match, bounded for deterministic verifier use."""
+    normalized_left = normalize_text(left)[:limit]
+    normalized_right = normalize_text(right)
+    if not normalized_left or not normalized_right:
         return 0
-    m, n = len(s1), len(s2)
-    dp = [0] * (n + 1)
-    best = 0
-    for i in range(1, m + 1):
-        ndp = [0] * (n + 1)
-        for j in range(1, n + 1):
-            if s1[i - 1] == s2[j - 1]:
-                ndp[j] = dp[j - 1] + 1
-                if ndp[j] > best:
-                    best = ndp[j]
-                    if best >= max_len:
-                        return best
-        dp = ndp
-    return best
+    previous = [0] * (len(normalized_right) + 1)
+    longest = 0
+    for left_character in normalized_left:
+        current = [0]
+        for index, right_character in enumerate(normalized_right, start=1):
+            length = previous[index - 1] + 1 if left_character == right_character else 0
+            current.append(length)
+            longest = max(longest, length)
+        previous = current
+    return longest
 
 
 def compute_verified_effect(helpful: int, harmful: int, stale: int) -> float:
     return (helpful + 1) / (helpful + harmful + stale + 2)
 
 
-def compute_recency(source_type: str, created_at: Optional[datetime]) -> float:
-    explicit = {"explicit_feedback", "explicit_correction", "edit_diff", "accept", "rating"}
-    if source_type in explicit:
+def compute_recency(source_type: str, created_at: datetime | None) -> float:
+    if source_type in {
+        "explicit_feedback",
+        "explicit_correction",
+        "edit_diff",
+        "accept",
+        "rating",
+    }:
         return 1.0
-    if source_type in {"outcome", "import"}:
-        if created_at is None:
-            return 0.0
-        age = (datetime.now(UTC) - created_at).total_seconds() / 86400.0
-        return max(0.0, 1.0 - age / 90.0)
-    return 0.0
+    if source_type not in {"outcome", "import"} or created_at is None:
+        return 0.0
+    aware = created_at.replace(tzinfo=UTC) if created_at.tzinfo is None else created_at
+    age_days = max(0.0, (datetime.now(UTC) - aware).total_seconds() / 86_400)
+    return max(0.0, 1.0 - age_days / 90.0)
 
 
-def compute_scope_match(card_scope: dict, fp: TaskFingerprint) -> float:
+def _value(value: object) -> str | None:
+    if value is None:
+        return None
+    raw = value.value if hasattr(value, "value") else value
+    normalized = str(raw).strip().casefold()
+    return normalized or None
+
+
+def compute_scope_match(scope: dict[str, Any], fingerprint: TaskFingerprint) -> float:
     score = 0.0
+    for field_name in (
+        "domain",
+        "task_type",
+        "artifact_type",
+        "audience",
+        "project_key",
+        "language",
+        "framework",
+    ):
+        memory_value = _value(scope.get(field_name))
+        task_value = _value(getattr(fingerprint, field_name))
+        weight = SCOPE_WEIGHTS[field_name]
+        if memory_value == "any":
+            score += weight / 2
+        elif memory_value is not None and task_value is not None and memory_value == task_value:
+            score += weight
 
-    def mf(card_val, fp_val, w):
-        if card_val is None or str(card_val) in ("", "null"):
-            return 0.0
-        cs = str(card_val).lower().strip()
-        if cs in SCOPE_ANY_KEYWORDS:
-            return w * 0.5
-        if fp_val is None:
-            return 0.0
-        fs = str(fp_val.value if hasattr(fp_val, "value") else fp_val).lower().strip()
-        return w if cs == fs else 0.0
-
-    score += mf(card_scope.get("domain"), fp.domain, SCOPE_WEIGHTS["domain"])
-    score += mf(card_scope.get("task_type"), fp.task_type, SCOPE_WEIGHTS["task_type"])
-    score += mf(card_scope.get("artifact_type"), fp.artifact_type, SCOPE_WEIGHTS["artifact"])
-    score += mf(card_scope.get("audience"), fp.audience, SCOPE_WEIGHTS["audience"])
-    score += mf(card_scope.get("project_key"), fp.project_key, SCOPE_WEIGHTS["project"])
-    score += mf(card_scope.get("language"), fp.language, SCOPE_WEIGHTS["language"])
-    score += mf(card_scope.get("framework"), None, SCOPE_WEIGHTS["framework"])
-
-    card_c = set(card_scope.get("concepts") or [])
-    fp_c = set(c for c in fp.concepts if c)
-    if card_c and fp_c:
-        score += (len(card_c & fp_c) / len(card_c | fp_c)) * SCOPE_WEIGHTS["concepts"]
+    memory_concepts = {normalize_text(item) for item in scope.get("concepts", []) if item}
+    task_concepts = {normalize_text(item) for item in fingerprint.concepts if item}
+    if memory_concepts and task_concepts:
+        score += (
+            len(memory_concepts & task_concepts)
+            / len(memory_concepts | task_concepts)
+            * SCOPE_WEIGHTS["concepts"]
+        )
     return score
 
 
-def check_hard_filters(card, fingerprint: TaskFingerprint, eff_mode: str, cc: CurrentConstraints):
-    if eff_mode == "off" or cc.memory_disabled:
+def _json(value: str | list[Any] | dict[str, Any] | None, default: Any) -> Any:
+    if value is None:
+        return default
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def check_hard_filters(
+    card: Any,
+    fingerprint: TaskFingerprint,
+    effective_memory_mode: str,
+    constraints: CurrentConstraints,
+    *,
+    active_conflict_ids: set[str] | None = None,
+) -> tuple[bool, list[RetrievalReasonCode]]:
+    if effective_memory_mode == "off" or constraints.memory_disabled:
         return False, [RetrievalReasonCode.MEMORY_MODE_OFF]
     if card.status != "active":
         return False, [RetrievalReasonCode.STATUS_NOT_ACTIVE]
-    if card.current_version_id is None or card.version < 1:
-        return False, [RetrievalReasonCode.INVALID_ACTIVE_CARD]
-    if card.rule_confidence is None or card.scope_confidence is None:
+    if (
+        card.current_version_id is None
+        or card.version < 1
+        or card.rule_confidence is None
+        or card.scope_confidence is None
+    ):
         return False, [RetrievalReasonCode.INVALID_ACTIVE_CARD]
 
     now = datetime.now(UTC)
-    if card.valid_from is not None and card.valid_from > now:
-        return False, [RetrievalReasonCode.NOT_YET_VALID]
-    if card.valid_to is not None and card.valid_to <= now:
-        return False, [RetrievalReasonCode.EXPIRED]
+    valid_from = card.valid_from
+    valid_to = card.valid_to
+    if valid_from is not None:
+        valid_from = valid_from.replace(tzinfo=UTC) if valid_from.tzinfo is None else valid_from
+        if valid_from > now:
+            return False, [RetrievalReasonCode.NOT_YET_VALID]
+    if valid_to is not None:
+        valid_to = valid_to.replace(tzinfo=UTC) if valid_to.tzinfo is None else valid_to
+        if valid_to <= now:
+            return False, [RetrievalReasonCode.EXPIRED]
 
-    cs = json.loads(card.scope_json) if isinstance(card.scope_json, str) else card.scope_json
-    exc = (
-        json.loads(card.exceptions_json)
-        if isinstance(card.exceptions_json, str)
-        else (card.exceptions_json or [])
-    )
+    scope = _json(card.scope_json, {})
+    field_reasons = {
+        "domain": RetrievalReasonCode.SCOPE_DOMAIN_MISMATCH,
+        "task_type": RetrievalReasonCode.SCOPE_TASK_TYPE_MISMATCH,
+        "artifact_type": RetrievalReasonCode.SCOPE_ARTIFACT_MISMATCH,
+        "audience": RetrievalReasonCode.SCOPE_AUDIENCE_MISMATCH,
+        "project_key": RetrievalReasonCode.SCOPE_PROJECT_MISMATCH,
+        "language": RetrievalReasonCode.SCOPE_LANGUAGE_MISMATCH,
+        "framework": RetrievalReasonCode.SCOPE_FRAMEWORK_MISMATCH,
+    }
+    for field_name, reason in field_reasons.items():
+        memory_value = _value(scope.get(field_name))
+        task_value = _value(getattr(fingerprint, field_name))
+        if memory_value not in {None, "any"} and task_value != memory_value:
+            return False, [reason]
 
-    d = cs.get("domain")
+    exceptions = set(_json(card.exceptions_json, []))
     if (
-        d is not None
-        and str(d).lower() not in ("", "null", "any")
-        and str(d) != fingerprint.domain.value
-    ):
-        return False, [RetrievalReasonCode.SCOPE_DOMAIN_MISMATCH]
-    tt = cs.get("task_type")
-    if (
-        tt is not None
-        and str(tt).lower() not in ("", "null")
-        and str(tt) != fingerprint.task_type.value
-    ):
-        return False, [RetrievalReasonCode.SCOPE_TASK_TYPE_MISMATCH]
-    art = cs.get("artifact_type")
-    if (
-        art is not None
-        and str(art).lower() not in ("", "null")
-        and str(art) != fingerprint.artifact_type.value
-    ):
-        return False, [RetrievalReasonCode.SCOPE_ARTIFACT_MISMATCH]
-    aud = cs.get("audience")
-    if (
-        aud is not None
-        and str(aud).lower() not in ("", "null")
-        and str(aud) != fingerprint.audience.value
-    ):
-        return False, [RetrievalReasonCode.SCOPE_AUDIENCE_MISMATCH]
-    pk = cs.get("project_key")
-    fp_pk = fingerprint.project_key
-    if (
-        pk is not None
-        and str(pk).strip()
-        and (fp_pk is None or not str(fp_pk).strip() or str(pk) != str(fp_pk))
-    ):
-        return False, [RetrievalReasonCode.SCOPE_PROJECT_MISMATCH]
-
-    if cc.response_policy.value == "direct_fix" and "response_policy:direct_fix" in exc:
+        constraints.response_policy.value == "direct_fix"
+        and "response_policy:direct_fix" in exceptions
+    ) or (constraints.urgency.value == "urgent" and "urgency:urgent" in exceptions):
         return False, [RetrievalReasonCode.CURRENT_CONSTRAINT_OVERRIDE]
-    if cc.urgency.value == "urgent" and "urgency:urgent" in exc:
-        return False, [RetrievalReasonCode.CURRENT_CONSTRAINT_OVERRIDE]
-
+    if active_conflict_ids and card.id in active_conflict_ids:
+        return False, [RetrievalReasonCode.ACTIVE_CONFLICT]
     return True, []
 
 
-def build_memory_document(card) -> str:
-    cs = json.loads(card.scope_json) if isinstance(card.scope_json, str) else card.scope_json
-    concepts = cs.get("concepts") or []
+def build_memory_document(card: Any) -> str:
+    scope = _json(card.scope_json, {})
+    structured_scope = " ".join(
+        part
+        for part in (
+            f"domain:{scope.get('domain')}" if scope.get("domain") else "",
+            f"task_type:{scope.get('task_type')}" if scope.get("task_type") else "",
+            f"language:{scope.get('language')}" if scope.get("language") else "",
+            *(f"concept:{concept}" for concept in scope.get("concepts", [])),
+        )
+        if part
+    )
     return "\n".join(
-        [
-            str(card.title),
-            str(card.rule),
-            str(card.trigger_text or ""),
-            " ".join(str(c) for c in concepts),
-        ]
+        (
+            card.title,
+            card.rule,
+            card.trigger_text or "",
+            structured_scope,
+        )
     )
 
 
-@dataclass
+def current_version_created_at(card: Any) -> datetime | None:
+    for version in getattr(card, "versions", ()):
+        if version.id == card.current_version_id:
+            return version.created_at
+    return card.created_at
+
+
+@dataclass(slots=True)
 class RetrievalDecision:
     memory_id: str
-    memory_version_id: Optional[str]
+    memory_version_id: str | None
     memory_status: str
     retrieved: bool
-    selected: bool
-    injected: bool
-    rank: Optional[int]
-    scope_match: Optional[float]
-    semantic_similarity: Optional[float]
-    provenance_confidence: Optional[float]
-    verified_effect: Optional[float]
-    recency: Optional[float]
-    final_score: Optional[float]
-    reason_codes: list = field(default_factory=list)
+    selected: bool = False
+    injected: bool = False
+    rank: int | None = None
+    scope_match: float | None = None
+    semantic_similarity: float | None = None
+    provenance_confidence: float | None = None
+    verified_effect: float | None = None
+    recency: float | None = None
+    final_score: float | None = None
+    estimated_tokens: int = 0
+    reason_codes: list[RetrievalReasonCode] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(slots=True)
 class RetrievalResult:
     trace_id: str
     request_id: str
     task_id: str
     run_id: str
-    retrieval_ms: int
-    decisions: list = field(default_factory=list)
-    memory_context: Optional[str] = None
+    candidate_count: int = 0
+    retrieval_ms: int = 0
+    decisions: list[RetrievalDecision] = field(default_factory=list)
+    memory_context: str | None = None
     memory_tokens_estimated: int = 0
-    prompt_section_hash: Optional[str] = None
-    reason_codes: list = field(default_factory=list)
-
-
-def to_response(result, trace_id, task_id, run_id, retrieval_ms) -> RetrievalTraceResponse:
-    decisions = [
-        RetrievalDecisionResponse(
-            memory_id=d.memory_id,
-            memory_version_id=d.memory_version_id,
-            memory_status=d.memory_status,
-            retrieved=d.retrieved,
-            selected=d.selected,
-            injected=d.injected,
-            rank=d.rank,
-            scope_match=safe_round(d.scope_match) if d.scope_match is not None else None,
-            semantic_similarity=safe_round(d.semantic_similarity)
-            if d.semantic_similarity is not None
-            else None,
-            provenance_confidence=safe_round(d.provenance_confidence)
-            if d.provenance_confidence is not None
-            else None,
-            verified_effect=safe_round(d.verified_effect)
-            if d.verified_effect is not None
-            else None,
-            recency=safe_round(d.recency) if d.recency is not None else None,
-            final_score=safe_round(d.final_score) if d.final_score is not None else None,
-            reason_codes=d.reason_codes,
-        )
-        for d in result.decisions
-    ]
-    return RetrievalTraceResponse(
-        request_id=result.request_id,
-        retrieval_trace_id=result.trace_id,
-        task_id=task_id,
-        run_id=run_id,
-        retrieval_mode=RETRIEVAL_MODE,
-        algorithm_version=ALGORITHM_VERSION,
-        threshold=THRESHOLD,
-        top_k=TOP_K,
-        candidate_count=sum(1 for d in result.decisions if d.retrieved),
-        retrieved_count=sum(1 for d in result.decisions if d.retrieved),
-        selected_count=sum(1 for d in result.decisions if d.selected),
-        injected_count=sum(1 for d in result.decisions if d.injected),
-        decisions=decisions,
-        retrieval_ms=retrieval_ms,
-        memory_chars=len(result.memory_context) if result.memory_context else 0,
-        memory_tokens_estimated=result.memory_tokens_estimated,
-        provider_prompt_tokens_actual=None,
-        prompt_section_hash=result.prompt_section_hash,
-        reason_codes=result.reason_codes,
-        created_at=utc_now(),
-    )
+    prompt_section_hash: str | None = None
+    reason_codes: list[RetrievalReasonCode] = field(default_factory=list)

@@ -47,17 +47,17 @@ def upgrade() -> None:
         sa.Column("algorithm_version", sa.String(64), nullable=False),
         sa.Column("threshold", sa.Float, nullable=False),
         sa.Column("top_k", sa.Integer, nullable=False),
-        sa.Column("candidate_count", sa.Integer, nullable=False, default=0),
-        sa.Column("retrieved_count", sa.Integer, nullable=False, default=0),
-        sa.Column("selected_count", sa.Integer, nullable=False, default=0),
-        sa.Column("injected_count", sa.Integer, nullable=False, default=0),
-        sa.Column("decisions_json", sa.Text, nullable=False, default="[]"),
-        sa.Column("retrieval_ms", sa.Integer, nullable=False, default=0),
-        sa.Column("memory_chars", sa.Integer, nullable=False, default=0),
-        sa.Column("memory_tokens_estimated", sa.Integer, nullable=False, default=0),
+        sa.Column("candidate_count", sa.Integer, nullable=False, server_default="0"),
+        sa.Column("retrieved_count", sa.Integer, nullable=False, server_default="0"),
+        sa.Column("selected_count", sa.Integer, nullable=False, server_default="0"),
+        sa.Column("injected_count", sa.Integer, nullable=False, server_default="0"),
+        sa.Column("decisions_json", sa.Text, nullable=False, server_default="[]"),
+        sa.Column("retrieval_ms", sa.Integer, nullable=False, server_default="0"),
+        sa.Column("memory_chars", sa.Integer, nullable=False, server_default="0"),
+        sa.Column("memory_tokens_estimated", sa.Integer, nullable=False, server_default="0"),
         sa.Column("provider_prompt_tokens_actual", sa.Integer, nullable=True),
         sa.Column("prompt_section_hash", sa.String(64), nullable=True),
-        sa.Column("reason_codes_json", sa.Text, nullable=False, default="[]"),
+        sa.Column("reason_codes_json", sa.Text, nullable=False, server_default="[]"),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
         ),
@@ -72,6 +72,12 @@ def upgrade() -> None:
             "threshold >= 0 AND threshold <= 1", name="chk_retrieval_trace_threshold"
         ),
         sa.CheckConstraint("top_k > 0", name="chk_retrieval_trace_top_k"),
+        sa.CheckConstraint(
+            "candidate_count >= 0 AND retrieved_count >= 0 AND selected_count >= 0 "
+            "AND injected_count >= 0 AND memory_chars >= 0 "
+            "AND memory_tokens_estimated >= 0",
+            name="chk_retrieval_trace_counts",
+        ),
         sa.UniqueConstraint("owner_id", "run_id", name="uq_retrieval_trace_owner_run"),
     )
     op.create_index("ix_retrieval_traces_task", "retrieval_traces", ["task_id"])
@@ -109,9 +115,9 @@ def upgrade() -> None:
             nullable=True,
         ),
         sa.Column("memory_status", sa.String(32), nullable=False),
-        sa.Column("retrieved", sa.Boolean, nullable=False, default=False),
-        sa.Column("selected", sa.Boolean, nullable=False, default=False),
-        sa.Column("injected", sa.Boolean, nullable=False, default=False),
+        sa.Column("retrieved", sa.Boolean, nullable=False, server_default=sa.false()),
+        sa.Column("selected", sa.Boolean, nullable=False, server_default=sa.false()),
+        sa.Column("injected", sa.Boolean, nullable=False, server_default=sa.false()),
         sa.Column("rank", sa.Integer, nullable=True),
         sa.Column("scope_match", sa.Float, nullable=True),
         sa.Column("semantic_similarity", sa.Float, nullable=True),
@@ -119,7 +125,7 @@ def upgrade() -> None:
         sa.Column("verified_effect", sa.Float, nullable=True),
         sa.Column("recency", sa.Float, nullable=True),
         sa.Column("final_score", sa.Float, nullable=True),
-        sa.Column("reason_codes_json", sa.Text, nullable=False, default="[]"),
+        sa.Column("reason_codes_json", sa.Text, nullable=False, server_default="[]"),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
         ),
@@ -129,6 +135,12 @@ def upgrade() -> None:
             name="chk_retrieval_decision_memory_status",
         ),
         sa.CheckConstraint("rank IS NULL OR rank >= 1", name="chk_retrieval_decision_rank"),
+        sa.CheckConstraint(
+            "injected = 0 OR selected = 1", name="chk_retrieval_decision_injected_selected"
+        ),
+        sa.CheckConstraint(
+            "selected = 0 OR retrieved = 1", name="chk_retrieval_decision_selected_retrieved"
+        ),
         sa.UniqueConstraint(
             "retrieval_trace_id", "memory_id", name="uq_retrieval_decision_trace_memory"
         ),
@@ -182,11 +194,11 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("rank", sa.Integer, nullable=False),
-        sa.Column("retrieved", sa.Boolean, nullable=False, default=True),
-        sa.Column("selected", sa.Boolean, nullable=False, default=True),
-        sa.Column("injected", sa.Boolean, nullable=False, default=False),
-        sa.Column("estimated_tokens", sa.Integer, nullable=False, default=0),
-        sa.Column("verification_status", sa.String(32), nullable=False, default="pending"),
+        sa.Column("retrieved", sa.Boolean, nullable=False, server_default=sa.true()),
+        sa.Column("selected", sa.Boolean, nullable=False, server_default=sa.true()),
+        sa.Column("injected", sa.Boolean, nullable=False, server_default=sa.false()),
+        sa.Column("estimated_tokens", sa.Integer, nullable=False, server_default="0"),
+        sa.Column("verification_status", sa.String(32), nullable=False, server_default="pending"),
         sa.Column("verification_method", sa.String(32), nullable=True),
         sa.Column("evidence_excerpt", sa.Text, nullable=True),
         sa.Column("user_effect", sa.String(32), nullable=True),
@@ -197,11 +209,13 @@ def upgrade() -> None:
             "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
         ),
         sa.CheckConstraint(
-            "verification_status IN ('pending', 'applied', 'violated', 'not_observable', 'unknown')",
+            "verification_status IN "
+            "('pending', 'applied', 'violated', 'not_observable', 'unknown')",
             name="chk_memory_usage_verification_status",
         ),
         sa.CheckConstraint(
-            "verification_method IS NULL OR verification_method IN ('exact_substring', 'structured_provider')",
+            "verification_method IS NULL OR verification_method IN "
+            "('exact_substring', 'structured_provider')",
             name="chk_memory_usage_verification_method",
         ),
         sa.CheckConstraint(
@@ -209,6 +223,8 @@ def upgrade() -> None:
             name="chk_memory_usage_user_effect",
         ),
         sa.CheckConstraint("rank >= 1", name="chk_memory_usage_rank"),
+        sa.CheckConstraint("estimated_tokens >= 0", name="chk_memory_usage_tokens"),
+        sa.CheckConstraint("selected = 1 AND retrieved = 1", name="chk_memory_usage_selected"),
         sa.UniqueConstraint(
             "owner_id",
             "run_id",
@@ -240,8 +256,8 @@ def upgrade() -> None:
             unique=True,
             index=True,
         ),
-        sa.Column("status", sa.String(32), nullable=False, default="pending"),
-        sa.Column("attempt", sa.Integer, nullable=False, default=0),
+        sa.Column("status", sa.String(32), nullable=False, server_default="pending"),
+        sa.Column("attempt", sa.Integer, nullable=False, server_default="0"),
         sa.Column("error_code", sa.String(64), nullable=True),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
@@ -258,6 +274,10 @@ def upgrade() -> None:
 
     # --- memory_cards counters ---
     with op.batch_alter_table("memory_cards") as batch_op:
+        batch_op.drop_constraint("chk_memory_card_task_type", type_="check")
+        batch_op.drop_constraint("chk_memory_card_artifact_type", type_="check")
+        batch_op.drop_constraint("chk_memory_card_audience", type_="check")
+        batch_op.drop_constraint("chk_memory_card_active_invariants", type_="check")
         batch_op.add_column(
             sa.Column("retrieved_count", sa.Integer, nullable=False, server_default="0")
         )
@@ -277,6 +297,34 @@ def upgrade() -> None:
             sa.Column("stale_count", sa.Integer, nullable=False, server_default="0")
         )
         batch_op.add_column(sa.Column("last_used_at", sa.DateTime(timezone=True), nullable=True))
+        batch_op.create_check_constraint(
+            "chk_memory_card_task_type",
+            "task_type IS NULL OR task_type IN ('debugging_guidance', 'code_review', "
+            "'code_explanation', 'code_generation', 'environment_configuration', "
+            "'general_question', 'other', 'any')",
+        )
+        batch_op.create_check_constraint(
+            "chk_memory_card_artifact_type",
+            "artifact_type IS NULL OR artifact_type IN "
+            "('source_code', 'configuration', 'text', 'none', 'other', 'any')",
+        )
+        batch_op.create_check_constraint(
+            "chk_memory_card_audience",
+            "audience IS NULL OR audience IN "
+            "('beginner', 'intermediate', 'advanced', 'unknown', 'any')",
+        )
+        batch_op.create_check_constraint(
+            "chk_memory_card_active_invariants",
+            "status NOT IN ('active', 'paused') OR "
+            "(version >= 1 AND current_version_id IS NOT NULL "
+            "AND rule_confidence IS NOT NULL AND scope_confidence IS NOT NULL)",
+        )
+        batch_op.create_check_constraint(
+            "chk_memory_card_g3_counters",
+            "retrieved_count >= 0 AND injected_count >= 0 "
+            "AND verified_applied_count >= 0 AND helpful_count >= 0 "
+            "AND harmful_count >= 0 AND stale_count >= 0",
+        )
 
     # --- memory_versions created_by_action extended ---
     with op.batch_alter_table("memory_versions") as batch_op:
@@ -307,6 +355,11 @@ def downgrade() -> None:
 
     # Drop memory_cards counter columns
     with op.batch_alter_table("memory_cards") as batch_op:
+        batch_op.drop_constraint("chk_memory_card_g3_counters", type_="check")
+        batch_op.drop_constraint("chk_memory_card_task_type", type_="check")
+        batch_op.drop_constraint("chk_memory_card_artifact_type", type_="check")
+        batch_op.drop_constraint("chk_memory_card_audience", type_="check")
+        batch_op.drop_constraint("chk_memory_card_active_invariants", type_="check")
         batch_op.drop_column("retrieved_count")
         batch_op.drop_column("injected_count")
         batch_op.drop_column("verified_applied_count")
@@ -314,6 +367,26 @@ def downgrade() -> None:
         batch_op.drop_column("harmful_count")
         batch_op.drop_column("stale_count")
         batch_op.drop_column("last_used_at")
+        batch_op.create_check_constraint(
+            "chk_memory_card_task_type",
+            "task_type IS NULL OR task_type IN ('debugging_guidance', 'code_review', "
+            "'code_explanation', 'code_generation', 'environment_configuration', "
+            "'general_question', 'other')",
+        )
+        batch_op.create_check_constraint(
+            "chk_memory_card_artifact_type",
+            "artifact_type IS NULL OR artifact_type IN "
+            "('source_code', 'configuration', 'text', 'none', 'other')",
+        )
+        batch_op.create_check_constraint(
+            "chk_memory_card_audience",
+            "audience IS NULL OR audience IN ('beginner', 'intermediate', 'advanced', 'unknown')",
+        )
+        batch_op.create_check_constraint(
+            "chk_memory_card_active_invariants",
+            "status != 'active' OR (version >= 1 AND current_version_id IS NOT NULL "
+            "AND rule_confidence IS NOT NULL AND scope_confidence IS NOT NULL)",
+        )
 
     # Drop new tables
     op.drop_table("memory_verification_jobs")

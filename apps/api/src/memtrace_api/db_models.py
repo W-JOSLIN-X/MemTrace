@@ -421,16 +421,17 @@ class MemoryCardModel(Base):
         CheckConstraint(
             "task_type IS NULL OR task_type IN ('debugging_guidance', 'code_review', "
             "'code_explanation', 'code_generation', 'environment_configuration', "
-            "'general_question', 'other')",
+            "'general_question', 'other', 'any')",
             name="chk_memory_card_task_type",
         ),
         CheckConstraint(
             "artifact_type IS NULL OR artifact_type IN ('source_code', "
-            "'configuration', 'text', 'none', 'other')",
+            "'configuration', 'text', 'none', 'other', 'any')",
             name="chk_memory_card_artifact_type",
         ),
         CheckConstraint(
-            "audience IS NULL OR audience IN ('beginner', 'intermediate', 'advanced', 'unknown')",
+            "audience IS NULL OR audience IN "
+            "('beginner', 'intermediate', 'advanced', 'unknown', 'any')",
             name="chk_memory_card_audience",
         ),
         CheckConstraint(
@@ -439,11 +440,18 @@ class MemoryCardModel(Base):
             name="chk_memory_card_candidate_invariants",
         ),
         CheckConstraint(
-            "status != 'active' OR (version >= 1 AND current_version_id IS NOT NULL "
+            "status NOT IN ('active', 'paused') OR "
+            "(version >= 1 AND current_version_id IS NOT NULL "
             "AND rule_confidence IS NOT NULL AND scope_confidence IS NOT NULL)",
             name="chk_memory_card_active_invariants",
         ),
         CheckConstraint("source_trust >= 0 AND source_trust <= 1", name="chk_memory_card_trust"),
+        CheckConstraint(
+            "retrieved_count >= 0 AND injected_count >= 0 "
+            "AND verified_applied_count >= 0 AND helpful_count >= 0 "
+            "AND harmful_count >= 0 AND stale_count >= 0",
+            name="chk_memory_card_g3_counters",
+        ),
         Index("ix_memory_cards_owner_status", "owner_id", "status"),
         Index(
             "ix_memory_cards_owner_status_scope",
@@ -491,7 +499,7 @@ class MemoryVersionModel(Base):
     __table_args__ = (
         CheckConstraint("version >= 1", name="chk_memory_version_number"),
         CheckConstraint(
-            "created_by_action IN ('accept', 'edit_accept')",
+            "created_by_action IN ('accept', 'edit_accept', 'edit')",
             name="chk_memory_version_created_by",
         ),
         UniqueConstraint("memory_id", "version", name="uq_memory_version_number"),
@@ -669,6 +677,11 @@ class IdempotencyKeyModel(Base):
         DateTime(timezone=True), default=utc_now, nullable=False
     )
 
+    __table_args__ = (
+        UniqueConstraint("owner_id", "route", "key", name="uq_idempotency_owner_route_key"),
+        Index("ix_idempotency_lookup", "owner_id", "route", "key", "expires_at"),
+    )
+
 
 # ===========================================================================
 # Day 4 G3 retrieval, usage, and verification models
@@ -713,7 +726,18 @@ class RetrievalTraceModel(Base):
 
     __table_args__ = (
         UniqueConstraint("owner_id", "run_id", name="uq_retrieval_trace_owner_run"),
-        Index("ix_retrieval_traces_task", "task_id"),
+        CheckConstraint(
+            "retrieval_mode IN ('tfidf', 'tfidf_degraded')", name="chk_retrieval_trace_mode"
+        ),
+        CheckConstraint("retrieval_ms >= 0", name="chk_retrieval_trace_ms"),
+        CheckConstraint("threshold >= 0 AND threshold <= 1", name="chk_retrieval_trace_threshold"),
+        CheckConstraint("top_k > 0", name="chk_retrieval_trace_top_k"),
+        CheckConstraint(
+            "candidate_count >= 0 AND retrieved_count >= 0 AND selected_count >= 0 "
+            "AND injected_count >= 0",
+            name="chk_retrieval_trace_counts",
+        ),
+        Index("ix_retrieval_traces_owner_task", "owner_id", "task_id"),
     )
 
 
@@ -756,7 +780,14 @@ class RetrievalDecisionModel(Base):
         UniqueConstraint(
             "retrieval_trace_id", "memory_id", name="uq_retrieval_decision_trace_memory"
         ),
-        Index("ix_retrieval_decisions_trace", "retrieval_trace_id"),
+        CheckConstraint("rank IS NULL OR rank >= 1", name="chk_retrieval_decision_rank"),
+        CheckConstraint(
+            "injected = 0 OR selected = 1", name="chk_retrieval_decision_injected_selected"
+        ),
+        CheckConstraint(
+            "selected = 0 OR retrieved = 1", name="chk_retrieval_decision_selected_retrieved"
+        ),
+        Index("ix_retrieval_decisions_owner_trace", "owner_id", "retrieval_trace_id"),
     )
 
 
@@ -809,8 +840,25 @@ class MemoryUsageModel(Base):
             "memory_version_id",
             name="uq_memory_usage_owner_run_memory_version",
         ),
-        Index("ix_memory_usages_trace", "retrieval_trace_id"),
-        Index("ix_memory_usages_memory", "memory_id"),
+        CheckConstraint("rank >= 1", name="chk_memory_usage_rank"),
+        CheckConstraint("estimated_tokens >= 0", name="chk_memory_usage_tokens"),
+        CheckConstraint("selected = 1 AND retrieved = 1", name="chk_memory_usage_selected"),
+        CheckConstraint(
+            "verification_status IN "
+            "('pending', 'applied', 'violated', 'not_observable', 'unknown')",
+            name="chk_memory_usage_verification_status",
+        ),
+        CheckConstraint(
+            "verification_method IS NULL OR verification_method IN "
+            "('exact_substring', 'structured_provider')",
+            name="chk_memory_usage_verification_method",
+        ),
+        CheckConstraint(
+            "user_effect IS NULL OR user_effect IN ('helpful', 'harmful', 'stale')",
+            name="chk_memory_usage_user_effect",
+        ),
+        Index("ix_memory_usages_owner_trace", "owner_id", "retrieval_trace_id"),
+        Index("ix_memory_usages_owner_memory", "owner_id", "memory_id"),
     )
 
 
@@ -836,4 +884,13 @@ class MemoryVerificationJobModel(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'completed', 'failed')",
+            name="chk_verification_job_status",
+        ),
+        CheckConstraint("attempt >= 0", name="chk_verification_job_attempt"),
+        Index("ix_verification_jobs_owner_status", "owner_id", "status"),
     )

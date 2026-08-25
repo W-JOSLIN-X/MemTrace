@@ -642,6 +642,16 @@
           "type": "array",
           "items": {"$ref": "#/$defs/FeedbackEventRecord"}
         },
+        "retrieval_trace": {
+          "oneOf": [
+            {"$ref": "#/$defs/RetrievalTraceResponse"},
+            {"type": "null"}
+          ]
+        },
+        "memory_usages": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/MemoryUsageResponse"}
+        },
         "error": {
           "oneOf": [
             {"$ref": "#/$defs/RunErrorSnapshot"},
@@ -672,6 +682,8 @@
         "messages",
         "final_message",
         "feedback_events",
+        "retrieval_trace",
+        "memory_usages",
         "error",
         "terminal",
         "last_persistent_event_seq",
@@ -1118,6 +1130,86 @@
         "created_at": {"$ref": "#/$defs/Timestamp"}
       },
       "required": ["memory_version_id", "version", "title", "rule", "avoid", "trigger_text", "scope", "exceptions", "created_by_action", "created_at"],
+      "additionalProperties": false
+    },
+    "RetrievalTraceId": {"type": "string", "pattern": "^trace_[0-9A-HJKMNP-TV-Z]{26}$"},
+    "UsageId": {"type": "string", "pattern": "^usage_[0-9A-HJKMNP-TV-Z]{26}$"},
+    "RetrievalReasonCode": {
+      "type": "string",
+      "enum": ["selected_above_threshold", "memory_mode_off", "status_not_active", "not_yet_valid", "expired", "scope_domain_mismatch", "scope_task_type_mismatch", "scope_artifact_mismatch", "scope_audience_mismatch", "scope_project_mismatch", "scope_language_mismatch", "scope_framework_mismatch", "current_constraint_override", "active_conflict", "invalid_active_card", "empty_vector", "below_threshold", "top_k_exceeded", "prompt_budget_exceeded"]
+    },
+    "RetrievalDecisionResponse": {
+      "type": "object",
+      "properties": {
+        "memory_id": {"$ref": "#/$defs/MemoryId"},
+        "memory_version_id": {"oneOf": [{"$ref": "#/$defs/MemoryVersionId"}, {"type": "null"}]},
+        "memory_status": {"$ref": "#/$defs/MemoryCardStatus"},
+        "retrieved": {"type": "boolean"},
+        "selected": {"type": "boolean"},
+        "injected": {"type": "boolean"},
+        "rank": {"type": ["integer", "null"], "minimum": 1},
+        "scope_match": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "semantic_similarity": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "provenance_confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "verified_effect": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "recency": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "final_score": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "reason_codes": {"type": "array", "items": {"$ref": "#/$defs/RetrievalReasonCode"}}
+      },
+      "required": ["memory_id", "memory_version_id", "memory_status", "retrieved", "selected", "injected", "rank", "scope_match", "semantic_similarity", "provenance_confidence", "verified_effect", "recency", "final_score", "reason_codes"],
+      "additionalProperties": false
+    },
+    "RetrievalTraceResponse": {
+      "type": "object",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "retrieval_trace_id": {"$ref": "#/$defs/RetrievalTraceId"},
+        "task_id": {"$ref": "#/$defs/TaskId"},
+        "run_id": {"$ref": "#/$defs/RunId"},
+        "retrieval_mode": {"type": "string", "enum": ["tfidf", "tfidf_degraded"]},
+        "algorithm_version": {"type": "string", "const": "char_tfidf_v1"},
+        "threshold": {"type": "number", "minimum": 0, "maximum": 1},
+        "top_k": {"type": "integer", "minimum": 1},
+        "candidate_count": {"type": "integer", "minimum": 0},
+        "retrieved_count": {"type": "integer", "minimum": 0},
+        "selected_count": {"type": "integer", "minimum": 0},
+        "injected_count": {"type": "integer", "minimum": 0},
+        "decisions": {"type": "array", "items": {"$ref": "#/$defs/RetrievalDecisionResponse"}},
+        "retrieval_ms": {"type": "integer", "minimum": 0},
+        "memory_chars": {"type": "integer", "minimum": 0},
+        "memory_tokens_estimated": {"type": "integer", "minimum": 0},
+        "provider_prompt_tokens_actual": {"type": ["integer", "null"], "minimum": 0},
+        "prompt_section_hash": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "reason_codes": {"type": "array", "items": {"$ref": "#/$defs/RetrievalReasonCode"}},
+        "created_at": {"$ref": "#/$defs/Timestamp"},
+        "updated_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["request_id", "retrieval_trace_id", "task_id", "run_id", "retrieval_mode", "algorithm_version", "threshold", "top_k", "candidate_count", "retrieved_count", "selected_count", "injected_count", "decisions", "retrieval_ms", "memory_chars", "memory_tokens_estimated", "provider_prompt_tokens_actual", "prompt_section_hash", "reason_codes", "created_at", "updated_at"],
+      "additionalProperties": false
+    },
+    "MemoryUsageResponse": {
+      "type": "object",
+      "properties": {
+        "request_id": {"$ref": "#/$defs/RequestId"},
+        "usage_id": {"$ref": "#/$defs/UsageId"},
+        "retrieval_trace_id": {"$ref": "#/$defs/RetrievalTraceId"},
+        "task_id": {"$ref": "#/$defs/TaskId"},
+        "run_id": {"$ref": "#/$defs/RunId"},
+        "memory_id": {"$ref": "#/$defs/MemoryId"},
+        "memory_version_id": {"$ref": "#/$defs/MemoryVersionId"},
+        "rank": {"type": "integer", "minimum": 1},
+        "retrieved": {"type": "boolean"},
+        "selected": {"type": "boolean"},
+        "injected": {"type": "boolean"},
+        "estimated_tokens": {"type": "integer", "minimum": 0},
+        "verification_status": {"type": "string", "enum": ["pending", "applied", "violated", "not_observable", "unknown"]},
+        "verification_method": {"type": ["string", "null"], "enum": ["exact_substring", "structured_provider", null]},
+        "evidence_excerpt": {"type": ["string", "null"], "maxLength": 120},
+        "user_effect": {"type": ["string", "null"], "enum": ["helpful", "harmful", "stale", null]},
+        "created_at": {"$ref": "#/$defs/Timestamp"},
+        "updated_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["request_id", "usage_id", "retrieval_trace_id", "task_id", "run_id", "memory_id", "memory_version_id", "rank", "retrieved", "selected", "injected", "estimated_tokens", "verification_status", "verification_method", "evidence_excerpt", "user_effect", "created_at", "updated_at"],
       "additionalProperties": false
     },
     "MemoryDetailResponse": {

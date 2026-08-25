@@ -526,6 +526,8 @@ class TaskSnapshot(ContractModel):
     messages: list[TaskMessageRecord] = Field(default_factory=list)
     final_message: MessageSnapshot | None = None
     feedback_events: list[FeedbackEventRecord] = Field(default_factory=list)
+    retrieval_trace: RetrievalTraceResponse | None = None
+    memory_usages: list[MemoryUsageResponse] = Field(default_factory=list)
     error: RunErrorSnapshot | None = None
     terminal: bool = False
     last_persistent_event_seq: int = Field(default=0, ge=0)
@@ -661,7 +663,6 @@ class ResolveAction(StrEnum):
     EDIT_ACCEPT = "edit_accept"
     REJECT = "reject"
     ONE_SHOT = "one_shot"
-    EDIT = "edit"
 
 
 class RejectionReason(StrEnum):
@@ -729,10 +730,33 @@ class AllowedException(StrEnum):
 class MemoryScope(ContractModel):
     level: ScopeLevel
     domain: ScopeDomain
-    task_type: TaskType | None = None
-    artifact_type: ArtifactType | None = None
-    audience: Audience | None = None
+    task_type: TaskType | Literal["any"] | None = None
+    artifact_type: ArtifactType | Literal["any"] | None = None
+    audience: Audience | Literal["any"] | None = None
     project_key: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None = None
+    language: ProgrammingLanguage | Literal["any"] | None = None
+    framework: Annotated[str, StringConstraints(min_length=1, max_length=64)] | None = None
+    concepts: Annotated[
+        list[Annotated[str, StringConstraints(min_length=1, max_length=64)]], Field(max_length=12)
+    ] = Field(default_factory=list)
+
+    @field_validator("framework")
+    @classmethod
+    def normalize_framework(cls, value: str | None) -> str | None:
+        if value is None or value == "any":
+            return value
+        normalized = value.strip().casefold()
+        if not normalized or normalized != value:
+            raise ValueError("framework must be a normalized lowercase tag or any")
+        return normalized
+
+    @field_validator("concepts")
+    @classmethod
+    def normalized_concepts(cls, value: list[str]) -> list[str]:
+        normalized = [item.strip().casefold() for item in value]
+        if any(not item for item in normalized) or normalized != sorted(set(normalized)):
+            raise ValueError("concepts must be unique sorted normalized tags")
+        return normalized
 
 
 class MemoryCard(ContractModel):
@@ -755,6 +779,15 @@ class MemoryCard(ContractModel):
     evidence_count: int = Field(default=0, ge=0)
     version: int = Field(default=0, ge=0)
     current_version_id: MemoryVersionId | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+    retrieved_count: int = Field(default=0, ge=0)
+    injected_count: int = Field(default=0, ge=0)
+    verified_applied_count: int = Field(default=0, ge=0)
+    helpful_count: int = Field(default=0, ge=0)
+    harmful_count: int = Field(default=0, ge=0)
+    stale_count: int = Field(default=0, ge=0)
+    last_used_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -767,13 +800,13 @@ class MemoryCard(ContractModel):
                 raise ValueError("candidate cards have version 0 and no current version")
             if self.rule_confidence is not None or self.scope_confidence is not None:
                 raise ValueError("candidate cards have null rule/scope confidence")
-        if self.status is MemoryCardStatus.ACTIVE:
+        if self.status in {MemoryCardStatus.ACTIVE, MemoryCardStatus.PAUSED}:
             if self.rejection_reason is not None:
-                raise ValueError("active cards cannot have a rejection reason")
+                raise ValueError("active and paused cards cannot have a rejection reason")
             if self.current_version_id is None or self.version < 1:
-                raise ValueError("active cards require a current version")
+                raise ValueError("active and paused cards require a current version")
             if self.rule_confidence is None or self.scope_confidence is None:
-                raise ValueError("active cards require confirmed rule/scope confidence")
+                raise ValueError("active and paused cards require confirmed rule/scope confidence")
         if self.status is MemoryCardStatus.REJECTED and self.rejection_reason is None:
             raise ValueError("rejected cards require a rejection reason")
         return self
@@ -848,7 +881,7 @@ class MemoryVersionProjection(ContractModel):
     trigger_text: Annotated[str, StringConstraints(max_length=240)] = ""
     scope: MemoryScope
     exceptions: Annotated[list[AllowedException], Field(max_length=8)] = Field(default_factory=list)
-    created_by_action: ResolveAction
+    created_by_action: Literal["accept", "edit_accept", "edit"]
     created_at: datetime
 
 
@@ -947,11 +980,13 @@ class RetrievalTraceResponse(ContractModel):
     prompt_section_hash: str | None = None
     reason_codes: list[RetrievalReasonCode] = Field(default_factory=list)
     created_at: datetime
+    updated_at: datetime
 
 
 class MemoryUsageResponse(ContractModel):
     request_id: RequestId
     usage_id: UsageId
+    retrieval_trace_id: RetrievalTraceId
     task_id: TaskId
     run_id: RunId
     memory_id: MemoryId
@@ -966,6 +1001,20 @@ class MemoryUsageResponse(ContractModel):
     evidence_excerpt: Annotated[str, StringConstraints(max_length=120)] | None = None
     user_effect: UserEffect | None = None
     created_at: datetime
+    updated_at: datetime
+
+
+class ActiveMemoryEditRequest(ContractModel):
+    expected_current_version_id: MemoryVersionId
+    patch: MemoryCardPatch
+
+
+class MemoryStateRequest(ContractModel):
+    expected_current_version_id: MemoryVersionId
+
+
+class MemoryUsageFeedbackRequest(ContractModel):
+    effect: UserEffect
 
 
 class MemoryCardListResponse(ContractModel):

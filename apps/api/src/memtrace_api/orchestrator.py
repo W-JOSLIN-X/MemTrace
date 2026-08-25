@@ -26,6 +26,13 @@ from memtrace_api.events import (
     EventType,
     MemoryRetrievalStartedPayload,
 )
+from memtrace_api.g3_service import (
+    RetrievalExecution,
+    execute_and_persist_retrieval,
+    mark_injected_unknown,
+    update_actual_prompt_tokens,
+    verify_injected_usages,
+)
 from memtrace_api.ids import new_prefixed_ulid
 from memtrace_api.logic import build_public_plan
 from memtrace_api.providers import (
@@ -202,12 +209,48 @@ class AgentOrchestrator:
                 MemoryRetrievalStartedPayload(),
             )
 
+            retrieval: RetrievalExecution | None = None
+            if record.user_ctx is not None and self.db_session_factory is not None:
+
+                def _retrieve() -> RetrievalExecution:
+                    with session_scope(self.db_session_factory) as session:
+                        return execute_and_persist_retrieval(
+                            session,
+                            record.user_ctx,
+                            request_id=record.snapshot.request_id,
+                            task_id=record.snapshot.task_id,
+                            run_id=record.snapshot.run_id,
+                            fingerprint=analysis.fingerprint,
+                            effective_memory_mode=record.request.effective_memory_mode.value,
+                        )
+
+                retrieval = await asyncio.to_thread(_retrieve)
+                for index, event in enumerate(retrieval.events):
+                    await self.store.emit_preallocated_persistent(
+                        record,
+                        event_type=event.event_type,
+                        event_seq=event.event_seq,
+                        data=event.data,
+                        snapshot_updates=(
+                            {
+                                "retrieval_trace": retrieval.trace,
+                                "memory_usages": retrieval.usages,
+                            }
+                            if index == 0
+                            else None
+                        ),
+                    )
+
             await self._stage(record, RunStatus.PLANNING, "publishing_plan")
             plan = build_public_plan(analysis)
             plan_payload_dict = {
                 "plan_id": plan.id,
                 "goal_code": analysis.goal_code,
-                "memory_summary_code": "no_long_term_memory_day2",
+                "memory_summary_code": (
+                    "memory_selected"
+                    if retrieval is not None and retrieval.trace.selected_count
+                    else "no_memory_selected"
+                ),
                 "next_action_code": analysis.next_action_code,
             }
             await self._emit_db_persistent_event(
@@ -320,6 +363,8 @@ class AgentOrchestrator:
                     task_text=record.request.task_text,
                     public_plan=plan,
                     tool_result=tool_result,
+                    memory_context=retrieval.memory_context if retrieval is not None else None,
+                    usage_ids=retrieval.usage_ids if retrieval is not None else (),
                 ),
                 measurements,
             )
@@ -334,7 +379,7 @@ class AgentOrchestrator:
             # Persist assistant message and run status in DB
             if record.user_ctx is not None and self.db_session_factory is not None:
 
-                def _save_completed() -> None:
+                def _save_completed():
                     with session_scope(self.db_session_factory) as session:
                         msg_model = MessageModel(
                             id=message.id,
@@ -361,7 +406,37 @@ class AgentOrchestrator:
                             )
                         )
 
-                await asyncio.to_thread(_save_completed)
+                        update_actual_prompt_tokens(
+                            session,
+                            record.user_ctx,
+                            run_id=record.snapshot.run_id,
+                            prompt_tokens=(
+                                measurements.usage.prompt_tokens
+                                if self.provider.mode is ProviderMode.REAL
+                                and measurements.usage is not None
+                                else None
+                            ),
+                        )
+                        return verify_injected_usages(
+                            session,
+                            record.user_ctx,
+                            request_id=record.snapshot.request_id,
+                            task_id=record.snapshot.task_id,
+                            run_id=record.snapshot.run_id,
+                            output=message.content,
+                        )
+
+                verified_usages, verified_events = await asyncio.to_thread(_save_completed)
+                for index, event in enumerate(verified_events):
+                    await self.store.emit_preallocated_persistent(
+                        record,
+                        event_type=event.event_type,
+                        event_seq=event.event_seq,
+                        data=event.data,
+                        snapshot_updates=(
+                            {"memory_usages": verified_usages} if index == 0 else None
+                        ),
+                    )
 
             run_completed_dict = {
                 "status": "succeeded",
@@ -412,7 +487,8 @@ class AgentOrchestrator:
                 message="流式结果超过安全容量或包含无效字符。",
                 retryable=False,
             )
-        except Exception:
+        except Exception as exc:
+            logger.exception("task.run_unexpected type=%s", type(exc).__name__)
             await self._finish_failure(
                 record,
                 measurements,
@@ -617,6 +693,11 @@ class AgentOrchestrator:
                             error_code=code.value,
                             completed_at=utc_now(),
                         )
+                    )
+                    mark_injected_unknown(
+                        session,
+                        record.user_ctx,
+                        run_id=record.snapshot.run_id,
                     )
 
             await asyncio.to_thread(_save_failed)

@@ -31,7 +31,6 @@ from memtrace_api.schemas import (
     PlanId,
     ProgrammingLanguage,
     ProviderMode,
-    RetrievalReasonCode,
     RetrievalTraceId,
     RunId,
     TaskId,
@@ -133,7 +132,7 @@ class MemoryRetrievalStartedPayload(ContractModel):
 class AgentPlanPublishedPayload(ContractModel):
     plan_id: PlanId
     goal_code: Literal["analyze_code", "answer_question", "explain_concept", "other"]
-    memory_summary_code: Literal["no_long_term_memory_day2"] = "no_long_term_memory_day2"
+    memory_summary_code: Literal["no_memory_selected", "memory_selected"]
     next_action_code: Literal["python_ast_check", "generate_directly"]
 
 
@@ -258,8 +257,8 @@ class MemoryJobFailedPayload(ContractModel):
 
 
 class MemoryRetrievalCompletedPayload(ContractModel):
-    retrieval_trace_id: RetrievalTraceId
-    retrieval_mode: str
+    trace_id: RetrievalTraceId
+    mode: str
     algorithm_version: Literal["char_tfidf_v1"] = "char_tfidf_v1"
     candidate_count: int = Field(ge=0)
     retrieved_count: int = Field(ge=0)
@@ -269,13 +268,13 @@ class MemoryRetrievalCompletedPayload(ContractModel):
     top_k: int = Field(gt=0)
     retrieval_ms: int = Field(ge=0)
     memory_chars: int = Field(ge=0)
-    memory_tokens_estimated: int = Field(ge=0)
+    estimated_tokens: int = Field(ge=0)
     prompt_section_hash: str | None = None
 
 
 class MemoryInjectedPayload(ContractModel):
     usage_id: UsageId
-    retrieval_trace_id: RetrievalTraceId
+    trace_id: RetrievalTraceId
     memory_id: MemoryId
     memory_version_id: MemoryVersionId
     rank: int = Field(ge=1)
