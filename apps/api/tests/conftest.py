@@ -4,13 +4,18 @@ import os
 import subprocess
 import sys
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
 
 from memtrace_api.config import PROJECT_ROOT, Settings
+from memtrace_api.db_models import Base
 from memtrace_api.main import create_app
+from memtrace_api.repositories import UserContext
 
 TEST_SESSION_SECRET = "test_session_secret_01234567890123456789"
 
@@ -115,3 +120,32 @@ def session_client_factory(tmp_path: Path, tmp_db_url: str) -> Callable[..., Tes
         return client
 
     return build
+
+
+@pytest.fixture
+def user_context(tmp_path: Path, tmp_db_url: str) -> UserContext:
+    """Provide a UserContext for blank_demo user."""
+    return UserContext(
+        user_id="blank_demo",
+        demo_alias="blank_demo",
+    )
+
+
+@pytest.fixture
+def other_user_context(tmp_path: Path, tmp_db_url: str) -> UserContext:
+    """Provide a UserContext for seeded_demo user."""
+    return UserContext(
+        user_id="seeded_demo",
+        demo_alias="seeded_demo",
+    )
+
+
+@pytest.fixture
+def session(tmp_db_url: str) -> Session:
+    """Provide a SQLAlchemy session for direct DB operations."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    engine = create_engine(tmp_db_url)
+    SessionLocal = sessionmaker(bind=engine)
+    return SessionLocal()

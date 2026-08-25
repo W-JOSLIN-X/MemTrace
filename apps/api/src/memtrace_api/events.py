@@ -48,6 +48,7 @@ class EventType(StrEnum):
     TASK_CREATED = "task.created"
     TASK_STAGE = "task.stage"
     TASK_FINGERPRINTED = "task.fingerprinted"
+    TASK_DELETED = "task.deleted"
     MEMORY_RETRIEVAL_STARTED = "memory.retrieval.started"
     MEMORY_RETRIEVAL_COMPLETED = "memory.retrieval.completed"
     AGENT_PLAN_PUBLISHED = "agent.plan.published"
@@ -67,6 +68,11 @@ class EventType(StrEnum):
     MEMORY_INJECTED = "memory.injected"
     MEMORY_USAGE_VERIFIED = "memory.usage.verified"
     MEMORY_USAGE_FEEDBACK_RECORDED = "memory.usage.feedback.recorded"
+    MEMORY_LIFECYCLE_CHANGED = "memory.lifecycle.changed"
+    MEMORY_CONFLICT_DETECTED = "memory.conflict.detected"
+    MEMORY_CONFLICT_RESOLVED = "memory.conflict.resolved"
+    MEMORY_PACK_PREVIEWED = "memory.pack.previewed"
+    MEMORY_PACK_COMMITTED = "memory.pack.committed"
 
 
 PERSISTENT_EVENT_TYPES = frozenset(
@@ -74,6 +80,7 @@ PERSISTENT_EVENT_TYPES = frozenset(
         EventType.TASK_CREATED,
         EventType.TASK_STAGE,
         EventType.TASK_FINGERPRINTED,
+        EventType.TASK_DELETED,
         EventType.MEMORY_RETRIEVAL_COMPLETED,
         EventType.AGENT_PLAN_PUBLISHED,
         EventType.TOOL_CALLED,
@@ -91,6 +98,11 @@ PERSISTENT_EVENT_TYPES = frozenset(
         EventType.MEMORY_INJECTED,
         EventType.MEMORY_USAGE_VERIFIED,
         EventType.MEMORY_USAGE_FEEDBACK_RECORDED,
+        EventType.MEMORY_LIFECYCLE_CHANGED,
+        EventType.MEMORY_CONFLICT_DETECTED,
+        EventType.MEMORY_CONFLICT_RESOLVED,
+        EventType.MEMORY_PACK_PREVIEWED,
+        EventType.MEMORY_PACK_COMMITTED,
     }
 )
 

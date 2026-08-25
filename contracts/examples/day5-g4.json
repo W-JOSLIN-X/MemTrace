@@ -1,0 +1,94 @@
+{
+  "schema_ref": "memtrace-memory-pack@1.0.0",
+  "format": "memtrace-memory-pack",
+  "format_version": "1.0.0",
+  "pack_id": "pack_01JQY2H3K4L5M6N7O8P9Q0R1S2T3U4V5",
+  "name": "socratic-programming-learning",
+  "description": "Programming learning preferences emphasizing step-by-step debugging guidance",
+  "created_at": "2026-08-25T12:00:00Z",
+  "producer": {
+    "name": "MemTrace",
+    "version": "0.1.0"
+  },
+  "source": {
+    "kind": "user_export",
+    "trust": "self_asserted"
+  },
+  "privacy": {
+    "contains_raw_evidence": false,
+    "anonymized": true
+  },
+  "cards": [
+    {
+      "external_id": "card_001",
+      "schema_version": "1.0",
+      "kind": "preference",
+      "title": "学习调试先提示再给答案",
+      "rule": "在编程学习的调试任务中，先给一个可以执行的诊断动作，再根据学生反馈逐步增加提示。",
+      "avoid": "首次回复直接给出完整修复代码。",
+      "trigger_text": "编程学习、调试指导、学生卡住",
+      "scope": {
+        "level": "task_family",
+        "domain": "programming_learning",
+        "task_type": "debugging_guidance",
+        "artifact_type": "source_code",
+        "audience": "beginner",
+        "project_key": null,
+        "language": "any",
+        "framework": null,
+        "concepts": ["debugging", "step_by_step"]
+      },
+      "exceptions": ["response_policy:direct_fix"],
+      "claimed_origin": {
+        "source_type": "explicit_feedback",
+        "trust_level": "user_confirmed",
+        "created_at": "2026-08-20T10:00:00Z",
+        "source_task_exported": false,
+        "source_version": 1
+      },
+      "version": 1,
+      "updated_at": "2026-08-20T10:00:00Z"
+    },
+    {
+      "external_id": "card_002",
+      "schema_version": "1.0",
+      "kind": "environment",
+      "title": "默认命令行环境",
+      "rule": "命令示例优先使用 Windows PowerShell。",
+      "avoid": "",
+      "trigger_text": "命令行、终端、脚本执行",
+      "scope": {
+        "level": "global",
+        "domain": "any",
+        "task_type": "any",
+        "artifact_type": null,
+        "audience": null,
+        "project_key": null,
+        "language": "any",
+        "framework": null,
+        "concepts": []
+      },
+      "exceptions": [],
+      "claimed_origin": {
+        "source_type": "explicit_feedback",
+        "trust_level": "user_confirmed",
+        "created_at": "2026-08-21T14:30:00Z",
+        "source_task_exported": true,
+        "source_version": 1
+      },
+      "version": 1,
+      "updated_at": "2026-08-21T14:30:00Z"
+    }
+  ],
+  "relations": [
+    {
+      "from_external_id": "card_002",
+      "to_external_id": "card_001",
+      "relation_type": "reinforces"
+    }
+  ],
+  "integrity": {
+    "algorithm": "sha256",
+    "canonical_payload_sha256": "PLACEHOLDER_REPLACED_BY_EXPORTER"
+  }
+}

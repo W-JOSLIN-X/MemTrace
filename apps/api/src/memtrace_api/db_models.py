@@ -74,6 +74,10 @@ class TaskModel(Base):
     effective_memory_mode: Mapped[str] = mapped_column(String(16), nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
     next_event_seq: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    # G4 task tombstone fields
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    deletion_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -87,7 +91,15 @@ class TaskModel(Base):
             name="chk_task_scenario",
         ),
         CheckConstraint("effective_memory_mode IN ('on', 'off')", name="chk_task_memory_mode"),
-        CheckConstraint("status IN ('active', 'archived')", name="chk_task_status"),
+        CheckConstraint(
+            "status IN ('active', 'archived', 'deleted')",
+            name="chk_task_status",
+        ),
+        CheckConstraint(
+            "status = 'deleted' OR "
+            "(deleted_at IS NULL AND deleted_by IS NULL AND deletion_reason IS NULL)",
+            name="chk_task_deleted_tombstone",
+        ),
     )
 
     owner: Mapped[UserModel] = relationship("UserModel", back_populates="tasks")
@@ -382,6 +394,13 @@ class MemoryCardModel(Base):
     harmful_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     stale_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # G4 memory center / pack fields
+    evidence_missing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    import_batch_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("import_batches.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    import_source_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -452,6 +471,14 @@ class MemoryCardModel(Base):
             "AND harmful_count >= 0 AND stale_count >= 0",
             name="chk_memory_card_g3_counters",
         ),
+        CheckConstraint(
+            "status = 'deleted' OR (deleted_at IS NULL AND evidence_missing = 0)",
+            name="chk_memory_card_g4_deleted_tombstone",
+        ),
+        CheckConstraint(
+            "import_source_version IS NULL OR import_source_version >= 1",
+            name="chk_memory_card_import_source_version",
+        ),
         Index("ix_memory_cards_owner_status", "owner_id", "status"),
         Index(
             "ix_memory_cards_owner_status_scope",
@@ -463,6 +490,8 @@ class MemoryCardModel(Base):
         ),
         Index("ix_memory_cards_job", "memory_job_id"),
         Index("ix_memory_cards_current_version", "current_version_id"),
+        Index("ix_memory_cards_deleted_at", "deleted_at"),
+        Index("ix_memory_cards_import_batch", "import_batch_id"),
     )
 
     job: Mapped[MemoryJobModel | None] = relationship("MemoryJobModel", back_populates="cards")
@@ -471,6 +500,9 @@ class MemoryCardModel(Base):
     )
     evidence_links: Mapped[list[MemoryEvidenceLinkModel]] = relationship(
         "MemoryEvidenceLinkModel", back_populates="memory"
+    )
+    import_batch: Mapped[ImportBatchModel | None] = relationship(
+        "ImportBatchModel", back_populates="cards"
     )
 
 
@@ -499,7 +531,8 @@ class MemoryVersionModel(Base):
     __table_args__ = (
         CheckConstraint("version >= 1", name="chk_memory_version_number"),
         CheckConstraint(
-            "created_by_action IN ('accept', 'edit_accept', 'edit')",
+            "created_by_action IN ('accept', 'edit_accept', 'edit', "
+            "'import', 'merge', 'scope_resolution')",
             name="chk_memory_version_created_by",
         ),
         UniqueConstraint("memory_id", "version", name="uq_memory_version_number"),
@@ -609,7 +642,7 @@ class MemoryRelationModel(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     owner_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     from_memory_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("memory_cards.id", ondelete="CASCADE"), nullable=False
@@ -618,21 +651,44 @@ class MemoryRelationModel(Base):
         String(64), ForeignKey("memory_cards.id", ondelete="CASCADE"), nullable=False
     )
     relation_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="resolved")
+    resolution_action: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    resolution_memory_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
 
     __table_args__ = (
         CheckConstraint(
-            "relation_type IN ('duplicate_of', 'conflicts_with', 'supersedes', 'related_to')",
+            "relation_type IN ('duplicate_of', 'conflicts_with', 'supersedes', "
+            "'reinforces', 'merged_into', 'related_to')",
             name="chk_memory_relation_type",
+        ),
+        CheckConstraint(
+            "status IN ('unresolved', 'resolved')",
+            name="chk_memory_relation_status",
+        ),
+        CheckConstraint(
+            "resolution_action IS NULL OR resolution_action IN "
+            "('prefer', 'separate_scopes', 'merge', 'pause_both')",
+            name="chk_memory_relation_resolution_action",
         ),
         CheckConstraint("from_memory_id != to_memory_id", name="chk_memory_relation_self"),
         UniqueConstraint(
             "from_memory_id", "to_memory_id", "relation_type", name="uq_memory_relation_triple"
         ),
+        CheckConstraint(
+            "(status = 'resolved') OR (resolution_action IS NULL AND resolved_at IS NULL)",
+            name="chk_memory_relation_unresolved_state",
+        ),
+        UniqueConstraint(
+            "from_memory_id", "to_memory_id",
+            name="uq_memory_relation_pair"
+        ),
         Index("ix_memory_relations_from", "from_memory_id"),
         Index("ix_memory_relations_to", "to_memory_id"),
+        Index("ix_memory_relations_owner", "owner_id"),
     )
 
 
@@ -893,4 +949,48 @@ class MemoryVerificationJobModel(Base):
         ),
         CheckConstraint("attempt >= 0", name="chk_verification_job_attempt"),
         Index("ix_verification_jobs_owner_status", "owner_id", "status"),
+    )
+
+
+class ImportBatchModel(Base):
+    """G4 import batch for Memory Pack two-phase import."""
+    __tablename__ = "import_batches"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    file_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="quarantined")
+    canonical_payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    preview_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    preview_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    inserted_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    warning_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('quarantined', 'committed', 'expired', 'cancelled')",
+            name="chk_import_batch_status",
+        ),
+        CheckConstraint(
+            "inserted_count >= 0 AND skipped_count >= 0 AND warning_count >= 0",
+            name="chk_import_batch_counts",
+        ),
+        UniqueConstraint("preview_token_hash", name="uq_import_batch_preview_token"),
+        Index("ix_import_batches_owner", "owner_id"),
+        Index("ix_import_batches_expires", "expires_at"),
+    )
+
+    cards: Mapped[list[MemoryCardModel]] = relationship(
+        "MemoryCardModel", back_populates="import_batch"
     )

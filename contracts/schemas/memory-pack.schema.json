@@ -1,0 +1,320 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://memtrace.dev/schemas/memory-pack.v1.json",
+  "title": "MemTrace Memory Pack V1",
+  "description": "Canonical schema for MemTrace memory pack interchange format v1.0.0.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_ref",
+    "format",
+    "format_version",
+    "pack_id",
+    "name",
+    "description",
+    "created_at",
+    "producer",
+    "source",
+    "privacy",
+    "cards",
+    "relations",
+    "integrity"
+  ],
+  "properties": {
+    "schema_ref": {
+      "type": "string",
+      "description": "Stable identifier for this pack schema",
+      "pattern": "^memtrace-memory-pack@1\\.0\\.0$"
+    },
+    "format": {
+      "type": "string",
+      "description": "Format identifier",
+      "pattern": "^memtrace-memory-pack$"
+    },
+    "format_version": {
+      "type": "string",
+      "description": "Format version",
+      "pattern": "^1\\.0\\.0$"
+    },
+    "pack_id": {
+      "type": "string",
+      "description": "Globally unique pack identifier",
+      "pattern": "^pack_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable pack name",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional pack description",
+      "maxLength": 500
+    },
+    "created_at": {
+      "type": "string",
+      "description": "Pack creation timestamp in UTC RFC 3339",
+      "format": "date-time"
+    },
+    "producer": {
+      "type": "object",
+      "description": "Pack producer information",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "description": "Pack source and trust information",
+      "additionalProperties": false,
+      "required": ["kind", "trust"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["user_export", "external_import"]
+        },
+        "trust": {
+          "type": "string",
+          "enum": ["self_asserted", "unverified"]
+        }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "description": "Privacy metadata",
+      "additionalProperties": false,
+      "required": ["contains_raw_evidence", "anonymized"],
+      "properties": {
+        "contains_raw_evidence": {
+          "type": "boolean",
+          "description": "Must be false for v1",
+          "const": false
+        },
+        "anonymized": {
+          "type": "boolean",
+          "description": "Must be true for v1",
+          "const": true
+        }
+      }
+    },
+    "cards": {
+      "type": "array",
+      "description": "Memory cards in this pack",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "external_id",
+          "schema_version",
+          "kind",
+          "title",
+          "rule",
+          "avoid",
+          "trigger_text",
+          "scope",
+          "exceptions",
+          "claimed_origin",
+          "version",
+          "updated_at"
+        ],
+        "properties": {
+          "external_id": {
+            "type": "string",
+            "description": "Pack-local unique identifier",
+            "pattern": "^card_[A-Za-z0-9_-]{1,64}$"
+          },
+          "schema_version": {
+            "type": "string",
+            "description": "Card schema version",
+            "pattern": "^1\\.0$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["preference", "constraint", "procedure", "experience", "environment", "learning_checkpoint"]
+          },
+          "title": {
+            "type": "string",
+            "description": "Card title",
+            "minLength": 4,
+            "maxLength": 40
+          },
+          "rule": {
+            "type": "string",
+            "description": "The rule to apply",
+            "minLength": 20,
+            "maxLength": 300
+          },
+          "avoid": {
+            "type": "string",
+            "description": "What to avoid",
+            "maxLength": 400
+          },
+          "trigger_text": {
+            "type": "string",
+            "description": "When this rule applies",
+            "maxLength": 240
+          },
+          "scope": {
+            "$ref": "#/$defs/MemoryScope"
+          },
+          "exceptions": {
+            "type": "array",
+            "description": "Controlled exceptions",
+            "maxItems": 8,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z_]+:[a-z_]+$"
+            }
+          },
+          "claimed_origin": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source_type", "trust_level", "created_at", "source_task_exported", "source_version"],
+            "properties": {
+              "source_type": {
+                "type": "string",
+                "enum": ["explicit_feedback", "explicit_correction", "edit_diff", "accept", "reject", "rating", "outcome", "import"]
+              },
+              "trust_level": {
+                "type": "string",
+                "enum": ["user_confirmed", "self_asserted", "imported_unverified"]
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "source_task_exported": {
+                "type": "boolean"
+              },
+              "source_version": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Source version at export time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "relations": {
+      "type": "array",
+      "description": "Relations between cards in this pack",
+      "maxItems": 400,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["from_external_id", "to_external_id", "relation_type"],
+        "properties": {
+          "from_external_id": {
+            "type": "string",
+            "description": "Source card external_id within this pack",
+            "pattern": "^card_[A-Za-z0-9_-]{1,64}$"
+          },
+          "to_external_id": {
+            "type": "string",
+            "description": "Target card external_id within this pack",
+            "pattern": "^card_[A-Za-z0-9_-]{1,64}$"
+          },
+          "relation_type": {
+            "type": "string",
+            "enum": ["duplicate_of", "reinforces", "conflicts_with", "supersedes", "merged_into", "related_to"]
+          }
+        }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "canonical_payload_sha256"],
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "pattern": "^sha256$"
+        },
+        "canonical_payload_sha256": {
+          "type": "string",
+          "description": "SHA-256 hex of canonical payload (everything except this integrity field)",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "MemoryScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "level",
+        "domain",
+        "task_type",
+        "artifact_type",
+        "audience",
+        "project_key",
+        "language",
+        "framework",
+        "concepts"
+      ],
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["session", "task_family", "project", "global"]
+        },
+        "domain": {
+          "type": "string",
+          "enum": ["programming_learning", "software_development", "general_text", "other", "any"]
+        },
+        "task_type": {
+          "type": "string",
+          "enum": ["debugging_guidance", "code_review", "code_explanation", "code_generation", "environment_configuration", "general_question", "other", "any"]
+        },
+        "artifact_type": {
+          "type": "string",
+          "enum": ["source_code", "configuration", "text", "none", "other", "any"]
+        },
+        "audience": {
+          "type": "string",
+          "enum": ["beginner", "intermediate", "advanced", "unknown", "any"]
+        },
+        "project_key": {
+          "type": ["string", "null"],
+          "description": "Project key or null"
+        },
+        "language": {
+          "type": ["string", "null"],
+          "enum": ["python", "javascript", "typescript", "java", "c", "cpp", "rust", "go", "other", "unknown", "any"]
+        },
+        "framework": {
+          "type": ["string", "null"]
+        },
+        "concepts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+          },
+          "maxItems": 12
+        }
+      }
+    }
+  }
+}

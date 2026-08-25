@@ -63,11 +63,17 @@ from memtrace_api.readiness import (
     ensure_directory_writable,
 )
 from memtrace_api.repositories import (
+    ConflictRepository,
     FeedbackRepository,
     IdempotencyRepository,
+    ImportBatchRepository,
+    MemoryCardG4Repository,
     MemoryCardRepository,
     MemoryJobRepository,
+    MemoryMergeRepository,
+    MemoryRelationRepository,
     MemoryUsageRepository,
+    PackRepository,
     SessionRepository,
     TaskRepository,
     UserContext,
@@ -81,20 +87,37 @@ from memtrace_api.schemas import (
     FeedbackCreateAccepted,
     FeedbackCreateRequest,
     HealthResponse,
+    ImportBatchId,
+    ImportBatchResponse,
+    ImportCommitResponse,
     MemoryCard,
     MemoryCardStatus,
+    MemoryConflictDetectRequest,
+    MemoryConflictDetectResponse,
+    MemoryConflictResolveRequest,
+    MemoryConflictResolveResponse,
+    MemoryDeleteRequest,
     MemoryDetailResponse,
     MemoryEvidenceProjection,
     MemoryJobResponse,
+    MemoryListFilter,
     MemoryListResponse,
+    MemoryMergeRequest,
+    MemoryMergeResponse,
+    MemoryRelationProjection,
     MemoryScope,
     MemoryStateRequest,
     MemoryUsageFeedbackRequest,
     MemoryUsageListResponse,
     MemoryUsageResponse,
+    MemoryVersionDiffResponse,
     MemoryVersionListResponse,
     MemoryVersionProjection,
     MessageRole,
+    PackExportRequest,
+    PackExportResponse,
+    PackPreviewItem,
+    PackPreviewResponse,
     ProviderMode,
     ReadinessChecks,
     ReadyResponse,
@@ -105,6 +128,7 @@ from memtrace_api.schemas import (
     RunStatus,
     TaskCreateAccepted,
     TaskCreateRequest,
+    TaskDeleteRequest,
     TaskFingerprint,
     TaskSnapshot,
     derive_feedback_type,
@@ -135,6 +159,9 @@ API_PREFIX = "/api/v1"
 TASK_ID_PATTERN = r"^task_[0-9A-HJKMNP-TV-Z]{26}$"
 JOB_ID_PATTERN = r"^job_[0-9A-HJKMNP-TV-Z]{26}$"
 MEMORY_ID_PATTERN = r"^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+RELATION_ID_PATTERN = r"^rel_[0-9A-HJKMNP-TV-Z]{26}$"
+BATCH_ID_PATTERN = r"^batch_[0-9A-HJKMNP-TV-Z]{26}$"
+PACK_ID_PATTERN = r"^pack_[0-9A-HJKMNP-TV-Z]{26}$"
 logger = logging.getLogger(__name__)
 
 
@@ -993,8 +1020,8 @@ def create_app(
                         content=json.loads(existing.response_json),
                     )
 
-                card_repo = MemoryCardRepository(user_ctx, session)
-                card = card_repo.get_candidate(memory_id)
+                card_repo = MemoryCardG4Repository(user_ctx, session)
+                card = card_repo._get(memory_id)
                 if card is None:
                     raise _memory_not_found()
                 if card.status != MemoryCardStatus.CANDIDATE.value:
@@ -1172,17 +1199,34 @@ def create_app(
     )
     async def list_memories(
         request: Request,
-        status_filter: Literal["candidate", "active", "rejected", "paused"] | None = Query(
-            default=None,
-            alias="status",
-        ),
+        query: str | None = Query(default=None, min_length=1, max_length=100),
+        kind: str | None = Query(default=None),
+        status: str | None = Query(default=None),
+        domain: str | None = Query(default=None),
+        task_type: str | None = Query(default=None),
+        source_type: str | None = Query(default=None),
+        used_after: datetime | None = Query(default=None),
+        sort: Literal[
+            "updated_desc", "created_desc", "last_used_desc", "title_asc"
+        ] = Query(default="updated_desc"),
         cursor: str | None = Query(default=None, pattern=MEMORY_ID_PATTERN),
         user_ctx: UserContext = Depends(get_current_user),
     ) -> MemoryListResponse:
         session_factory = request.app.state.db_session_factory
         with session_scope(session_factory) as session:
-            card_repo = MemoryCardRepository(user_ctx, session)
-            cards = card_repo.list_cards(status=status_filter, cursor=cursor, limit=51)
+            card_repo = MemoryCardG4Repository(user_ctx, session)
+            cards = card_repo.list_memories(
+                query=query,
+                kind=kind,
+                status=status,
+                domain=domain,
+                task_type=task_type,
+                source_type=source_type,
+                used_after=used_after,
+                sort=sort,
+                cursor=cursor,
+                limit=51,
+            )
             page = cards[:50]
             return MemoryListResponse(
                 request_id=request.state.request_id,
@@ -1202,17 +1246,32 @@ def create_app(
     ) -> MemoryDetailResponse:
         session_factory = request.app.state.db_session_factory
         with session_scope(session_factory) as session:
-            card_repo = MemoryCardRepository(user_ctx, session)
-            card = card_repo.get_candidate(memory_id)
+            card_repo = MemoryCardG4Repository(user_ctx, session)
+            card = card_repo.get_detail(memory_id)
             if card is None:
                 raise _memory_not_found()
             evidence = card_repo.list_evidence(memory_id=memory_id)
             versions = card_repo.list_versions(memory_id=memory_id)
+            relations = card_repo.list_relations(memory_id=memory_id)
             return MemoryDetailResponse(
                 request_id=request.state.request_id,
                 card=_card_projection(card),
                 evidence=[_evidence_projection(item) for item in evidence],
                 versions=[_version_projection(item) for item in versions],
+                relations=[
+                    MemoryRelationProjection(
+                        relation_id=rel.id,
+                        from_memory_id=rel.from_memory_id,
+                        to_memory_id=rel.to_memory_id,
+                        relation_type=rel.relation_type,
+                        status=rel.status,
+                        resolution_action=rel.resolution_action,
+                        resolution_memory_id=rel.resolution_memory_id,
+                        created_at=rel.created_at,
+                        resolved_at=rel.resolved_at,
+                    )
+                    for rel in relations
+                ],
             )
 
     # ------------------------------------------------------------------
@@ -1310,8 +1369,8 @@ def create_app(
                         status_code=existing.response_status,
                         content=json.loads(existing.response_json),
                     )
-                card_repo = MemoryCardRepository(user_ctx, session)
-                card = card_repo.get_candidate(memory_id)
+                card_repo = MemoryCardG4Repository(user_ctx, session)
+                card = card_repo._get(memory_id)
                 if card is None:
                     raise _memory_not_found()
                 if card.status != MemoryCardStatus.ACTIVE.value:
@@ -1405,8 +1464,8 @@ def create_app(
                         status_code=existing.response_status,
                         content=json.loads(existing.response_json),
                     )
-                card_repo = MemoryCardRepository(user_ctx, session)
-                card = card_repo.get_candidate(memory_id)
+                card_repo = MemoryCardG4Repository(user_ctx, session)
+                card = card_repo._get(memory_id)
                 if card is None:
                     raise _memory_not_found()
                 if card.status != old_status.value:
@@ -1512,7 +1571,7 @@ def create_app(
         user_ctx: UserContext = Depends(get_current_user),
     ) -> MemoryVersionListResponse:
         with session_scope(request.app.state.db_session_factory) as session:
-            card_repo = MemoryCardRepository(user_ctx, session)
+            card_repo = MemoryCardG4Repository(user_ctx, session)
             if card_repo.get_candidate(memory_id) is None:
                 raise _memory_not_found()
             query = select(MemoryVersionModel).where(
@@ -1547,7 +1606,7 @@ def create_app(
         user_ctx: UserContext = Depends(get_current_user),
     ) -> MemoryUsageListResponse:
         with session_scope(request.app.state.db_session_factory) as session:
-            card_repo = MemoryCardRepository(user_ctx, session)
+            card_repo = MemoryCardG4Repository(user_ctx, session)
             if card_repo.get_candidate(memory_id) is None:
                 raise _memory_not_found()
             rows = MemoryUsageRepository(user_ctx, session).list_by_memory(
@@ -1610,7 +1669,7 @@ def create_app(
                     raise _memory_state_conflict("该 usage 当前不能记录效果反馈。")
                 usage.user_effect = body.effect.value
                 usage.updated_at = utc_now()
-                card = MemoryCardRepository(user_ctx, session).get_candidate(memory_id)
+                card = MemoryCardG4Repository(user_ctx, session).get_candidate(memory_id)
                 if card is None:
                     raise _memory_not_found()
                 setattr(
@@ -1658,6 +1717,1115 @@ def create_app(
             data=data,
         )
         return JSONResponse(content=payload.model_dump(mode="json"))
+
+    # ── Day 5 G4 Memory Center lifecycle ──────────────────────────────────────
+
+    @application.delete(
+        f"{API_PREFIX}/memories/{{memory_id}}",
+        response_model=MemoryDetailResponse,
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            409: {"model": ErrorEnvelope},
+        },
+    )
+    async def permanent_delete_memory(
+        request: Request,
+        body: MemoryDeleteRequest,
+        memory_id: str = Path(pattern=MEMORY_ID_PATTERN),
+        idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        idem_key = validate_idempotency_key(idempotency_key_raw)
+        path = f"{API_PREFIX}/memories/{memory_id}"
+        route = f"DELETE:{path}"
+        normalized = body.model_dump(mode="json")
+        req_hash = compute_request_hash(method="DELETE", path=path, body=normalized)
+        factory = request.app.state.db_session_factory
+        try:
+            with session_scope(factory) as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                idem_repo = IdempotencyRepository(user_ctx, session)
+                existing = idem_repo.get_record(route, idem_key)
+                if existing is not None:
+                    if existing.request_hash != req_hash:
+                        raise _idempotency_conflict()
+                    return JSONResponse(
+                        status_code=existing.response_status,
+                        content=json.loads(existing.response_json),
+                    )
+                card_repo = MemoryCardG4Repository(user_ctx, session)
+                card = card_repo.get_detail(memory_id)
+                if card is None:
+                    raise _memory_not_found()
+                # Candidate: expected version is None
+                expected_version_id = (
+                    body.expected_current_version_id
+                    if card.status != "candidate"
+                    else None
+                )
+                result = card_repo.permanent_delete(
+                    memory_id=memory_id,
+                    expected_version_id=expected_version_id,
+                    confirm_title=body.confirm_title,
+                )
+                event_seq = _allocate_memory_event_seq(session, user_ctx.user_id, memory_id)
+                task_repo = TaskRepository(user_ctx, session)
+                task_repo.append_event(
+                    stream_type="memory",
+                    stream_id=memory_id,
+                    seq=event_seq,
+                    event_type=EventType.MEMORY_LIFECYCLE_CHANGED.value,
+                    metadata={
+                        "memory_id": memory_id,
+                        "action": "permanent_delete",
+                        "old_status": card.status,
+                        "new_status": "deleted",
+                        "version_id": card.current_version_id,
+                    },
+                )
+                session.flush()
+                response_data = {
+                    "request_id": request.state.request_id,
+                    "memory_id": memory_id,
+                    "status": "deleted",
+                    "deleted_at": result["deleted_at"].isoformat().replace("+00:00", "Z")
+                    if isinstance(result["deleted_at"], datetime)
+                    else str(result["deleted_at"]),
+                }
+                idem_repo.save_record(
+                    route=route,
+                    key=idem_key,
+                    request_hash=req_hash,
+                    response_status=200,
+                    response_json=json.dumps(response_data),
+                    expires_at=utc_now() + SESSION_DURATION * 2,
+                )
+        except IntegrityError:
+            return _replay_idempotent_response(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+        return JSONResponse(content=response_data, status_code=200)
+
+    @application.delete(
+        f"{API_PREFIX}/tasks/{{task_id}}",
+        status_code=200,
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            409: {"model": ErrorEnvelope},
+        },
+    )
+    async def delete_source_task(
+        request: Request,
+        body: TaskDeleteRequest,
+        task_id: str = Path(pattern=TASK_ID_PATTERN),
+        idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        idem_key = validate_idempotency_key(idempotency_key_raw)
+        path = f"{API_PREFIX}/tasks/{task_id}"
+        route = f"DELETE:{path}"
+        normalized = body.model_dump(mode="json")
+        req_hash = compute_request_hash(method="DELETE", path=path, body=normalized)
+        factory = request.app.state.db_session_factory
+        try:
+            with session_scope(factory) as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                idem_repo = IdempotencyRepository(user_ctx, session)
+                existing = idem_repo.get_record(route, idem_key)
+                if existing is not None:
+                    if existing.request_hash != req_hash:
+                        raise _idempotency_conflict()
+                    return JSONResponse(
+                        status_code=existing.response_status,
+                        content=json.loads(existing.response_json),
+                    )
+                task_repo = TaskRepository(user_ctx, session)
+                task = task_repo.get_task(task_id)
+                if task is None:
+                    raise _task_not_found(task_id)
+                if body.confirm_task_id != task_id:
+                    raise _error_response(
+                        request,
+                        status_code=409,
+                        code=ErrorCode.CONFIRMATION_MISMATCH,
+                        message="确认的 task_id 与 URL 不匹配。",
+                    )
+                card_repo = MemoryCardG4Repository(user_ctx, session)
+                result = card_repo.delete_source_task(task_id)
+                event_seq = task_repo.allocate_next_event_seq(task_id)
+                task_repo.append_event(
+                    stream_type="task",
+                    stream_id=task_id,
+                    seq=event_seq,
+                    event_type=EventType.TASK_DELETED.value,
+                    metadata={
+                        "task_id": task_id,
+                        "memory_policy": body.memory_policy,
+                        "affected_card_count": result["affected_card_count"],
+                    },
+                )
+                session.flush()
+                response_data = {
+                    "request_id": request.state.request_id,
+                    "task_id": task_id,
+                    "status": "deleted",
+                    "memory_policy": body.memory_policy,
+                    "affected_card_count": result["affected_card_count"],
+                }
+                idem_repo.save_record(
+                    route=route,
+                    key=idem_key,
+                    request_hash=req_hash,
+                    response_status=200,
+                    response_json=json.dumps(response_data),
+                    expires_at=utc_now() + SESSION_DURATION * 2,
+                )
+        except IntegrityError:
+            return _replay_idempotent_response(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+        return JSONResponse(content=response_data, status_code=200)
+
+    @application.get(
+        f"{API_PREFIX}/memories/{{memory_id}}/relations",
+        response_model=list[MemoryRelationProjection],
+        responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}},
+    )
+    async def get_memory_relations(
+        request: Request,
+        memory_id: str = Path(pattern=MEMORY_ID_PATTERN),
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> list[MemoryRelationProjection]:
+        session_factory = request.app.state.db_session_factory
+        with session_scope(session_factory) as session:
+            card_repo = MemoryCardG4Repository(user_ctx, session)
+            relations = card_repo.list_relations(memory_id)
+            return [
+                MemoryRelationProjection(
+                    relation_id=rel.id,
+                    from_memory_id=rel.from_memory_id,
+                    to_memory_id=rel.to_memory_id,
+                    relation_type=rel.relation_type,
+                    status=rel.status,
+                    resolution_action=rel.resolution_action,
+                    resolution_memory_id=rel.resolution_memory_id,
+                    created_at=rel.created_at,
+                    resolved_at=rel.resolved_at,
+                )
+                for rel in relations
+            ]
+
+    @application.post(
+        f"{API_PREFIX}/memory-conflicts",
+        response_model=MemoryConflictDetectResponse,
+        responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}, 409: {"model": ErrorEnvelope}},
+    )
+    async def detect_memory_conflict(
+        request: Request,
+        body: MemoryConflictDetectRequest,
+        idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        idem_key = validate_idempotency_key(idempotency_key_raw)
+        path = f"{API_PREFIX}/memory-conflicts"
+        route = f"POST:{path}"
+        normalized = body.model_dump(mode="json")
+        req_hash = compute_request_hash(method="POST", path=path, body=normalized)
+        factory = request.app.state.db_session_factory
+        try:
+            with session_scope(factory) as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                idem_repo = IdempotencyRepository(user_ctx, session)
+                existing = idem_repo.get_record(route, idem_key)
+                if existing is not None:
+                    if existing.request_hash != req_hash:
+                        raise _idempotency_conflict()
+                    return JSONResponse(
+                        status_code=existing.response_status,
+                        content=json.loads(existing.response_json),
+                    )
+                card_repo = MemoryCardG4Repository(user_ctx, session)
+                left_card = card_repo.get_detail(body.left_memory_id)
+                right_card = card_repo.get_detail(body.right_memory_id)
+                if left_card is None or right_card is None:
+                    raise _memory_not_found()
+                if left_card.owner_id != user_ctx.user_id or right_card.owner_id != user_ctx.user_id:
+                    raise _memory_not_found()
+                if body.left_expected_current_version_id != left_card.current_version_id:
+                    raise _memory_version_conflict()
+                if body.right_expected_current_version_id != right_card.current_version_id:
+                    raise _memory_version_conflict()
+                allowed = {"active", "paused"}
+                if left_card.status not in allowed or right_card.status not in allowed:
+                    raise _error_response(
+                        request,
+                        status_code=409,
+                        code=ErrorCode.MEMORY_STATE_CONFLICT,
+                        message="两端 memory 必须为 active 或 paused 才能创建冲突。",
+                    )
+                if body.left_memory_id == body.right_memory_id:
+                    raise _error_response(
+                        request,
+                        status_code=409,
+                        code=ErrorCode.MEMORY_MERGE_CONFLICT,
+                        message="不能对同一 memory 创建冲突。",
+                    )
+                # Create canonical pair (left_memory_id < right_memory_id)
+                if body.left_memory_id > body.right_memory_id:
+                    left_id, right_id = body.right_memory_id, body.left_memory_id
+                else:
+                    left_id, right_id = body.left_memory_id, body.right_memory_id
+                relation_id = new_prefixed_ulid("rel")
+                conflict_repo = ConflictRepository(user_ctx, session)
+                relation = conflict_repo.create_conflict(
+                    relation_id=relation_id,
+                    left_memory_id=left_id,
+                    right_memory_id=right_id,
+                )
+                # Set both cards to conflicted
+                card_repo.set_status(body.left_memory_id, body.left_expected_current_version_id, "conflicted")
+                card_repo.set_status(body.right_memory_id, body.right_expected_current_version_id, "conflicted")
+                # Create supersedes relations for both
+                supersedes_id_1 = new_prefixed_ulid("rel")
+                supersedes_id_2 = new_prefixed_ulid("rel")
+                for src_id, tgt_id, rel_id in [
+                    (body.left_memory_id, body.right_memory_id, supersedes_id_1),
+                    (body.right_memory_id, body.left_memory_id, supersedes_id_2),
+                ]:
+                    session.add(
+                        MemoryRelationModel(
+                            id=rel_id,
+                            owner_id=user_ctx.user_id,
+                            from_memory_id=src_id,
+                            to_memory_id=tgt_id,
+                            relation_type="conflicts_with",
+                            status="unresolved",
+                            created_at=utc_now(),
+                        )
+                    )
+                response_data = MemoryConflictDetectResponse(
+                    request_id=request.state.request_id,
+                    relation_id=relation_id,
+                    left_memory_id=left_id,
+                    right_memory_id=right_id,
+                ).model_dump(mode="json")
+                idem_repo.save_record(
+                    route=route,
+                    key=idem_key,
+                    request_hash=req_hash,
+                    response_status=200,
+                    response_json=json.dumps(response_data),
+                    expires_at=utc_now() + SESSION_DURATION * 2,
+                )
+                session.flush()
+        except IntegrityError:
+            return _replay_idempotent_response(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+        return JSONResponse(content=response_data, status_code=200)
+
+    @application.post(
+        f"{API_PREFIX}/memory-conflicts/{{relation_id}}/resolve",
+        response_model=MemoryConflictResolveResponse,
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            409: {"model": ErrorEnvelope},
+        },
+    )
+    async def resolve_memory_conflict(
+        request: Request,
+        body: MemoryConflictResolveRequest,
+        relation_id: str = Path(pattern=RELATION_ID_PATTERN),
+        idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        idem_key = validate_idempotency_key(idempotency_key_raw)
+        path = f"{API_PREFIX}/memory-conflicts/{relation_id}/resolve"
+        route = f"POST:{path}"
+        normalized = body.model_dump(mode="json")
+        req_hash = compute_request_hash(method="POST", path=path, body=normalized)
+        factory = request.app.state.db_session_factory
+        try:
+            with session_scope(factory) as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                idem_repo = IdempotencyRepository(user_ctx, session)
+                existing = idem_repo.get_record(route, idem_key)
+                if existing is not None:
+                    if existing.request_hash != req_hash:
+                        raise _idempotency_conflict()
+                    return JSONResponse(
+                        status_code=existing.response_status,
+                        content=json.loads(existing.response_json),
+                    )
+                conflict_repo = ConflictRepository(user_ctx, session)
+                relation = conflict_repo.get(relation_id)
+                if relation is None:
+                    raise _error_response(
+                        request,
+                        status_code=404,
+                        code=ErrorCode.MEMORY_RELATION_NOT_FOUND,
+                        message="冲突关系不存在或不属于当前用户。",
+                    )
+                if relation.status != "unresolved":
+                    raise _error_response(
+                        request,
+                        status_code=409,
+                        code=ErrorCode.MEMORY_CONFLICT_ALREADY_RESOLVED,
+                        message="该冲突已被解决。",
+                    )
+                card_repo = MemoryCardG4Repository(user_ctx, session)
+                left_card = card_repo.get_detail(relation.from_memory_id)
+                right_card = card_repo.get_detail(relation.to_memory_id)
+                if left_card is None or right_card is None:
+                    raise _memory_not_found()
+                if (
+                    left_card.current_version_id != body.left_expected_current_version_id
+                    or right_card.current_version_id != body.right_expected_current_version_id
+                ):
+                    raise _memory_version_conflict()
+                resolved = conflict_repo.resolve(
+                    relation_id,
+                    action=body.action,
+                    resolution_memory_id=body.preferred_memory_id,
+                )
+                if body.action == "prefer":
+                    if body.preferred_memory_id not in (relation.from_memory_id, relation.to_memory_id):
+                        raise _error_response(
+                            request,
+                            status_code=409,
+                            code=ErrorCode.MEMORY_MERGE_CONFLICT,
+                            message="preferred_memory_id 必须是冲突两端之一。",
+                        )
+                    winner_id = body.preferred_memory_id
+                    loser_id = (
+                        relation.to_memory_id
+                        if body.preferred_memory_id == relation.from_memory_id
+                        else relation.from_memory_id
+                    )
+                    card_repo.set_status(winner_id, body.preferred_memory_id == relation.from_memory_id and body.left_expected_current_version_id or body.right_expected_current_version_id, "active")
+                    card_repo.set_status(loser_id, loser_id == relation.from_memory_id and body.left_expected_current_version_id or body.right_expected_current_version_id, "superseded")
+                    supersedes_id = new_prefixed_ulid("rel")
+                    session.add(
+                        MemoryRelationModel(
+                            id=supersedes_id,
+                            owner_id=user_ctx.user_id,
+                            from_memory_id=winner_id,
+                            to_memory_id=loser_id,
+                            relation_type="supersedes",
+                            status="resolved",
+                            created_at=utc_now(),
+                        )
+                    )
+                elif body.action == "separate_scopes":
+                    for card_id, scope, ver_id in [
+                        (relation.from_memory_id, body.left_scope, body.left_expected_current_version_id),
+                        (relation.to_memory_id, body.right_scope, body.right_expected_current_version_id),
+                    ]:
+                        if scope is None:
+                            continue
+                        scope_json = json.dumps(scope, separators=(",", ":"), ensure_ascii=False)
+                        card = card_repo.get_detail(card_id)
+                        if card is None:
+                            raise _memory_not_found()
+                        next_ver = card.version + 1
+                        new_ver_id = new_prefixed_ulid("memver")
+                        session.add(
+                            MemoryVersionModel(
+                                id=new_ver_id,
+                                owner_id=user_ctx.user_id,
+                                memory_id=card_id,
+                                version=next_ver,
+                                title=card.title,
+                                rule=card.rule,
+                                avoid=card.avoid,
+                                trigger_text=card.trigger_text,
+                                scope_json=scope_json,
+                                exceptions_json=card.exceptions_json,
+                                created_by_action="scope_resolution",
+                                created_at=utc_now(),
+                            )
+                        )
+                        card_repo._update(
+                            card_id,
+                            scope_level=scope.get("level", card.scope_level),
+                            domain=scope.get("domain", card.domain),
+                            task_type=scope.get("task_type", card.task_type),
+                            artifact_type=scope.get("artifact_type", card.artifact_type),
+                            audience=scope.get("audience", card.audience),
+                            project_key=scope.get("project_key", card.project_key),
+                            scope_json=scope_json,
+                            current_version_id=new_ver_id,
+                            version=next_ver,
+                            updated_at=utc_now(),
+                        )
+                        card_repo.set_status(card_id, ver_id, "active")
+                elif body.action == "merge":
+                    if body.merged_card is None:
+                        raise _error_response(
+                            request,
+                            status_code=409,
+                            code=ErrorCode.MEMORY_MERGE_CONFLICT,
+                            message="merge action 需要 merged_card。",
+                        )
+                    scope = body.merged_card.scope if body.merged_card else {}
+                    scope_json = json.dumps(scope, separators=(",", ":"), ensure_ascii=False)
+                    exc_json = json.dumps(
+                        body.merged_card.exceptions if body.merged_card else [],
+                        separators=(",", ":"),
+                        ensure_ascii=False,
+                    )
+                    merged_id = new_prefixed_ulid("mem")
+                    new_card = MemoryCardModel(
+                        id=merged_id,
+                        owner_id=user_ctx.user_id,
+                        status="active",
+                        kind=body.merged_card.kind,
+                        source_type="import",
+                        save_preselected=False,
+                        title=body.merged_card.title,
+                        rule=body.merged_card.rule,
+                        avoid=body.merged_card.avoid or "",
+                        trigger_text=body.merged_card.trigger_text or "",
+                        scope_level=scope.get("level", "global"),
+                        domain=scope.get("domain", "other"),
+                        task_type=scope.get("task_type"),
+                        artifact_type=scope.get("artifact_type"),
+                        audience=scope.get("audience"),
+                        project_key=scope.get("project_key"),
+                        scope_json=scope_json,
+                        exceptions_json=exc_json,
+                        source_trust=0.50,
+                        rule_confidence=1.0,
+                        scope_confidence=1.0,
+                        evidence_count=0,
+                        version=0,
+                        created_at=utc_now(),
+                        updated_at=utc_now(),
+                    )
+                    session.add(new_card)
+                    new_ver_id = new_prefixed_ulid("memver")
+                    session.add(
+                        MemoryVersionModel(
+                            id=new_ver_id,
+                            owner_id=user_ctx.user_id,
+                            memory_id=merged_id,
+                            version=1,
+                            title=body.merged_card.title,
+                            rule=body.merged_card.rule,
+                            avoid=body.merged_card.avoid or "",
+                            trigger_text=body.merged_card.trigger_text or "",
+                            scope_json=scope_json,
+                            exceptions_json=exc_json,
+                            created_by_action="merge",
+                            created_at=utc_now(),
+                        )
+                    )
+                    for src_id in (relation.from_memory_id, relation.to_memory_id):
+                        card_repo.set_status(src_id, body.left_expected_current_version_id if src_id == relation.from_memory_id else body.right_expected_current_version_id, "merged")
+                        merged_into_id = new_prefixed_ulid("rel")
+                        session.add(
+                            MemoryRelationModel(
+                                id=merged_into_id,
+                                owner_id=user_ctx.user_id,
+                                from_memory_id=src_id,
+                                to_memory_id=merged_id,
+                                relation_type="merged_into",
+                                status="resolved",
+                                created_at=utc_now(),
+                            )
+                        )
+                elif body.action == "pause_both":
+                    for card_id, ver_id in [
+                        (relation.from_memory_id, body.left_expected_current_version_id),
+                        (relation.to_memory_id, body.right_expected_current_version_id),
+                    ]:
+                        card_repo.set_status(card_id, ver_id, "paused")
+                session.flush()
+                response_data = MemoryConflictResolveResponse(
+                    request_id=request.state.request_id,
+                    relation_id=relation_id,
+                    action=body.action,
+                ).model_dump(mode="json")
+                idem_repo.save_record(
+                    route=route,
+                    key=idem_key,
+                    request_hash=req_hash,
+                    response_status=200,
+                    response_json=json.dumps(response_data),
+                    expires_at=utc_now() + SESSION_DURATION * 2,
+                )
+        except IntegrityError:
+            return _replay_idempotent_response(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+        return JSONResponse(content=response_data, status_code=200)
+
+    @application.post(
+        f"{API_PREFIX}/memories/merge",
+        response_model=MemoryMergeResponse,
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            409: {"model": ErrorEnvelope},
+        },
+    )
+    async def merge_memories(
+        request: Request,
+        body: MemoryMergeRequest,
+        idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        idem_key = validate_idempotency_key(idempotency_key_raw)
+        path = f"{API_PREFIX}/memories/merge"
+        route = f"POST:{path}"
+        normalized = body.model_dump(mode="json")
+        req_hash = compute_request_hash(method="POST", path=path, body=normalized)
+        factory = request.app.state.db_session_factory
+        try:
+            with session_scope(factory) as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                idem_repo = IdempotencyRepository(user_ctx, session)
+                existing = idem_repo.get_record(route, idem_key)
+                if existing is not None:
+                    if existing.request_hash != req_hash:
+                        raise _idempotency_conflict()
+                    return JSONResponse(
+                        status_code=existing.response_status,
+                        content=json.loads(existing.response_json),
+                    )
+                merge_repo = MemoryMergeRepository(user_ctx, session)
+                conflict_repo = ConflictRepository(user_ctx, session)
+                merged_id = new_prefixed_ulid("mem")
+                result = merge_repo.manual_merge(
+                    merged_memory_id=merged_id,
+                    left_memory_id=body.left_memory_id,
+                    right_memory_id=body.right_memory_id,
+                    merged_card_data=body.merged_card.model_dump(mode="json"),
+                )
+                # Add merged_into relations
+                for src_id in (body.left_memory_id, body.right_memory_id):
+                    merged_into_id = new_prefixed_ulid("rel")
+                    session.add(
+                        MemoryRelationModel(
+                            id=merged_into_id,
+                            owner_id=user_ctx.user_id,
+                            from_memory_id=src_id,
+                            to_memory_id=merged_id,
+                            relation_type="merged_into",
+                            status="resolved",
+                            created_at=utc_now(),
+                        )
+                    )
+                # Check for existing unresolved conflict between left/right
+                existing_conflict = session.execute(
+                    select(MemoryRelationModel).where(
+                        and_(
+                            MemoryRelationModel.owner_id == user_ctx.user_id,
+                            MemoryRelationModel.relation_type == "conflicts_with",
+                            MemoryRelationModel.status == "unresolved",
+                            or_(
+                                and_(
+                                    MemoryRelationModel.from_memory_id == body.left_memory_id,
+                                    MemoryRelationModel.to_memory_id == body.right_memory_id,
+                                ),
+                                and_(
+                                    MemoryRelationModel.from_memory_id == body.right_memory_id,
+                                    MemoryRelationModel.to_memory_id == body.left_memory_id,
+                                ),
+                            ),
+                        )
+                    )
+                ).scalar_one_or_none()
+                if existing_conflict is not None:
+                    raise _error_response(
+                        request,
+                        status_code=409,
+                        code=ErrorCode.MEMORY_MERGE_CONFLICT,
+                        message="两端存在未解决冲突，请先通过 /memory-conflicts/{id}/resolve 解决。",
+                    )
+                response_data = MemoryMergeResponse(
+                    request_id=request.state.request_id,
+                    merged_memory_id=merged_id,
+                    left_memory_id=body.left_memory_id,
+                    right_memory_id=body.right_memory_id,
+                ).model_dump(mode="json")
+                idem_repo.save_record(
+                    route=route,
+                    key=idem_key,
+                    request_hash=req_hash,
+                    response_status=200,
+                    response_json=json.dumps(response_data),
+                    expires_at=utc_now() + SESSION_DURATION * 2,
+                )
+                session.flush()
+        except IntegrityError:
+            return _replay_idempotent_response(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+        return JSONResponse(content=response_data, status_code=200)
+
+    @application.post(
+        f"{API_PREFIX}/memory-packs/export",
+        response_model=PackExportResponse,
+        responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}},
+    )
+    async def export_memory_pack(
+        request: Request,
+        body: PackExportRequest,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        session_factory = request.app.state.db_session_factory
+        with session_scope(session_factory) as session:
+            pack_repo = PackRepository(user_ctx, session)
+            pack_id = new_prefixed_ulid("pack")
+            name = body.name or f"memtrace-export-{pack_id[5:]}"
+            pack = pack_repo.export_memories(
+                pack_id=pack_id,
+                name=name,
+                description=body.description or "",
+                memory_ids=body.memory_ids,
+            )
+            return PackExportResponse(
+                request_id=request.state.request_id,
+                pack_id=pack["pack_id"],
+                name=pack["name"],
+                description=pack.get("description"),
+                created_at=pack["created_at"],
+                producer=pack["producer"],
+                card_count=len(pack["cards"]),
+                relation_count=len(pack["relations"]),
+                canonical_payload_sha256=pack["integrity"]["canonical_payload_sha256"],
+            )
+
+    @application.post(
+        f"{API_PREFIX}/memory-packs/import/preview",
+        response_model=PackPreviewResponse,
+        responses={401: {"model": ErrorEnvelope}, 413: {"model": ErrorEnvelope}, 422: {"model": ErrorEnvelope}},
+    )
+    async def preview_memory_pack(
+        request: Request,
+        idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        # Simplified preview - basic file size check and JSON parse
+        idem_key = validate_idempotency_key(idempotency_key_raw)
+        path = f"{API_PREFIX}/memory-packs/import/preview"
+        route = f"POST:{path}"
+        factory = request.app.state.db_session_factory
+        try:
+            body_bytes = await request.body()
+            if len(body_bytes) > PackRepository.MAX_PACK_SIZE:
+                raise _error_response(
+                    request,
+                    status_code=413,
+                    code=ErrorCode.MEMORY_PACK_TOO_LARGE,
+                    message=f"文件大小超过 {PackRepository.MAX_PACK_SIZE} 字节上限。",
+                )
+            try:
+                body_str = body_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                raise _error_response(
+                    request,
+                    status_code=422,
+                    code=ErrorCode.MEMORY_PACK_INVALID,
+                    message="文件必须为有效 UTF-8 编码。",
+                )
+            try:
+                pack_data = json.loads(body_str)
+            except json.JSONDecodeError as exc:
+                raise _error_response(
+                    request,
+                    status_code=422,
+                    code=ErrorCode.MEMORY_PACK_INVALID,
+                    message=f"无效 JSON: {exc}",
+                )
+            schema_ref = pack_data.get("schema_ref", "")
+            if not schema_ref.startswith("memtrace-memory-pack@"):
+                raise _error_response(
+                    request,
+                    status_code=422,
+                    code=ErrorCode.MEMORY_PACK_UNSUPPORTED_VERSION,
+                    message=f"不支持的 schema_ref: {schema_ref}",
+                )
+            cards = pack_data.get("cards", [])
+            if not isinstance(cards, list) or len(cards) == 0:
+                raise _error_response(
+                    request,
+                    status_code=422,
+                    code=ErrorCode.MEMORY_PACK_INVALID,
+                    message="pack 必须包含至少 1 张卡片。",
+                )
+            if len(cards) > PackRepository.MAX_CARDS:
+                raise _error_response(
+                    request,
+                    status_code=413,
+                    code=ErrorCode.MEMORY_PACK_TOO_LARGE,
+                    message=f"卡片数量超过 {PackRepository.MAX_CARDS} 上限。",
+                )
+            # Create batch and analyze items
+            with session_scope(factory) as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                idem_repo = IdempotencyRepository(user_ctx, session)
+                existing = idem_repo.get_record(route, idem_key)
+                if existing is not None:
+                    return JSONResponse(
+                        status_code=existing.response_status,
+                        content=json.loads(existing.response_json),
+                    )
+                file_hash = hashlib.sha256(body_bytes).hexdigest()
+                batch_id = new_prefixed_ulid("batch")
+                canonical_payload = json.dumps(
+                    {k: v for k, v in pack_data.items() if k != "integrity"},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                )
+                canonical_hash = hashlib.sha256(canonical_payload.encode()).hexdigest()
+                integrity_hash = pack_data.get("integrity", {}).get("canonical_payload_sha256", "")
+                if integrity_hash and integrity_hash != canonical_hash:
+                    raise _error_response(
+                        request,
+                        status_code=422,
+                        code=ErrorCode.MEMORY_PACK_INTEGRITY_MISMATCH,
+                        message="Pack integrity hash 与内容不匹配。",
+                    )
+                # Analyze each card
+                import json as _json
+                pack_repo = PackRepository(user_ctx, session)
+                existing_cards = pack_repo._get_existing_cards_for_duplicate_check()
+                existing_hashes = {c["hash"] for c in existing_cards}
+                items = []
+                legal_new = 0
+                duplicates = 0
+                conflicts = 0
+                suspicious = 0
+                for card_data in cards:
+                    card_json = _json.dumps(card_data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+                    card_hash = hashlib.sha256(card_json.encode()).hexdigest()
+                    if card_hash in existing_hashes:
+                        items.append(
+                            PackPreviewItem(
+                                external_id=card_data.get("external_id", "unknown"),
+                                kind=card_data.get("kind", ""),
+                                title=card_data.get("title", ""),
+                                rule=card_data.get("rule", ""),
+                                avoid=card_data.get("avoid", ""),
+                                scope=card_data.get("scope", {}),
+                                classification="duplicate",
+                                reason="与现有卡片内容完全一致",
+                            )
+                        )
+                        duplicates += 1
+                    else:
+                        items.append(
+                            PackPreviewItem(
+                                external_id=card_data.get("external_id", "unknown"),
+                                kind=card_data.get("kind", ""),
+                                title=card_data.get("title", ""),
+                                rule=card_data.get("rule", ""),
+                                avoid=card_data.get("avoid", ""),
+                                scope=card_data.get("scope", {}),
+                                classification="legal_new",
+                                reason=None,
+                            )
+                        )
+                        legal_new += 1
+                batch_repo = ImportBatchRepository(user_ctx, session)
+                exp_ts = int((utc_now().timestamp() + 1800))
+                preview_token = PackRepository.encode_preview_token(
+                    get_session_secret(), batch_id, file_hash, exp_ts
+                )
+                preview_token_hash = hashlib.sha256(preview_token.encode()).hexdigest()
+                batch = batch_repo.create_batch(
+                    batch_id=batch_id,
+                    file_hash=file_hash,
+                    pack_name=pack_data.get("name"),
+                    format_version=pack_data.get("format_version"),
+                    canonical_payload_json=canonical_payload,
+                    preview_json=json.dumps(pack_data),
+                    preview_token_hash=preview_token_hash,
+                    expires_at=utc_now() + __import__('datetime').timedelta(minutes=30),
+                    legal_new_count=legal_new,
+                    duplicate_count=duplicates,
+                    conflict_count=conflicts,
+                    suspicious_count=suspicious,
+                )
+                session.flush()
+                response_data = PackPreviewResponse(
+                    request_id=request.state.request_id,
+                    batch_id=batch_id,
+                    pack_metadata={
+                        "name": pack_data.get("name"),
+                        "description": pack_data.get("description"),
+                        "format": pack_data.get("format"),
+                        "format_version": pack_data.get("format_version"),
+                        "producer": pack_data.get("producer"),
+                        "source": pack_data.get("source"),
+                    },
+                    legal_new_count=legal_new,
+                    duplicate_count=duplicates,
+                    potential_conflict_count=conflicts,
+                    suspicious_count=suspicious,
+                    items=items,
+                    preview_token=preview_token,
+                ).model_dump(mode="json")
+                idem_repo.save_record(
+                    route=route,
+                    key=idem_key,
+                    request_hash=req_hash,
+                    response_status=200,
+                    response_json=json.dumps(response_data),
+                    expires_at=utc_now() + SESSION_DURATION * 2,
+                )
+                session.flush()
+        except IntegrityError:
+            return _replay_idempotent_response(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+        except ApiError:
+            raise
+        return JSONResponse(content=response_data, status_code=200)
+
+    @application.post(
+        f"{API_PREFIX}/memory-packs/import/commit",
+        response_model=ImportCommitResponse,
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            409: {"model": ErrorEnvelope},
+        },
+    )
+    async def commit_memory_pack_import(
+        request: Request,
+        body: ImportCommitRequest,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        path = f"{API_PREFIX}/memory-packs/import/commit"
+        route = f"POST:{path}"
+        factory = request.app.state.db_session_factory
+        try:
+            with session_scope(factory) as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                batch_repo = ImportBatchRepository(user_ctx, session)
+                batch = batch_repo.get_batch(body.batch_id)
+                if batch is None:
+                    raise _error_response(
+                        request,
+                        status_code=404,
+                        code=ErrorCode.IMPORT_BATCH_NOT_FOUND,
+                        message="导入批次不存在或不属于当前用户。",
+                    )
+                if batch.status != "quarantined":
+                    raise _error_response(
+                        request,
+                        status_code=409,
+                        code=ErrorCode.IMPORT_BATCH_STATE_CONFLICT,
+                        message=f"批次状态为 {batch.status}，无法提交。",
+                    )
+                if batch.expires_at and batch.expires_at < utc_now():
+                    raise _error_response(
+                        request,
+                        status_code=409,
+                        code=ErrorCode.IMPORT_BATCH_EXPIRED,
+                        message="预览批次已过期，请重新预览。",
+                    )
+                # Verify token
+                secret = get_session_secret()
+                token_info = PackRepository.decode_preview_token(secret, body.preview_token)
+                if token_info is None:
+                    raise _error_response(
+                        request,
+                        status_code=409,
+                        code=ErrorCode.IMPORT_PREVIEW_TOKEN_INVALID,
+                        message="预览 token 无效或已篡改。",
+                    )
+                batch_id_from_token, file_hash_from_token, _ = token_info
+                if batch_id_from_token != body.batch_id:
+                    raise _error_response(
+                        request,
+                        status_code=409,
+                        code=ErrorCode.IMPORT_PREVIEW_TOKEN_INVALID,
+                        message="预览 token 与批次不匹配。",
+                    )
+                if batch.file_hash != file_hash_from_token:
+                    raise _error_response(
+                        request,
+                        status_code=409,
+                        code=ErrorCode.IMPORT_PREVIEW_TOKEN_INVALID,
+                        message="预览 token 文件哈希不匹配。",
+                    )
+                # Re-validate canonical payload and schema
+                if not batch.canonical_payload_json:
+                    raise _error_response(
+                        request,
+                        status_code=409,
+                        code=ErrorCode.IMPORT_BATCH_STATE_CONFLICT,
+                        message="批次数据已清除，请重新预览。",
+                    )
+                try:
+                    pack_data = json.loads(batch.canonical_payload_json)
+                except json.JSONDecodeError:
+                    raise _error_response(
+                        request,
+                        status_code=422,
+                        code=ErrorCode.MEMORY_PACK_INVALID,
+                        message="canonical payload 无效。",
+                    )
+                cards_data = pack_data.get("cards", [])
+                inserted = 0
+                skipped = 0
+                card_repo = MemoryCardG4Repository(user_ctx, session)
+                for card_data in cards_data:
+                    external_id = card_data.get("external_id")
+                    if not external_id:
+                        skipped += 1
+                        continue
+                    existing = session.execute(
+                        select(MemoryCardModel.id).where(
+                            and_(
+                                MemoryCardModel.owner_id == user_ctx.user_id,
+                                MemoryCardModel.id == external_id,
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    if existing:
+                        skipped += 1
+                        continue
+                    scope = card_data.get("scope", {})
+                    scope_json = json.dumps(scope, separators=(",", ":"), ensure_ascii=False)
+                    exc_json = json.dumps(
+                        card_data.get("exceptions", []),
+                        separators=(",", ":"),
+                        ensure_ascii=False,
+                    )
+                    memory_id = external_id
+                    card = MemoryCardModel(
+                        id=memory_id,
+                        owner_id=user_ctx.user_id,
+                        status="paused",
+                        kind=card_data.get("kind", "preference"),
+                        source_type="import",
+                        save_preselected=False,
+                        title=card_data.get("title", ""),
+                        rule=card_data.get("rule", ""),
+                        avoid=card_data.get("avoid", ""),
+                        trigger_text=card_data.get("trigger_text", ""),
+                        scope_level=scope.get("level", "global"),
+                        domain=scope.get("domain", "other"),
+                        task_type=scope.get("task_type"),
+                        artifact_type=scope.get("artifact_type"),
+                        audience=scope.get("audience"),
+                        project_key=scope.get("project_key"),
+                        scope_json=scope_json,
+                        exceptions_json=exc_json,
+                        source_trust=0.50,
+                        rule_confidence=1.0,
+                        scope_confidence=1.0,
+                        evidence_count=0,
+                        version=0,
+                        import_batch_id=body.batch_id,
+                        import_source_version=card_data.get("version", 1),
+                        created_at=utc_now(),
+                        updated_at=utc_now(),
+                    )
+                    session.add(card)
+                    ver_id = new_prefixed_ulid("memver")
+                    session.add(
+                        MemoryVersionModel(
+                            id=ver_id,
+                            owner_id=user_ctx.user_id,
+                            memory_id=memory_id,
+                            version=1,
+                            title=card_data.get("title", ""),
+                            rule=card_data.get("rule", ""),
+                            avoid=card_data.get("avoid", ""),
+                            trigger_text=card_data.get("trigger_text", ""),
+                            scope_json=scope_json,
+                            exceptions_json=exc_json,
+                            created_by_action="import",
+                            created_at=utc_now(),
+                        )
+                    )
+                    inserted += 1
+                batch_repo.commit(body.batch_id, inserted, skipped)
+                session.flush()
+                response_data = ImportCommitResponse(
+                    request_id=request.state.request_id,
+                    batch_id=body.batch_id,
+                    inserted_count=inserted,
+                    skipped_count=skipped,
+                    warning_count=0,
+                ).model_dump(mode="json")
+        except ApiError:
+            raise
+        except Exception as exc:
+            raise _error_response(
+                request,
+                status_code=500,
+                code=ErrorCode.INTERNAL_ERROR,
+                message=f"提交导入时发生错误: {exc}",
+            )
+        return JSONResponse(content=response_data, status_code=200)
+
+    @application.get(
+        f"{API_PREFIX}/memory-packs/import/{{batch_id}}",
+        response_model=ImportBatchResponse,
+        responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}},
+    )
+    async def get_import_batch(
+        request: Request,
+        batch_id: str = Path(pattern=BATCH_ID_PATTERN),
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> ImportBatchResponse:
+        session_factory = request.app.state.db_session_factory
+        with session_scope(session_factory) as session:
+            batch_repo = ImportBatchRepository(user_ctx, session)
+            batch = batch_repo.get_batch(batch_id)
+            if batch is None:
+                raise _error_response(
+                    request,
+                    status_code=404,
+                    code=ErrorCode.IMPORT_BATCH_NOT_FOUND,
+                    message="导入批次不存在或不属于当前用户。",
+                )
+            return ImportBatchResponse(
+                request_id=request.state.request_id,
+                batch_id=batch.id,
+                status=batch.status,
+                created_at=batch.created_at,
+                expires_at=batch.expires_at,
+                inserted_count=batch.inserted_count,
+                skipped_count=batch.skipped_count,
+                warning_count=batch.warning_count,
+                error_message=batch.error_message,
+            )
 
     web_dist = resolved_settings.memtrace_web_dist
     if web_dist is not None and web_dist.is_dir():
@@ -1889,6 +3057,38 @@ def _memory_not_found() -> ApiError:
         code=ErrorCode.MEMORY_NOT_FOUND,
         message="指定的记忆对象不存在或无权访问。",
     )
+
+
+def _allocate_memory_event_seq(session: Session, owner_id: str, stream_id: str) -> int:
+    """Allocate next event_seq for a memory/import stream."""
+    from memtrace_api.db_models import EventLogModel
+
+    next_value = session.execute(
+        update(EventLogModel.__table__)
+        .where(
+            and_(
+                EventLogModel.owner_id == owner_id,
+                EventLogModel.stream_type == "memory",
+                EventLogModel.stream_id == stream_id,
+            )
+        )
+        .values(seq=EventLogModel.seq + 1)
+        .returning(EventLogModel.seq)
+    ).scalar_one_or_none()
+    if next_value is None:
+        next_value = 1
+        session.add(
+            EventLogModel(
+                id=new_prefixed_ulid("evt"),
+                owner_id=owner_id,
+                stream_type="memory",
+                stream_id=stream_id,
+                seq=next_value,
+                event_type="memory.lifecycle.changed",
+                created_at=utc_now(),
+            )
+        )
+    return next_value
 
 
 def _memory_state_conflict(message: str) -> ApiError:
