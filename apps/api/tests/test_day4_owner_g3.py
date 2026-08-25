@@ -112,6 +112,7 @@ def test_g3_retrieval_injection_lifecycle_and_owner_scoped_routes(tmp_path: Path
         assert trace["memory_tokens_estimated"] <= 300
         assert trace["decisions"][0]["reason_codes"] == ["selected_above_threshold"]
         assert card["rule"] in first["final_message"]["content"]
+        assert first["public_plan"]["memory_summary"].startswith("已选择并注入 1 张")
         assert len(first["memory_usages"]) == 1
         assert first["memory_usages"][0]["verification_status"] == "applied"
 
@@ -122,9 +123,7 @@ def test_g3_retrieval_injection_lifecycle_and_owner_scoped_routes(tmp_path: Path
         assert usages_response.status_code == 200
         assert usages_response.json()["items"][0]["memory_id"] == card["memory_id"]
 
-        effect_path = (
-            f"/api/v1/tasks/{first['task_id']}/memory-usages/{card['memory_id']}/feedback"
-        )
+        effect_path = f"/api/v1/tasks/{first['task_id']}/memory-usages/{card['memory_id']}/feedback"
         effect = client.post(
             effect_path,
             json={"effect": "helpful"},
@@ -183,5 +182,17 @@ def test_g3_retrieval_injection_lifecycle_and_owner_scoped_routes(tmp_path: Path
         assert resume.status_code == 200, resume.text
         resumed_task = _terminal_task(client, "g3-resumed-task-0001")
         assert resumed_task["retrieval_trace"]["injected_count"] == 1
+
+        off_request = {
+            **TASK_REQUEST,
+            "memory_mode": "off",
+            "current_constraints": {
+                **TASK_REQUEST["current_constraints"],
+                "memory_disabled": True,
+            },
+        }
+        off_task = _terminal_task(client, "g3-memory-off-task-0001", off_request)
+        assert off_task["retrieval_trace"]["candidate_count"] == 0
+        assert off_task["public_plan"]["memory_summary"].startswith("本任务已关闭记忆模式")
     finally:
         client.__exit__(None, None, None)

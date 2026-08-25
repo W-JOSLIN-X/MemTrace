@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { browserG0Api, G0ApiError, type G0Api } from '../g0/api'
+import { browserG0Api, G0ApiError, newIdempotencyKey, type G0Api } from '../g0/api'
 import type { EventSourceFactory } from '../g0/eventStream'
 import type {
   G0Phase,
@@ -24,6 +24,7 @@ import type {
   Scenario,
   TaskId,
   ToolCallSnapshot,
+  UserEffect,
 } from '../g0/types'
 import {
   useG0Agent,
@@ -94,6 +95,9 @@ export function ChatPage({
   const [rating, setRating] = useState<number | null>(null)
   const [acceptedDecision, setAcceptedDecision] = useState<boolean | null>(null)
   const [feedbackFormError, setFeedbackFormError] = useState<string | null>(null)
+  const [effectPending, setEffectPending] = useState<string | null>(null)
+  const [effectError, setEffectError] = useState<string | null>(null)
+  const usageEffectKeysRef = useRef(new Map<string, string>())
   const restoredAliasRef = useRef<DemoAlias | null>(null)
   const {
     state,
@@ -237,6 +241,9 @@ export function ChatPage({
       setSessionError(null)
       resetOwner()
       resetFeedbackForm()
+      usageEffectKeysRef.current.clear()
+      setEffectPending(null)
+      setEffectError(null)
       setTaskText('')
       clearTaskUrl()
       const controller = new AbortController()
@@ -291,6 +298,31 @@ export function ChatPage({
       }
     },
     [acceptedDecision, editedOutput, feedbackText, rating, state.output, submitFeedback],
+  )
+
+  const handleMemoryEffect = useCallback(
+    async (memoryId: MemoryId, effect: UserEffect) => {
+      if (!state.taskId || !resolvedApi.recordMemoryEffect) return
+      const taskId = state.taskId
+      const pendingId = `${taskId}:${memoryId}:${effect}`
+      let key = usageEffectKeysRef.current.get(pendingId)
+      if (!key) {
+        key = (idempotencyKeyFactory ?? newIdempotencyKey)()
+        usageEffectKeysRef.current.set(pendingId, key)
+      }
+      setEffectPending(pendingId)
+      setEffectError(null)
+      try {
+        await resolvedApi.recordMemoryEffect(taskId, memoryId, effect, key)
+        usageEffectKeysRef.current.delete(pendingId)
+        await restoreTask(taskId)
+      } catch (error) {
+        setEffectError(publicErrorMessage(error, '记录记忆效果失败，请重试。'))
+      } finally {
+        setEffectPending(null)
+      }
+    },
+    [idempotencyKeyFactory, resolvedApi, restoreTask, state.taskId],
   )
 
   return (
@@ -428,7 +460,12 @@ export function ChatPage({
 
           <RunTimeline state={state} />
           <PlanAndTool state={state} />
-          <RetrievalPanel state={state} />
+          <RetrievalPanel
+            effectError={effectError}
+            effectPending={effectPending}
+            onEffect={(memoryId, effect) => void handleMemoryEffect(memoryId, effect)}
+            state={state}
+          />
           <OutputPanel state={state} />
           <FeedbackPanel
             acceptedDecision={acceptedDecision}
@@ -672,7 +709,17 @@ function PlanRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function RetrievalPanel({ state }: { state: G0State }) {
+function RetrievalPanel({
+  effectError,
+  effectPending,
+  onEffect,
+  state,
+}: {
+  effectError: string | null
+  effectPending: string | null
+  onEffect: (memoryId: MemoryId, effect: UserEffect) => void
+  state: G0State
+}) {
   const trace = state.retrievalTrace
   if (!trace) return null
   return (
@@ -695,10 +742,29 @@ function RetrievalPanel({ state }: { state: G0State }) {
         ))}
       </ol>
       {state.memoryUsages.map((usage) => (
-        <p key={usage.usage_id} className="mt-3 text-xs font-bold text-violet-900">
-          receipt {usage.usage_id} · verification={usage.verification_status} · effect={usage.user_effect ?? '未记录'}
-        </p>
+        <div key={usage.usage_id} className="mt-3 rounded-2xl bg-white p-3 text-xs font-bold text-violet-900">
+          <p>receipt {usage.usage_id} · verification={usage.verification_status} · effect={usage.user_effect ?? '未记录'}</p>
+          {usage.user_effect === null ? (
+            <div className="mt-2 flex flex-wrap gap-2" aria-label={`记忆效果 ${usage.memory_id}`}>
+              {(['helpful', 'harmful', 'stale'] as const).map((effect) => {
+                const pendingId = `${state.taskId}:${usage.memory_id}:${effect}`
+                return (
+                  <button
+                    className="rounded-lg border border-violet-300 px-2 py-1 text-violet-800 disabled:opacity-50"
+                    disabled={effectPending !== null}
+                    key={effect}
+                    onClick={() => onEffect(usage.memory_id, effect)}
+                    type="button"
+                  >
+                    {effectPending === pendingId ? '提交中…' : effect}
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
+        </div>
       ))}
+      {effectError ? <p className="mt-3 text-xs font-bold text-red-700" role="alert">{effectError}</p> : null}
     </section>
   )
 }
@@ -916,7 +982,7 @@ function FeedbackPanel({
         ) : null}
         {feedbackState.phase === 'recorded' ? (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900" role="status">
-            <p className="font-black">反馈已记录，等待 Day 3 处理</p>
+            <p className="font-black">反馈已记录，正在生成候选记忆</p>
             <p className="mt-1 text-xs font-semibold">
               MemoryJob：{feedbackState.accepted?.memory_job_id} · {feedbackState.job?.stage ?? 'queued'}
             </p>

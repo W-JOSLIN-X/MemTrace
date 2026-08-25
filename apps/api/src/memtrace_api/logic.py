@@ -390,7 +390,13 @@ def analyze_task(request: TaskCreateRequest) -> TaskAnalysis:
     )
 
 
-def build_public_plan(analysis: TaskAnalysis) -> PublicPlan:
+def build_public_plan(
+    analysis: TaskAnalysis,
+    *,
+    selected_count: int = 0,
+    injected_count: int = 0,
+    memory_mode_off: bool = False,
+) -> PublicPlan:
     goals = {
         "analyze_code": "分析任务中的代码与问题，并给出可执行的下一步建议。",
         "answer_question": "直接回答当前问题，并说明关键依据。",
@@ -402,9 +408,17 @@ def build_public_plan(analysis: TaskAnalysis) -> PublicPlan:
         if analysis.next_action_code == "python_ast_check"
         else "当前没有适用的白名单静态工具，将直接生成回答。"
     )
+    if memory_mode_off:
+        memory_summary = "本任务已关闭记忆模式，不会检索或注入历史记忆。"
+    elif injected_count:
+        memory_summary = f"已选择并注入 {injected_count} 张 owner 隔离的 active 记忆。"
+    elif selected_count:
+        memory_summary = "已选择适用记忆，但因 Prompt 预算未注入正文。"
+    else:
+        memory_summary = "本任务未选择可用的 active 记忆，不会注入历史偏好。"
     return PublicPlan(
         id=new_prefixed_ulid("plan"),
         goal=goals[analysis.goal_code],
-        memory_summary="Day 2 尚无长期记忆，本次不会注入历史偏好。",
+        memory_summary=memory_summary,
         next_action=next_action,
     )

@@ -579,6 +579,7 @@ def create_app(
         user_ctx: UserContext = Depends(get_current_user),
     ) -> TaskSnapshot:
         # First check if live record in memory belongs to this owner
+        live_snapshot: TaskSnapshot | None = None
         try:
             live_record = await resolved_store.get(task_id)
             if (
@@ -586,8 +587,11 @@ def create_app(
                 and live_record.user_ctx.user_id != user_ctx.user_id
             ):
                 raise _task_not_found(task_id)
+            live_snapshot = await resolved_store.snapshot(
+                task_id, request_id=request.state.request_id
+            )
             if not live_record.closed and not live_record.snapshot.terminal:
-                return await resolved_store.snapshot(task_id, request_id=request.state.request_id)
+                return live_snapshot
         except TaskMissingError:
             pass
 
@@ -598,6 +602,14 @@ def create_app(
             snap = task_repo.get_snapshot(task_id, request_id=request.state.request_id)
             if snap is None:
                 raise _task_not_found(task_id)
+            if live_snapshot is not None:
+                snap = snap.model_copy(
+                    update={
+                        "public_plan": live_snapshot.public_plan,
+                        "tool_decision": live_snapshot.tool_decision,
+                        "tool_calls": live_snapshot.tool_calls,
+                    }
+                )
             return snap
 
     @application.get(

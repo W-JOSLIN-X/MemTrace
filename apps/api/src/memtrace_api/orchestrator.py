@@ -242,7 +242,12 @@ class AgentOrchestrator:
                     )
 
             await self._stage(record, RunStatus.PLANNING, "publishing_plan")
-            plan = build_public_plan(analysis)
+            plan = build_public_plan(
+                analysis,
+                selected_count=retrieval.trace.selected_count if retrieval is not None else 0,
+                injected_count=retrieval.trace.injected_count if retrieval is not None else 0,
+                memory_mode_off=record.request.effective_memory_mode.value == "off",
+            )
             plan_payload_dict = {
                 "plan_id": plan.id,
                 "goal_code": analysis.goal_code,

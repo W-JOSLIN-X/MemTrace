@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { browserG0Api } from './api'
-import type { FeedbackCreateAccepted, MemoryJobResponse } from './types'
+import type { FeedbackCreateAccepted, MemoryJobResponse, MemoryUsage } from './types'
 import { AT, TASK_ID, makeAccepted, makeSnapshot } from '../test/g0Fixtures'
 import {
   MEMORY_ID,
@@ -123,6 +123,44 @@ describe('browser G1 API', () => {
     expect(String(fetchMock.mock.calls[8]?.[0])).toContain(
       '/api/v1/memories?status=candidate',
     )
+  })
+
+  it('reuses the caller-owned idempotency key for a user-effect retry', async () => {
+    const usage: MemoryUsage = {
+      request_id: 'req_01J00000000000000000000000',
+      usage_id: 'usage_01J00000000000000000000000',
+      retrieval_trace_id: 'trace_01J00000000000000000000000',
+      task_id: TASK_ID,
+      run_id: 'run_01J00000000000000000000001',
+      memory_id: MEMORY_ID,
+      memory_version_id: 'memver_01J00000000000000000000000',
+      rank: 1,
+      retrieved: true,
+      selected: true,
+      injected: true,
+      estimated_tokens: 30,
+      verification_status: 'applied',
+      verification_method: 'exact_substring',
+      evidence_excerpt: '合成证据',
+      user_effect: 'helpful',
+      created_at: AT,
+      updated_at: AT,
+    }
+    const fetchMock = vi.fn<
+      (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+    >(async () => jsonResponse(usage))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const key = 'effect-idempotency-key-0001'
+    await browserG0Api.recordMemoryEffect?.(TASK_ID, MEMORY_ID, 'helpful', key)
+    await browserG0Api.recordMemoryEffect?.(TASK_ID, MEMORY_ID, 'helpful', key)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    for (const call of fetchMock.mock.calls) {
+      expect(call[1]?.credentials).toBe('same-origin')
+      expect(call[1]?.headers).toMatchObject({ 'Idempotency-Key': key })
+      expect(call[1]?.body).toBe(JSON.stringify({ effect: 'helpful' }))
+    }
   })
 })
 

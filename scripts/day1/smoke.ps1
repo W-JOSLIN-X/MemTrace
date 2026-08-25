@@ -328,13 +328,15 @@ function Assert-TerminalSnapshot {
 
 $pythonTrace = @(
     'task.created', 'task.stage:fingerprinting', 'task.fingerprinted',
-    'task.stage:retrieving', 'memory.retrieval.started', 'task.stage:planning',
+    'task.stage:retrieving', 'memory.retrieval.started', 'memory.retrieval.completed',
+    'task.stage:planning',
     'agent.plan.published', 'task.stage:tool_running', 'tool.called', 'tool.result',
     'task.stage:generating', 'agent.chunk+', 'run.metrics', 'run.completed', 'stream.done'
 )
 $failureTrace = @(
     'task.created', 'task.stage:fingerprinting', 'task.fingerprinted',
-    'task.stage:retrieving', 'memory.retrieval.started', 'task.stage:planning',
+    'task.stage:retrieving', 'memory.retrieval.started', 'memory.retrieval.completed',
+    'task.stage:planning',
     'agent.plan.published', 'task.stage:generating', 'agent.chunk+', 'run.metrics',
     'task.stage:failed', 'run.failed', 'error', 'stream.done'
 )
@@ -397,14 +399,20 @@ try {
     Assert-Condition ($manualScenario.StatusCode -eq 422) 'manual scenario was not rejected with 422'
 
     Write-Host '[5/9] Python success: create, automatic classification, SSE, and snapshot'
-    $created = Invoke-CurlJson -Method POST -Url "$script:BaseUrl/api/v1/tasks" -Body $pythonFixture.request
+    $pythonRequest = $pythonFixture.request | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+    $pythonRequest.memory_mode = 'off'
+    $pythonRequest.current_constraints.memory_disabled = $true
+    $created = Invoke-CurlJson -Method POST -Url "$script:BaseUrl/api/v1/tasks" -Body $pythonRequest
     Assert-Condition ($created.StatusCode -eq 202) "Python create returned $($created.StatusCode)"
     Assert-Condition ($created.Body.provider_mode -eq 'mock') 'created task is not labelled Mock'
     $pythonEventsUrl = "$script:BaseUrl$($created.Body.events_url)"
     $pythonStream = Invoke-SseCurl -Url $pythonEventsUrl
     Assert-SseHeaders $pythonStream.Headers
     $pythonEvents = @(ConvertFrom-SseText $pythonStream.Text)
-    Assert-Sequence -Actual @(Get-TraceSignature $pythonEvents) -Expected $pythonTrace -Label 'Python success trace'
+    $pythonG1Trace = @(Get-TraceSignature $pythonEvents | Where-Object {
+        $_ -notin @('memory.injected', 'memory.usage.verified')
+    })
+    Assert-Sequence -Actual $pythonG1Trace -Expected $pythonTrace -Label 'Python success trace'
     $pythonChunks = Get-ChunkState $pythonEvents
     Assert-Condition ($pythonChunks.Text -eq $pythonFixture.expectations.chunk_text) 'Python SSE body differs from fixture'
     $pythonSnapshotResponse = Invoke-CurlJson -Method GET -Url "$script:BaseUrl/api/v1/tasks/$($created.Body.task_id)"
@@ -415,11 +423,17 @@ try {
     Assert-Condition ($pythonSnapshotResponse.Body.fingerprint.classification_source -eq 'auto_rule_v1') 'classification source is not auto_rule_v1'
 
     Write-Host '[6/9] Forced provider failure: partial output and terminal error'
-    $failedCreate = Invoke-CurlJson -Method POST -Url "$script:BaseUrl/api/v1/tasks" -Body $failureFixture.request
+    $failureRequest = $failureFixture.request | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+    $failureRequest.memory_mode = 'off'
+    $failureRequest.current_constraints.memory_disabled = $true
+    $failedCreate = Invoke-CurlJson -Method POST -Url "$script:BaseUrl/api/v1/tasks" -Body $failureRequest
     Assert-Condition ($failedCreate.StatusCode -eq 202) "failure fixture create returned $($failedCreate.StatusCode)"
     $failureStream = Invoke-SseCurl -Url "$script:BaseUrl$($failedCreate.Body.events_url)"
     $failureEvents = @(ConvertFrom-SseText $failureStream.Text)
-    Assert-Sequence -Actual @(Get-TraceSignature $failureEvents) -Expected $failureTrace -Label 'Failure trace'
+    $failureG1Trace = @(Get-TraceSignature $failureEvents | Where-Object {
+        $_ -notin @('memory.injected', 'memory.usage.verified')
+    })
+    Assert-Sequence -Actual $failureG1Trace -Expected $failureTrace -Label 'Failure trace'
     $failureChunks = Get-ChunkState $failureEvents
     $failedSnapshotResponse = Invoke-CurlJson -Method GET -Url "$script:BaseUrl/api/v1/tasks/$($failedCreate.Body.task_id)"
     Assert-TerminalSnapshot -Snapshot $failedSnapshotResponse.Body -ExpectedStatus failed
@@ -432,7 +446,10 @@ try {
     Assert-Condition ($missing.Body.error.code -eq 'TASK_NOT_FOUND') 'unknown task did not use TASK_NOT_FOUND'
 
     Write-Host '[8/9] Forced disconnect and dual-cursor reconnect'
-    $reconnectCreate = Invoke-CurlJson -Method POST -Url "$script:BaseUrl/api/v1/tasks" -Body $noToolFixture.request
+    $reconnectRequest = $noToolFixture.request | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+    $reconnectRequest.memory_mode = 'off'
+    $reconnectRequest.current_constraints.memory_disabled = $true
+    $reconnectCreate = Invoke-CurlJson -Method POST -Url "$script:BaseUrl/api/v1/tasks" -Body $reconnectRequest
     Assert-Condition ($reconnectCreate.StatusCode -eq 202) 'reconnect task creation failed'
     $reconnectUrl = "$script:BaseUrl$($reconnectCreate.Body.events_url)"
     $partialOut = [System.IO.Path]::GetTempFileName()

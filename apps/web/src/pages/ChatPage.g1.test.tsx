@@ -220,7 +220,7 @@ describe('Day 2 G1 owner flow', () => {
     act(() => connections[0]?.emit(feedbackRecorded(14)))
 
     expect(
-      await screen.findByText('反馈已记录，等待 Day 3 处理'),
+      await screen.findByText('反馈已记录，正在生成候选记忆'),
     ).toBeInTheDocument()
     expect(createFeedback).toHaveBeenCalledWith(
       TASK_ID,
@@ -274,7 +274,7 @@ describe('Day 2 G1 owner flow', () => {
 
     await user.click(screen.getByRole('button', { name: '提交反馈' }))
     expect(
-      await screen.findByText('反馈已记录，等待 Day 3 处理'),
+      await screen.findByText('反馈已记录，正在生成候选记忆'),
     ).toBeInTheDocument()
     expect(createFeedback).toHaveBeenCalledTimes(2)
     expect(createFeedback.mock.calls[0]?.[2]).toBe('feedback-retry-key-0001')
