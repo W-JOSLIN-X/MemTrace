@@ -57,10 +57,14 @@ def upgrade() -> None:
     op.execute("PRAGMA foreign_keys=OFF")
 
     # =========================================================================
-    # 1. memory_cards: v2 fields + legacy preservation
+    # 1. memory_cards: v2-only new columns
     # =========================================================================
+    # G4 (005) already added: deleted_at/deleted_by/deletion_reason,
+    #   evidence_missing, import_batch_id, import_source_version,
+    #   status (nullability change), and set existing columns to nullable.
+    # This batch_alter_table only adds columns that do NOT yet exist in G4.
     with op.batch_alter_table("memory_cards") as batch_op:
-        # v2 primary fields
+        # v2 primary fields (all new, not in G4)
         batch_op.add_column(
             sa.Column("content", sa.Text(), nullable=True),
         )
@@ -74,18 +78,14 @@ def upgrade() -> None:
             sa.Column("confidence", sa.Float(), nullable=True),
         )
         batch_op.add_column(
-            sa.Column("valid_from", sa.DateTime(timezone=True), nullable=True),
-        )
-        batch_op.add_column(
-            sa.Column("valid_to", sa.DateTime(timezone=True), nullable=True),
-        )
-        batch_op.add_column(
             sa.Column("rule_subtype", sa.String(32), nullable=True),
         )
         batch_op.add_column(
             sa.Column("schema_version", sa.String(16), nullable=True),
         )
-        # Legacy scope columns (read-only after migration; preserved for compatibility)
+        # Legacy scope columns (mirror existing G4 structured scope; preserved for compatibility)
+        # NOTE: scope_level, domain, scope_json, exceptions_json, source_trust already exist from G4.
+        # These _legacy columns provide read-only copies for v1→v2 compatibility projections.
         batch_op.add_column(
             sa.Column("scope_level_legacy", sa.String(32), nullable=True),
         )
