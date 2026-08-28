@@ -40,11 +40,13 @@ from memtrace_api.providers import (
     StreamingProvider,
 )
 from memtrace_api.repositories import TaskRepository, UserContext
+from memtrace_api.ids import new_prefixed_ulid
 from memtrace_api.schemas import (
     AsyncErrorCode,
     MessageRole,
     MessageSnapshot,
     ProviderMode,
+    PublicPlan,
     RunErrorSnapshot,
     RunStatus,
     ToolAction,
@@ -77,11 +79,13 @@ class AgentOrchestrator:
         provider: StreamingProvider,
         tool_registry: ToolRegistry | None = None,
         db_session_factory: sessionmaker[Session] | None = None,
+        memory_reflection_worker: Any | None = None,
     ) -> None:
         self.store = store
         self.provider = provider
         self.tool_registry = tool_registry or ToolRegistry()
         self.db_session_factory = db_session_factory
+        self._memory_reflection_worker = memory_reflection_worker
 
     def start(self, record: TaskRecord) -> asyncio.Task[None]:
         task = asyncio.create_task(
@@ -241,21 +245,24 @@ class AgentOrchestrator:
 
             await self._stage(record, RunStatus.PLANNING, "publishing_plan")
             # v2: plan is now a simple metadata dict, not built by auto_rule_v1
-            plan = {
-                "id": new_prefixed_ulid("plan"),
-                "goal_code": "analyze_code",
-                "memory_summary_code": (
-                    "memory_selected"
-                    if retrieval is not None and retrieval.trace.selected_count
-                    else "no_memory_selected"
-                ),
-                "next_action_code": "call_tool" if analysis.tool_decision.action is ToolAction.CALL else "answer",
-            }
+            _goal = "analyze_code"
+            _memory_summary = (
+                "memory_selected"
+                if retrieval is not None and retrieval.trace.selected_count
+                else "no_memory_selected"
+            )
+            _next_action = "python_ast_check" if analysis.tool_decision.action is ToolAction.CALL else "generate_directly"
+            plan = PublicPlan(
+                id=new_prefixed_ulid("plan"),
+                goal=_goal,
+                memory_summary=_memory_summary,
+                next_action=_next_action,
+            )
             plan_payload_dict = {
-                "plan_id": plan["id"],
-                "goal_code": plan["goal_code"],
-                "memory_summary_code": plan["memory_summary_code"],
-                "next_action_code": plan["next_action_code"],
+                "plan_id": plan.id,
+                "goal_code": plan.goal,
+                "memory_summary_code": plan.memory_summary,
+                "next_action_code": plan.next_action,
             }
             await self._emit_db_persistent_event(
                 record,
@@ -465,6 +472,11 @@ class AgentOrchestrator:
                 {"status": "succeeded", "final_snapshot_required": True},
             )
             await self.store.mark_closed(record)
+            # Fire reflection job as a separate event (not on STREAM_DONE payload
+            # which is schema-validated against StreamDonePayload).
+            await self._enqueue_reflection_job(
+                record, self.provider.model or "unknown"
+            )
         except asyncio.CancelledError:
             raise
         except ToolFailure as exc:
@@ -754,6 +766,48 @@ class AgentOrchestrator:
             {"status": "failed", "final_snapshot_required": True},
         )
         await self.store.mark_closed(record)
+
+    async def _enqueue_reflection_job(
+        self, record: TaskRecord, provider_model: str
+    ) -> str | None:
+        """Enqueue a memory reflection job after task completion.
+
+        Returns the job_id if enqueued, None otherwise.
+        """
+        if self._memory_reflection_worker is None:
+            return None
+        if record.user_ctx is None:
+            return None
+        if record.snapshot.effective_memory_mode == "off":
+            return None
+        if not record.snapshot.partial_output:
+            return None
+
+        try:
+            job_id = new_prefixed_ulid("memjob")
+            turn_index = record.snapshot.messages.__len__()
+            self._memory_reflection_worker.enqueue_job(
+                job_id=job_id,
+                owner_id=record.user_ctx.user_id,
+                task_id=record.snapshot.task_id,
+                run_id=record.snapshot.run_id,
+                turn_index=turn_index,
+                provider_model=provider_model,
+            )
+            logger.info(
+                "orchestrator.enqueue job_id=%s task_id=%s run_id=%s",
+                job_id,
+                record.snapshot.task_id,
+                record.snapshot.run_id,
+            )
+            return job_id
+        except Exception as exc:
+            logger.warning(
+                "orchestrator.enqueue_failed type=%s error=%s",
+                type(exc).__name__,
+                exc,
+            )
+            return None
 
 
 def _split_delta(delta: str) -> list[str]:

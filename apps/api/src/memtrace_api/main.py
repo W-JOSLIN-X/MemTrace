@@ -185,6 +185,8 @@ from memtrace_api.store import (
     TaskStore,
 )
 from memtrace_api.worker import MemoryJobWorker, recover_stale_jobs
+from memtrace_api.memory_worker import MemoryReflectionWorker, get_worker_sync
+from memtrace_api.providers import build_structured_provider
 
 API_PREFIX = "/api/v1"
 TASK_ID_PATTERN = r"^task_[0-9A-HJKMNP-TV-Z]{26}$"
@@ -220,11 +222,25 @@ def create_app(
         subscriber_queue_size=resolved_settings.subscriber_queue_size,
     )
     resolved_provider = provider or _build_available_provider(resolved_settings)
+
+    # Memory Reflection Worker (Day 6 v2.0.0)
+    # Only create when we have a real or mock provider available.
+    _memory_provider = None
+    reflection_worker = None
+    if resolved_provider is not None:
+        _memory_provider = memory_provider or build_structured_provider(resolved_settings)
+        reflection_worker = (
+            MemoryReflectionWorker(factory, resolved_settings, provider=_memory_provider)
+            if factory is not None
+            else None
+        )
+
     orchestrator = (
         AgentOrchestrator(
             store=resolved_store,
             provider=resolved_provider,
             db_session_factory=factory,
+            memory_reflection_worker=reflection_worker,
         )
         if resolved_provider is not None
         else None
@@ -265,6 +281,8 @@ def create_app(
             logger.warning("startup.database_not_ready type=%s", type(exc).__name__)
         if database_ready and memory_worker is not None:
             memory_worker.start()
+        if database_ready and reflection_worker is not None:
+            reflection_worker.start()
 
         try:
             yield
@@ -289,6 +307,7 @@ def create_app(
     application.state.provider = resolved_provider
     application.state.orchestrator = orchestrator
     application.state.memory_worker = memory_worker
+    application.state.reflection_worker = reflection_worker
     application.state.db_session_factory = factory
     application.add_middleware(RequestIdMiddleware)
     install_exception_handlers(application)
