@@ -62,9 +62,11 @@ def upgrade() -> None:
     # G4 (005) already added: deleted_at/deleted_by/deletion_reason,
     #   evidence_missing, import_batch_id, import_source_version,
     #   status (nullability change), and set existing columns to nullable.
-    # This batch_alter_table only adds columns that do NOT yet exist in G4.
+    # G2 (002) already added: valid_from, valid_to, scope_level, domain,
+    #   scope_json, exceptions_json, source_trust.
+    # This batch_alter_table only adds NEW columns that do NOT yet exist.
     with op.batch_alter_table("memory_cards") as batch_op:
-        # v2 primary fields (all new, not in G4)
+        # v2 primary fields (all new, not in G2/G4)
         batch_op.add_column(
             sa.Column("content", sa.Text(), nullable=True),
         )
@@ -83,8 +85,8 @@ def upgrade() -> None:
         batch_op.add_column(
             sa.Column("schema_version", sa.String(16), nullable=True),
         )
-        # Legacy scope columns (mirror existing G4 structured scope; preserved for compatibility)
-        # NOTE: scope_level, domain, scope_json, exceptions_json, source_trust already exist from G4.
+        # Legacy scope columns (mirror existing G2/G4 structured scope; preserved for compatibility)
+        # NOTE: scope_level, domain, scope_json, exceptions_json, source_trust already exist from G2.
         # These _legacy columns provide read-only copies for v1→v2 compatibility projections.
         batch_op.add_column(
             sa.Column("scope_level_legacy", sa.String(32), nullable=True),
@@ -119,44 +121,39 @@ def upgrade() -> None:
         )
 
     # Update G4 content-state check: v2 cards use content/applies_when; deleted keeps nulls
-    _drop_if_exists("memory_cards", "check", "chk_memory_card_g4_content_state")
-    _check(
-        "memory_cards",
-        "chk_memory_card_v2_content_state",
-        "(status = 'deleted' AND kind IS NULL AND source_type IS NULL "
-        "AND content IS NULL AND applies_when IS NULL AND review_status IS NULL "
-        "AND current_version_id IS NULL AND version = 0 "
-        "AND retrieved_count = 0 AND injected_count = 0 "
-        "AND verified_applied_count = 0 AND helpful_count = 0 "
-        "AND harmful_count = 0 AND stale_count = 0) OR "
-        "(status != 'deleted' AND kind IS NOT NULL AND source_type IS NOT NULL "
-        "AND content IS NOT NULL AND applies_when IS NOT NULL "
-        "AND review_status IS NOT NULL)",
-    )
-
-    # Add v2-specific checks
-    _check(
-        "memory_cards",
-        "chk_memory_card_review_status",
-        "review_status IN ('active', 'review', 'paused', 'archived', 'superseded')",
-    )
-    _check(
-        "memory_cards",
-        "chk_memory_card_confidence",
-        "confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0)",
-    )
-    _check(
-        "memory_cards",
-        "chk_memory_card_validity_range",
-        "(valid_from IS NULL AND valid_to IS NULL) OR "
-        "(valid_from IS NOT NULL AND "
-        "(valid_to IS NULL OR valid_to > valid_from))",
-    )
-    _check(
-        "memory_cards",
-        "chk_memory_card_rule_subtype",
-        "rule_subtype IS NULL OR rule_subtype IN ('constraint', 'procedure')",
-    )
+    # SQLite batch mode requires checks inside batch_alter_table
+    with op.batch_alter_table("memory_cards") as batch_op:
+        batch_op.drop_constraint("chk_memory_card_g4_content_state", type_="check")
+        batch_op.create_check_constraint(
+            "chk_memory_card_v2_content_state",
+            "(status = 'deleted' AND kind IS NULL AND source_type IS NULL "
+            "AND content IS NULL AND applies_when IS NULL AND review_status IS NULL "
+            "AND current_version_id IS NULL AND version = 0 "
+            "AND retrieved_count = 0 AND injected_count = 0 "
+            "AND verified_applied_count = 0 AND helpful_count = 0 "
+            "AND harmful_count = 0 AND stale_count = 0) OR "
+            "(status != 'deleted' AND kind IS NOT NULL AND source_type IS NOT NULL "
+            "AND content IS NOT NULL AND applies_when IS NOT NULL "
+            "AND review_status IS NOT NULL)",
+        )
+        batch_op.create_check_constraint(
+            "chk_memory_card_review_status",
+            "review_status IN ('active', 'review', 'paused', 'archived', 'superseded')",
+        )
+        batch_op.create_check_constraint(
+            "chk_memory_card_confidence",
+            "confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0)",
+        )
+        batch_op.create_check_constraint(
+            "chk_memory_card_validity_range",
+            "(valid_from IS NULL AND valid_to IS NULL) OR "
+            "(valid_from IS NOT NULL AND "
+            "(valid_to IS NULL OR valid_to > valid_from))",
+        )
+        batch_op.create_check_constraint(
+            "chk_memory_card_rule_subtype",
+            "rule_subtype IS NULL OR rule_subtype IN ('constraint', 'procedure')",
+        )
 
     # =========================================================================
     # 2. memory_versions: v2 content fields
@@ -177,22 +174,19 @@ def upgrade() -> None:
         batch_op.add_column(
             sa.Column("rule_subtype", sa.String(32), nullable=True),
         )
-
-    _drop_if_exists("memory_versions", "check", "chk_memory_version_created_by")
-    _check(
-        "memory_versions",
-        "chk_memory_version_created_by_v2",
-        "created_by_action IN ('accept', 'edit_accept', 'edit', 'import', "
-        "'merge', 'scope_resolution', 'llm_extract', 'llm_update', 'llm_supersede')",
-    )
-    _check(
-        "memory_versions",
-        "chk_memory_version_v2_content",
-        "(created_by_action IN ('accept', 'edit_accept', 'edit', 'llm_extract', 'llm_update') "
-        "AND content IS NOT NULL AND applies_when IS NOT NULL) OR "
-        "(created_by_action NOT IN ('accept', 'edit_accept', 'edit', 'llm_extract', 'llm_update') "
-        "AND content IS NULL AND applies_when IS NULL)",
-    )
+        batch_op.drop_constraint("chk_memory_version_created_by", type_="check")
+        batch_op.create_check_constraint(
+            "chk_memory_version_created_by_v2",
+            "created_by_action IN ('accept', 'edit_accept', 'edit', 'import', "
+            "'merge', 'scope_resolution', 'llm_extract', 'llm_update', 'llm_supersede')",
+        )
+        batch_op.create_check_constraint(
+            "chk_memory_version_v2_content",
+            "(created_by_action IN ('accept', 'edit_accept', 'edit', 'llm_extract', 'llm_update') "
+            "AND content IS NOT NULL AND applies_when IS NOT NULL) OR "
+            "(created_by_action NOT IN ('accept', 'edit_accept', 'edit', 'llm_extract', 'llm_update') "
+            "AND content IS NULL AND applies_when IS NULL)",
+        )
 
     # =========================================================================
     # 3. memory_evidence: add message_id FK for v2 evidence chain
@@ -207,19 +201,16 @@ def upgrade() -> None:
         batch_op.add_column(
             sa.Column("is_primary", sa.Boolean(), nullable=True, server_default="1"),
         )
-
-    _check(
-        "memory_evidence",
-        "chk_memory_evidence_message_consistency",
-        "(message_id IS NULL AND feedback_id IS NOT NULL) OR "
-        "(message_id IS NOT NULL AND feedback_id IS NULL) OR "
-        "(message_id IS NOT NULL AND feedback_id IS NOT NULL)",
-    )
-    _check(
-        "memory_evidence",
-        "chk_memory_evidence_turn_index",
-        "turn_index IS NULL OR turn_index >= 0",
-    )
+        batch_op.create_check_constraint(
+            "chk_memory_evidence_message_consistency",
+            "(message_id IS NULL AND feedback_id IS NOT NULL) OR "
+            "(message_id IS NOT NULL AND feedback_id IS NULL) OR "
+            "(message_id IS NOT NULL AND feedback_id IS NOT NULL)",
+        )
+        batch_op.create_check_constraint(
+            "chk_memory_evidence_turn_index",
+            "turn_index IS NULL OR turn_index >= 0",
+        )
 
     # =========================================================================
     # 4. NEW TABLE: memory_reflection_jobs
@@ -286,8 +277,6 @@ def upgrade() -> None:
     _index("memory_reflection_jobs", ["owner_id", "task_id"])
     _index("memory_reflection_jobs", ["status"])
     _index("memory_reflection_jobs", ["owner_id", "status"])
-    _fk("memory_reflection_jobs", "task_id", "tasks", "id")
-    _fk("memory_reflection_jobs", "run_id", "agent_runs", "id")
 
     # =========================================================================
     # 5. NEW TABLE: memory_llm_judgments
@@ -342,8 +331,6 @@ def upgrade() -> None:
     _index("memory_llm_judgments", ["owner_id", "job_id"])
     _index("memory_llm_judgments", ["memory_id"])
     _index("memory_llm_judgments", ["judge_type", "status"])
-    _fk("memory_llm_judgments", "job_id", "memory_reflection_jobs", "id")
-    _fk("memory_llm_judgments", "memory_id", "memory_cards", "id")
 
     # =========================================================================
     # 6. memory_relations: add LLM consolidation fields
@@ -362,26 +349,22 @@ def upgrade() -> None:
                 nullable=True,
             ),
         )
-
-    _drop_if_exists("memory_relations", "check", "chk_memory_relation_type")
-    _check(
-        "memory_relations",
-        "chk_memory_relation_type_v2",
-        "relation_type IN ('duplicate_of', 'conflicts_with', 'supersedes', "
-        "'reinforces', 'merged_into', 'related_to')",
-    )
-    _check(
-        "memory_relations",
-        "chk_memory_relation_consolidation",
-        "llm_consolidation_decision IS NULL OR "
-        "llm_consolidation_decision IN ('duplicate', 'update', 'supersede', 'coexist', 'review')",
-    )
-    _check(
-        "memory_relations",
-        "chk_memory_relation_consolidation_confidence",
-        "consolidation_confidence IS NULL OR "
-        "(consolidation_confidence >= 0.0 AND consolidation_confidence <= 1.0)",
-    )
+        batch_op.drop_constraint("chk_memory_relation_type", type_="check")
+        batch_op.create_check_constraint(
+            "chk_memory_relation_type_v2",
+            "relation_type IN ('duplicate_of', 'conflicts_with', 'supersedes', "
+            "'reinforces', 'merged_into', 'related_to')",
+        )
+        batch_op.create_check_constraint(
+            "chk_memory_relation_consolidation",
+            "llm_consolidation_decision IS NULL OR "
+            "llm_consolidation_decision IN ('duplicate', 'update', 'supersede', 'coexist', 'review')",
+        )
+        batch_op.create_check_constraint(
+            "chk_memory_relation_consolidation_confidence",
+            "consolidation_confidence IS NULL OR "
+            "(consolidation_confidence >= 0.0 AND consolidation_confidence <= 1.0)",
+        )
 
     # =========================================================================
     # 7. memory_evidence: add consolidation evidence columns

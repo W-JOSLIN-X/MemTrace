@@ -33,8 +33,6 @@ from memtrace_api.g3_service import (
     update_actual_prompt_tokens,
     verify_injected_usages,
 )
-from memtrace_api.ids import new_prefixed_ulid
-from memtrace_api.logic import build_public_plan
 from memtrace_api.providers import (
     ProviderFailure,
     ProviderRequest,
@@ -242,21 +240,22 @@ class AgentOrchestrator:
                     )
 
             await self._stage(record, RunStatus.PLANNING, "publishing_plan")
-            plan = build_public_plan(
-                analysis,
-                selected_count=retrieval.trace.selected_count if retrieval is not None else 0,
-                injected_count=retrieval.trace.injected_count if retrieval is not None else 0,
-                memory_mode_off=record.request.effective_memory_mode.value == "off",
-            )
-            plan_payload_dict = {
-                "plan_id": plan.id,
-                "goal_code": analysis.goal_code,
+            # v2: plan is now a simple metadata dict, not built by auto_rule_v1
+            plan = {
+                "id": new_prefixed_ulid("plan"),
+                "goal_code": "analyze_code",
                 "memory_summary_code": (
                     "memory_selected"
                     if retrieval is not None and retrieval.trace.selected_count
                     else "no_memory_selected"
                 ),
-                "next_action_code": analysis.next_action_code,
+                "next_action_code": "call_tool" if analysis.tool_decision.action is ToolAction.CALL else "answer",
+            }
+            plan_payload_dict = {
+                "plan_id": plan["id"],
+                "goal_code": plan["goal_code"],
+                "memory_summary_code": plan["memory_summary_code"],
+                "next_action_code": plan["next_action_code"],
             }
             await self._emit_db_persistent_event(
                 record,

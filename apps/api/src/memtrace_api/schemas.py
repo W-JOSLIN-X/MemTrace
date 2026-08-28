@@ -1673,3 +1673,84 @@ class MemoryEventPayload(ContractModel):
     reason_code: Annotated[str, StringConstraints(max_length=64)] | None = None
     job_id: MemoryReflectionJobId | None = None
     created_at: datetime | None = None
+
+
+# ===========================================================================
+# V2 API response / request models
+# ===========================================================================
+
+
+class MemoryV2EditRequest(ContractModel):
+    """PATCH /api/v2/memories/{memory_id} body."""
+    kind: MemoryKindV2 | None = None
+    content: Annotated[str, StringConstraints(min_length=4, max_length=4000)] | None = None
+    applies_when: Annotated[str, StringConstraints(min_length=4, max_length=500)] | None = None
+
+    @model_validator(mode="after")
+    def at_least_one_field(self) -> MemoryV2EditRequest:
+        if self.kind is None and self.content is None and self.applies_when is None:
+            raise ValueError("at least one of kind, content, applies_when must be set")
+        return self
+
+
+class MemoryV2EditResponse(ContractModel):
+    request_id: RequestId
+    memory_id: MemoryId
+    kind: MemoryKindV2
+    content: Annotated[str, StringConstraints(max_length=4000)]
+    applies_when: Annotated[str, StringConstraints(max_length=500)]
+    status: ReviewStatus
+    current_version_id: MemoryVersionId
+    updated_at: datetime
+
+
+class MemoryConfirmResponse(ContractModel):
+    request_id: RequestId
+    memory_id: MemoryId
+    old_status: ReviewStatus
+    new_status: Literal["active"] = "active"
+    updated_at: datetime
+
+
+class MemoryDismissResponse(ContractModel):
+    request_id: RequestId
+    memory_id: MemoryId
+    old_status: ReviewStatus
+    new_status: Literal["archived"] = "archived"
+    updated_at: datetime
+
+
+class MemoryV2ListResponse(ContractModel):
+    request_id: RequestId
+    items: Annotated[list[MemoryCard], Field(max_length=100)] = Field(default_factory=list)
+    next_cursor: str | None = None
+
+
+class MemoryEventListResponse(ContractModel):
+    request_id: RequestId
+    items: Annotated[list[MemoryEventPayload], Field(max_length=100)] = Field(default_factory=list)
+    next_seq: int | None = None
+
+
+class TaskMemoryUsageResponse(ContractModel):
+    request_id: RequestId
+    task_id: TaskId
+    memory_id: MemoryId
+    injected: bool
+    verified_applied: bool
+    helpful_count: int = Field(ge=0)
+    harmful_count: int = Field(ge=0)
+    stale_count: int = Field(ge=0)
+    last_used_at: datetime | None = None
+
+
+class MemoryFeedbackRequest(ContractModel):
+    effect: UserEffect
+
+
+class MemoryFeedbackResponse(ContractModel):
+    request_id: RequestId
+    task_id: TaskId
+    memory_id: MemoryId
+    effect: UserEffect
+    updated_at: datetime
