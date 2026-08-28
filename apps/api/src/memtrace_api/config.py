@@ -84,6 +84,32 @@ class Settings(BaseSettings):
         default=1800, ge=1, le=1800, validation_alias="IMPORT_PREVIEW_TTL_SECONDS"
     )
 
+    # Day 6 memory settings
+    memory_token_budget_per_card: int = Field(
+        default=100, ge=10, le=2_000, validation_alias="MEMORY_TOKEN_BUDGET_PER_CARD"
+    )
+    memory_token_budget_total: int = Field(
+        default=300, ge=10, le=10_000, validation_alias="MEMORY_TOKEN_BUDGET_TOTAL"
+    )
+    memory_auto_activate_confidence: float = Field(
+        default=0.85, ge=0.0, le=1.0, validation_alias="MEMORY_AUTO_ACTIVATE_CONFIDENCE"
+    )
+    memory_max_candidates: int = Field(
+        default=50, ge=1, le=500, validation_alias="MEMORY_MAX_CANDIDATES"
+    )
+    memory_top_k: int = Field(
+        default=5, ge=1, le=50, validation_alias="MEMORY_TOP_K"
+    )
+    memory_similarity_threshold: float = Field(
+        default=0.55, ge=0.0, le=1.0, validation_alias="MEMORY_SIMILARITY_THRESHOLD"
+    )
+    memory_max_reflection_attempts: int = Field(
+        default=3, ge=1, le=10, validation_alias="MEMORY_MAX_REFLECTION_ATTEMPTS"
+    )
+    memory_reflection_timeout_seconds: float = Field(
+        default=120.0, gt=0, le=600, validation_alias="MEMORY_REFLECTION_TIMEOUT_SECONDS"
+    )
+
     # Day 2 G1 SQLite and Demo Session Cookie settings
     memtrace_database_url: str = Field(
         default="sqlite:///data/memtrace.sqlite3",

@@ -73,6 +73,9 @@ class EventType(StrEnum):
     MEMORY_CONFLICT_RESOLVED = "memory.conflict.resolved"
     MEMORY_PACK_PREVIEWED = "memory.pack.previewed"
     MEMORY_PACK_COMMITTED = "memory.pack.committed"
+    MEMORY_ANALYSIS_STARTED = "memory.analysis.started"
+    MEMORY_ANALYSIS_COMPLETED = "memory.analysis.completed"
+    MEMORY_EFFECT_JUDGED = "memory.effect.judged"
 
 
 PERSISTENT_EVENT_TYPES = frozenset(
@@ -103,6 +106,9 @@ PERSISTENT_EVENT_TYPES = frozenset(
         EventType.MEMORY_CONFLICT_RESOLVED,
         EventType.MEMORY_PACK_PREVIEWED,
         EventType.MEMORY_PACK_COMMITTED,
+        EventType.MEMORY_ANALYSIS_STARTED,
+        EventType.MEMORY_ANALYSIS_COMPLETED,
+        EventType.MEMORY_EFFECT_JUDGED,
     }
 )
 
@@ -309,6 +315,28 @@ class MemoryUsageFeedbackRecordedPayload(ContractModel):
     user_effect: UserEffect
 
 
+class MemoryAnalysisStartedPayload(ContractModel):
+    status: Literal["started"]
+    count: int = Field(ge=0)
+    latency: float = Field(ge=0)
+    token: int = Field(ge=0)
+
+
+class MemoryAnalysisCompletedPayload(ContractModel):
+    status: Literal["completed"]
+    count: int = Field(ge=0)
+    latency: float = Field(ge=0)
+    token: int = Field(ge=0)
+
+
+class MemoryEffectJudgedPayload(ContractModel):
+    status: Literal["judged"]
+    reason_code: str
+    count: int = Field(ge=0)
+    latency: float = Field(ge=0)
+    token: int = Field(ge=0)
+
+
 EventPayload: TypeAlias = (
     TaskCreatedPayload
     | TaskStagePayload
@@ -332,6 +360,9 @@ EventPayload: TypeAlias = (
     | MemoryInjectedPayload
     | MemoryUsageVerifiedPayload
     | MemoryUsageFeedbackRecordedPayload
+    | MemoryAnalysisStartedPayload
+    | MemoryAnalysisCompletedPayload
+    | MemoryEffectJudgedPayload
 )
 
 PAYLOAD_TYPES: dict[EventType, type[ContractModel]] = {
@@ -357,6 +388,9 @@ PAYLOAD_TYPES: dict[EventType, type[ContractModel]] = {
     EventType.MEMORY_INJECTED: MemoryInjectedPayload,
     EventType.MEMORY_USAGE_VERIFIED: MemoryUsageVerifiedPayload,
     EventType.MEMORY_USAGE_FEEDBACK_RECORDED: MemoryUsageFeedbackRecordedPayload,
+    EventType.MEMORY_ANALYSIS_STARTED: MemoryAnalysisStartedPayload,
+    EventType.MEMORY_ANALYSIS_COMPLETED: MemoryAnalysisCompletedPayload,
+    EventType.MEMORY_EFFECT_JUDGED: MemoryEffectJudgedPayload,
 }
 
 
