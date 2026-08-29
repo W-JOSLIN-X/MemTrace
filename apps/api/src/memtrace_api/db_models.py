@@ -369,6 +369,22 @@ class MemoryCardModel(Base):
     source_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     save_preselected: Mapped[bool] = mapped_column(nullable=False, default=False)
     rejection_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # v2 fields (added by 006 migration)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    applies_when: Mapped[str | None] = mapped_column(Text, nullable=True)
+    review_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rule_subtype: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    schema_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Legacy scope columns (read-only compatibility copies)
+    scope_level_legacy: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    task_type_legacy: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    artifact_type_legacy: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    audience_legacy: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    project_key_legacy: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    language_legacy: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    framework_legacy: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # v1 fields (legacy, kept for compatibility)
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     rule: Mapped[str | None] = mapped_column(Text, nullable=True)
     avoid: Mapped[str | None] = mapped_column(Text, nullable=True, default="")
@@ -418,7 +434,7 @@ class MemoryCardModel(Base):
         ),
         CheckConstraint(
             "kind IN ('preference', 'constraint', 'procedure', 'experience', "
-            "'environment', 'learning_checkpoint')",
+            "'environment', 'learning_checkpoint', 'rule')",
             name="chk_memory_card_kind",
         ),
         CheckConstraint(
@@ -547,6 +563,12 @@ class MemoryVersionModel(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
+    # v2 fields (added by 006 migration)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    applies_when: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    review_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    rule_subtype: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     __table_args__ = (
         CheckConstraint("version >= 1", name="chk_memory_version_number"),
@@ -579,9 +601,14 @@ class MemoryEvidenceModel(Base):
     run_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
     )
-    memory_job_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("memory_jobs.id", ondelete="CASCADE"), nullable=False
+    memory_job_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("memory_jobs.id", ondelete="CASCADE"), nullable=True
     )
+    # v2: message_id links evidence directly to the user message that triggered it
+    message_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
+    )
+    turn_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source_type: Mapped[str] = mapped_column(String(32), nullable=False)
     source_field: Mapped[str] = mapped_column(String(32), nullable=False)
     evidence_quote: Mapped[str] = mapped_column(Text, nullable=False, default="")

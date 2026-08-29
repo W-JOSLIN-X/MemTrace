@@ -1537,8 +1537,13 @@ class LLMJudgeStatus(StrEnum):
 # ---- MemoryMutationBatch (LLM structured output) ----
 
 class MemoryMutationEvidence(ContractModel):
-    """Reference to user message that triggered this memory."""
-    message_id: MessageId
+    """Reference to user message that triggered this memory.
+
+    The server resolves ``message_id`` from the ``quote`` if not provided
+    or if the provided ID does not match any known user message.
+    """
+
+    message_id: str | None = None
     quote: Annotated[str, StringConstraints(min_length=1, max_length=500)]
 
 

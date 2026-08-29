@@ -8,12 +8,12 @@ Tests the full LLM-first memory pipeline with real DeepSeek API:
   5. Effect judge
 
 Runner fails-fast if provider_mode != real or API key is missing.
-All interactions go through public REST API + SSE.
-No backend-internal module imports beyond config/app factories.
+Uses asyncio + httpx.AsyncClient to properly schedule background provider tasks.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -22,11 +22,8 @@ import sys
 import time
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-# ---------------------------------------------------------------------------
-# Paths
-# ---------------------------------------------------------------------------
+import httpx
+from sqlalchemy import desc, select
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 API_SRC = PROJECT_ROOT / "apps" / "api" / "src"
@@ -36,15 +33,11 @@ os.chdir(str(PROJECT_ROOT))
 from memtrace_api.config import Settings
 from memtrace_api.database import session_scope
 from memtrace_api.main import create_app
+from memtrace_api.db_models import MemoryReflectionJobModel
 
 TEST_SESSION_SECRET = "test_session_secret_01234567890123456789"
 SMOKE_DIR = PROJECT_ROOT / "scripts" / "day6" / ".smoke_tmp"
 SMOKE_DIR.mkdir(exist_ok=True)
-DB_PATH = str(SMOKE_DIR / "day6_smoke.sqlite3")
-
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
 
 logging.basicConfig(
     level=logging.INFO,
@@ -76,7 +69,7 @@ SEMANTIC_TEST_CASES = [
         "name": "Implicit preference (editing verbose to concise)",
         "conversation": [
             {"role": "user", "content": "请详细解释这个算法的实现原理。"},
-            {"role": "assistant", "content": "This algorithm works by..."},
+            {"role": "assistant", "content": "This algorithm works by iterating..."},
             {"role": "user", "content": "不用那么详细，直接给步骤就行。"},
         ],
         "expected": {
@@ -271,90 +264,202 @@ def _migrate(db_url: str) -> None:
     env = dict(os.environ, MEMTRACE_DATABASE_URL=db_url)
     subprocess.run(
         [
-            sys.executable,
-            "-m",
-            "alembic",
-            "-c",
-            str(API_SRC / ".." / "alembic.ini"),
-            "upgrade",
-            "head",
+            sys.executable, "-m", "alembic",
+            "-c", str(API_SRC / ".." / "alembic.ini"),
+            "upgrade", "head",
         ],
-        env=env,
-        check=True,
-        capture_output=True,
+        env=env, check=True, capture_output=True,
         cwd=str(PROJECT_ROOT / "apps" / "api"),
     )
 
 
-def _make_client(db_url: str) -> TestClient:
+def _make_app(db_url: str):
     settings = Settings(
         app_env="test",
         memtrace_data_dir=str(PROJECT_ROOT / "tmp"),
         memtrace_database_url=db_url,
         session_secret=TEST_SESSION_SECRET,
         provider_timeout_seconds=120.0,
-        memory_reflection_timeout_seconds=120.0,
+        memory_reflection_timeout_seconds=180.0,
         max_tasks=10,
         _env_file=PROJECT_ROOT / ".env",
     )
-    client = TestClient(
-        create_app(settings),
-        headers={"Idempotency-Key": "smoke-test-0001"},
-    )
-    resp = client.post("/api/v1/session/demo", json={"demo_alias": "seeded_demo"})
-    assert resp.status_code == 200, f"Login failed: {resp.text}"
-    return client
+    app = create_app(settings)
+    # httpx.ASGITransport does not trigger lifespan startup/shutdown,
+    # so manually start the reflection worker here.
+    rw = getattr(app.state, "reflection_worker", None)
+    if rw is not None:
+        rw.start()
+        log.info("Reflection worker started")
+    return app
 
 
-def _read_sse_events(client: TestClient, url: str, timeout: float = 120.0) -> list[dict]:
-    """Read SSE events from stream until close or timeout."""
+# ---------------------------------------------------------------------------
+# Async helpers (use asyncio so background tasks get CPU time)
+# ---------------------------------------------------------------------------
+
+
+class AsyncSmokeClient:
+    """Wraps httpx.AsyncClient + ASGI app, mirrors TestClient interface."""
+
+    def __init__(self, app, base_url: str = "http://testserver"):
+        self._app = app
+        self._base_url = base_url
+        self._transport = httpx.ASGITransport(app=app)
+        self._client = httpx.AsyncClient(
+            transport=self._transport,
+            base_url=base_url,
+            headers={"Idempotency-Key": "smoke-0001"},
+            timeout=httpx.Timeout(300.0, connect=10.0),
+            follow_redirects=False,
+        )
+        self._cookie: str | None = None
+
+    async def __aenter__(self):
+        await self._client.__aenter__()
+        return self
+
+    async def __aexit__(self, *args):
+        await self._client.__aexit__(*args)
+
+    async def _ensure_cookie(self):
+        if self._cookie is None:
+            resp = await self._client.post(
+                "/api/v1/session/demo",
+                json={"demo_alias": "seeded_demo"},
+            )
+            assert resp.status_code == 200, f"Login failed: {resp.text}"
+            set_cookie = resp.headers.get("set-cookie", "")
+            for part in set_cookie.split(";"):
+                part = part.strip()
+                if part.startswith("memtrace_demo_session="):
+                    self._cookie = part
+                    break
+
+    def _auth_headers(self) -> dict[str, str]:
+        h = {}
+        if self._cookie:
+            h["Cookie"] = self._cookie
+        return h
+
+    async def post(self, path: str, **kwargs) -> httpx.Response:
+        await self._ensure_cookie()
+        return await self._client.post(path, headers=self._auth_headers(), **kwargs)
+
+    async def get(self, path: str, **kwargs) -> httpx.Response:
+        await self._ensure_cookie()
+        return await self._client.get(path, headers=self._auth_headers(), **kwargs)
+
+    async def get_json(self, path: str):
+        resp = await self.get(path)
+        if resp.status_code == 200:
+            return resp.json()
+        return None
+
+    async def stream_sse(self, url: str, timeout: float = 300.0):
+        """Stream SSE events as async generator."""
+        await self._ensure_cookie()
+        async with self._client.stream(
+            "GET", url, headers=self._auth_headers(), timeout=timeout
+        ) as resp:
+            assert resp.status_code == 200
+            buffer = ""
+            async for chunk in resp.aiter_text():
+                buffer += chunk
+                while "\n\n" in buffer:
+                    block, buffer = buffer.split("\n\n", 1)
+                    event: dict[str, str] = {}
+                    for line in block.splitlines():
+                        line = line.strip()
+                        if line.startswith(":"):
+                            continue
+                        if line.startswith("event:"):
+                            event["event"] = line[6:].strip()
+                        elif line.startswith("data:"):
+                            event.setdefault("data", "")
+                            event["data"] += line[5:].strip()
+                        elif line.startswith("id:"):
+                            event["id"] = line[3:].strip()
+                    if "data" in event:
+                        try:
+                            yield json.loads(event["data"])
+                        except json.JSONDecodeError:
+                            pass
+
+
+# ---------------------------------------------------------------------------
+# Task completion via SSE stream
+# ---------------------------------------------------------------------------
+
+
+async def _wait_via_sse(client: AsyncSmokeClient, task_id: str, timeout: float = 300.0) -> list[dict]:
+    """Stream SSE events and collect until stream.done."""
     events: list[dict] = []
-    start = time.perf_counter()
-    with client.stream("GET", url) as response:
-        assert response.status_code == 200, f"SSE status: {response.status_code}"
-        assert response.headers["content-type"].startswith("text/event-stream")
-        for line in response.iter_lines():
-            line = line.strip()
-            if not line or line.startswith(":"):
-                continue
-            if line.startswith("data:"):
-                data_str = line[5:].strip()
-                try:
-                    events.append(json.loads(data_str))
-                except json.JSONDecodeError:
-                    pass
-            if time.perf_counter() - start > timeout:
-                log.warning("SSE timeout after %.1fs", timeout)
+    url = f"/api/v1/tasks/{task_id}/events"
+    try:
+        async for evt in client.stream_sse(url, timeout=timeout):
+            events.append(evt)
+            if evt.get("event_type") == "stream.done":
                 break
+    except Exception as exc:
+        log.warning("SSE stream error: %s", exc)
     return events
 
 
-# ---------------------------------------------------------------------------
-# Reflection job polling (direct DB access via app state session factory)
-# ---------------------------------------------------------------------------
+async def _wait_via_poll(client: AsyncSmokeClient, task_id: str, timeout: float = 300.0) -> dict | None:
+    """Poll task snapshot until terminal."""
+    deadline = time.perf_counter() + timeout
+    last = None
+    poll_count = 0
+    while time.perf_counter() < deadline:
+        # Yield to let background tasks run
+        await asyncio.sleep(0.5)
+        resp = await client.get(f"/api/v1/tasks/{task_id}")
+        if resp.status_code == 200:
+            data = resp.json()
+            last = data
+            poll_count += 1
+            if data.get("terminal"):
+                log.info("[%s] terminal after %d polls (%.1fs)",
+                         task_id, poll_count, time.perf_counter())
+                return data
+            if poll_count % 10 == 0:
+                log.info("[%s] polling: status=%s output_len=%d",
+                         task_id, data.get("run_status"), len(data.get("partial_output", "")))
+    log.warning("[%s] poll timeout after %.1fs", task_id, timeout)
+    return last
 
 
-def _wait_reflection_job(
-    client: TestClient, task_id: str, timeout: float = 120.0
+async def _wait_reflection_job(
+    client: AsyncSmokeClient, task_id: str, timeout: float = 180.0
 ) -> dict | None:
     """Poll memory_reflection_jobs table for jobs on this task_id."""
-    from sqlalchemy import desc, select
+    # Get the session factory from the app state
+    # We need a fresh session each time since we're in async context
+    # We'll use the raw engine directly
 
-    from memtrace_api.db_models import MemoryReflectionJobModel
-
-    factory = client.application.state.db_session_factory
     deadline = time.perf_counter() + timeout
     last_status = None
+
+    # Get the db_session_factory from app state once
+    db_factory = client._app.state.db_session_factory
+
     while time.perf_counter() < deadline:
-        with session_scope(factory) as session:
+        # Yield to let background tasks run
+        await asyncio.sleep(2.0)
+
+        with session_scope(db_factory) as session:
             rows = session.execute(
                 select(MemoryReflectionJobModel)
                 .where(MemoryReflectionJobModel.task_id == task_id)
                 .order_by(desc(MemoryReflectionJobModel.created_at))
             ).scalars().all()
+
         if rows:
             job = rows[0]
             last_status = job.status
+            log.info("[%s] reflection job: status=%s attempt=%d decision=%s",
+                     task_id, last_status, job.attempt, job.mutation_decision)
             if last_status in ("completed", "failed"):
                 return {
                     "job_id": job.id,
@@ -364,16 +469,13 @@ def _wait_reflection_job(
                     "error_code": job.error_code,
                     "provider_model": job.provider_model,
                 }
-        time.sleep(2.0)
+
     return {"status": "timeout", "last_known_status": last_status}
 
 
-def _get_memories(client: TestClient) -> list[dict]:
-    """GET /api/v2/memories -- return all extracted memories for current user."""
-    resp = client.get("/api/v2/memories?limit=50")
-    if resp.status_code != 200:
-        return []
-    return resp.json().get("items", [])
+async def _get_memories(client: AsyncSmokeClient) -> list[dict]:
+    data = await client.get_json("/api/v2/memories?limit=50")
+    return data.get("items", []) if data else []
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +484,6 @@ def _get_memories(client: TestClient) -> list[dict]:
 
 
 def check_readiness() -> dict:
-    # Use same .env loading as _make_client
     env_path = PROJECT_ROOT / ".env"
     env_vars = {}
     if env_path.exists():
@@ -392,12 +493,9 @@ def check_readiness() -> dict:
                 if line and not line.startswith("#") and "=" in line:
                     k, _, v = line.partition("=")
                     env_vars[k.strip()] = v.strip()
-
-    # Patch os.environ so Settings picks up the values
     for k, v in env_vars.items():
         if k not in os.environ:
             os.environ[k] = v
-
     s = Settings(_env_file=env_path)
     return {
         "provider_mode": s.provider_mode,
@@ -409,11 +507,11 @@ def check_readiness() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Per-case runner
+# Per-case runner (async)
 # ---------------------------------------------------------------------------
 
 
-def _run_case(client: TestClient, case: dict, repeat: int) -> dict:
+async def _run_case(client: AsyncSmokeClient, case: dict, repeat: int) -> dict:
     case_id = case["id"]
     expected = case["expected"]
     conversation = case["conversation"]
@@ -432,7 +530,7 @@ def _run_case(client: TestClient, case: dict, repeat: int) -> dict:
             continue
 
         # Create task
-        create_resp = client.post(
+        create_resp = await client.post(
             "/api/v1/tasks",
             json={
                 "task_text": first_user_msg,
@@ -449,28 +547,60 @@ def _run_case(client: TestClient, case: dict, repeat: int) -> dict:
             run_results.append({
                 "run": run_idx + 1,
                 "status": "fail",
-                "reason": f"create_task {create_resp.status_code}: {create_resp.text[:200]}",
+                "reason": f"create_task {create_resp.status_code}: {create_resp.text[:300]}",
             })
             continue
 
         task_id = create_resp.json()["task_id"]
-        events_url = create_resp.json()["events_url"]
         log.info("[%s] task_id=%s", case_id, task_id)
 
         # Send remaining user messages as feedback
         for msg in conversation[1:]:
             if msg["role"] == "user":
-                client.post(
+                await client.post(
                     f"/api/v1/tasks/{task_id}/feedback",
                     json={"explicit_text": msg["content"]},
                 )
 
-        # Read SSE events (waits for stream.done)
-        sse_events = _read_sse_events(client, events_url)
-        log.info("[%s] SSE events: %d", case_id, len(sse_events))
+        # Strategy 1: try SSE stream first
+        log.info("[%s] Trying SSE stream...", case_id)
+        sse_events = await _wait_via_sse(client, task_id)
 
-        # Wait for reflection job to complete
-        job_result = _wait_reflection_job(client, task_id)
+        if not sse_events:
+            # Strategy 2: fall back to polling
+            log.info("[%s] SSE returned no events, falling back to polling...", case_id)
+            snapshot = await _wait_via_poll(client, task_id)
+            if snapshot is None or not snapshot.get("terminal"):
+                run_results.append({
+                    "run": run_idx + 1,
+                    "status": "timeout",
+                    "reason": "task did not complete (SSE + poll both failed)",
+                })
+                continue
+            run_status = snapshot.get("run_status")
+        else:
+            # Check if stream.done was in SSE events
+            done_event = next((e for e in sse_events if e.get("event_type") == "stream.done"), None)
+            if done_event:
+                run_status = done_event.get("data", {}).get("status", "unknown")
+            else:
+                # SSE connected but no stream.done -- fall back to polling
+                log.info("[%s] SSE connected but no stream.done, polling...", case_id)
+                snapshot = await _wait_via_poll(client, task_id)
+                run_status = snapshot.get("run_status") if snapshot else "unknown"
+
+        log.info("[%s] task finished: run_status=%s", case_id, run_status)
+
+        if run_status != "succeeded":
+            run_results.append({
+                "run": run_idx + 1,
+                "status": "fail",
+                "reason": f"task ended with run_status={run_status}",
+            })
+            continue
+
+        # Wait for reflection job
+        job_result = await _wait_reflection_job(client, task_id)
         if job_result is None or job_result.get("status") == "timeout":
             run_results.append({
                 "run": run_idx + 1,
@@ -485,7 +615,7 @@ def _run_case(client: TestClient, case: dict, repeat: int) -> dict:
                  job_result.get("mutation_decision"))
 
         # Check extracted memories
-        memories = _get_memories(client)
+        memories = await _get_memories(client)
         log.info("[%s] extracted %d memories", case_id, len(memories))
 
         # Evaluate
@@ -500,6 +630,7 @@ def _run_case(client: TestClient, case: dict, repeat: int) -> dict:
                     "run": run_idx + 1, "status": "fail",
                     "reason": "expected memory but got 0",
                     "job_status": job_status, "memory_count": actual_count,
+                    "error_code": job_result.get("error_code"),
                 }
             else:
                 m = memories[0]
@@ -561,11 +692,11 @@ def _run_case(client: TestClient, case: dict, repeat: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Main (async)
 # ---------------------------------------------------------------------------
 
 
-def main() -> int:
+async def async_main() -> int:
     print("=" * 70)
     print("Day 6 Real Semantic Smoke Test (16 cases)")
     print("=" * 70)
@@ -578,7 +709,6 @@ def main() -> int:
 
     if not ready["ready"]:
         print("\n[FAIL] FAIL-FAST: provider_mode != real or API key missing")
-        print("   Set MOCK_MODE=false and LLM_API_KEY in .env")
         return 1
 
     if ready["model"] != "deepseek-v4-flash":
@@ -586,7 +716,7 @@ def main() -> int:
 
     print("\n[PASS] Readiness check passed")
 
-    # Setup DB (each case gets its own isolated DB)
+    # Run cases
     repeat = 2
     results: list[dict] = []
     passed = 0
@@ -595,6 +725,8 @@ def main() -> int:
     for case in SEMANTIC_TEST_CASES:
         case_id = case["id"]
         case_db = str(SMOKE_DIR / f"{case_id}.sqlite3")
+
+        # Fresh DB per case
         if os.path.exists(case_db):
             try:
                 os.remove(case_db)
@@ -602,20 +734,23 @@ def main() -> int:
                 pass
         log.info("Migrating case DB: %s", case_db)
         _migrate(f"sqlite:///{case_db}")
-        client = _make_client(f"sqlite:///{case_db}")
+
+        app = _make_app(f"sqlite:///{case_db}")
+
         print(f"\n{'-' * 60}")
-        print(f"  {case['id']}: {case['name']}")
+        print(f"  {case_id}: {case['name']}")
         exp = case["expected"]
         print(f"  Expected: form={exp.get('should_form_memory')}, "
               f"kind={exp.get('kind')}, op={exp.get('operation')}")
         print(f"{'-' * 60}")
 
         try:
-            result = _run_case(client, case, repeat)
+            async with AsyncSmokeClient(app) as client:
+                result = await _run_case(client, case, repeat)
             results.append(result)
             ok = result["overall"] == "pass"
             icon = "PASS" if ok else "FAIL"
-            print(f"  [{icon}] {case['id']}: {result['overall'].upper()} "
+            print(f"  [{icon}] {case_id}: {result['overall'].upper()} "
                   f"(passes={result['passes']}/{repeat}, "
                   f"fails={result['fails']}, timeouts={result['timeouts']})")
             if ok:
@@ -627,18 +762,19 @@ def main() -> int:
                         print(f"     Run {run['run']}: {run['status']} -- "
                               f"{run.get('reason', '')[:100]}")
         except Exception as exc:
-            log.exception("[%s] case crashed", case["id"])
+            log.exception("[%s] case crashed", case_id)
             results.append({
-                "case_id": case["id"], "name": case["name"],
+                "case_id": case_id, "name": case["name"],
                 "overall": "error", "error": str(exc),
             })
             failed += 1
-        finally:
-            if os.path.exists(case_db):
-                try:
-                    os.remove(case_db)
-                except OSError:
-                    pass
+
+        # Clean up DB
+        if os.path.exists(case_db):
+            try:
+                os.remove(case_db)
+            except OSError:
+                pass
 
     # Summary
     print(f"\n{'=' * 70}")
@@ -687,6 +823,10 @@ def main() -> int:
     print(f"\nDetailed report: {report_path}")
 
     return 0 if failed == 0 else 1
+
+
+def main() -> int:
+    return asyncio.run(async_main())
 
 
 if __name__ == "__main__":

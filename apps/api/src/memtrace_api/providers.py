@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True, slots=True)
 class ProviderRequest:
     task_text: str
-    public_plan: PublicPlan
+    public_plan: PublicPlan | None = None
     tool_result: PythonAstResult | None = None
     memory_context: str | None = None
     usage_ids: tuple[str, ...] = ()
@@ -177,8 +177,9 @@ def _build_user_prompt(request: ProviderRequest) -> str:
     tool_summary = (
         "未运行静态工具" if request.tool_result is None else request.tool_result.model_dump_json()
     )
+    goal = request.public_plan.goal if request.public_plan else "memory_extraction"
     parts = [
-        f"Goal: {request.public_plan.goal}",
+        f"Goal: {goal}",
         f"Static tool result: {tool_summary}",
         f"User task:\n{request.task_text}",
     ]

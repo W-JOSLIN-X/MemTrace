@@ -252,11 +252,7 @@ def create_app(
             resolved_store,
             provider=memory_provider,
         )
-        if (
-            resolved_settings.mock_mode
-            or resolved_settings.has_llm_api_key
-            or memory_provider is not None
-        )
+        if resolved_settings.mock_mode
         else None
     )
 

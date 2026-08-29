@@ -323,7 +323,7 @@ class MemoryAnalysisStartedPayload(ContractModel):
 
 
 class MemoryAnalysisCompletedPayload(ContractModel):
-    status: Literal["completed"]
+    status: Literal["completed", "failed"]
     count: int = Field(ge=0)
     latency: float = Field(ge=0)
     token: int = Field(ge=0)
