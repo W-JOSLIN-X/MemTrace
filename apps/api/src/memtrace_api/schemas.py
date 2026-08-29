@@ -1409,3 +1409,353 @@ class ImportBatchResponse(ContractModel):
     skipped_count: int = Field(ge=0)
     warning_count: int = Field(ge=0)
     error_message: Annotated[str, StringConstraints(max_length=64)] | None = None
+
+
+# ======================================================================================
+# Day 6 2.0.0: Conversation-first memory contract.
+#
+# This section defines the v2 memory types that replace v1's keyword-based
+# classification with LLM-driven extraction, classification, and judgment.
+# The three user-visible memory kinds are: preference, rule, experience.
+# ======================================================================================
+
+MemoryReflectionJobId = Annotated[str, StringConstraints(pattern=r"^job_[0-9A-HJKMNP-TV-Z]{26}$")]
+LLMJudgeId = Annotated[str, StringConstraints(pattern=r"^judge_[0-9A-HJKMNP-TV-Z]{26}$")]
+
+
+class MemoryKindV2(StrEnum):
+    """User-visible memory kinds in v2. Only three categories."""
+    PREFERENCE = "preference"
+    RULE = "rule"
+    EXPERIENCE = "experience"
+
+
+class RuleSubtype(StrEnum):
+    """Internal sub-classification for rule kind. Not user-visible."""
+    CONSTRAINT = "constraint"
+    PROCEDURE = "procedure"
+
+
+class ReviewStatus(StrEnum):
+    """User-visible memory lifecycle in v2."""
+    ACTIVE = "active"
+    REVIEW = "review"
+    PAUSED = "paused"
+    ARCHIVED = "archived"
+    SUPERSEDED = "superseded"
+
+
+class LegacyKindStatus(StrEnum):
+    """Internal status for v1 cards migrated but not yet verified by real LLM."""
+    LEGACY_UNVERIFIED = "legacy_unverified"
+
+
+class MutationDecision(StrEnum):
+    MUTATE = "mutate"
+    NOOP = "noop"
+    NEEDS_REVIEW = "needs_review"
+
+
+class MutationOperation(StrEnum):
+    ADD = "add"
+    UPDATE = "update"
+    SUPERSEDE = "supersede"
+
+
+class MemoryDurability(StrEnum):
+    EXPLICIT_DURABLE = "explicit_durable"
+    ONE_SHOT = "one_shot"
+    AMBIGUOUS = "ambiguous"
+    REINFORCE_USAGE_ONLY = "reinforce_usage_only"
+    HARMFUL_USAGE_ONLY = "harmful_usage_only"
+
+
+class DurabilityReasonCode(StrEnum):
+    EXPLICIT_KEYWORD = "explicit_keyword"
+    INFERRED = "inferred"
+    AMBIGUOUS_MIXED = "ambiguous_mixed"
+    NO_REUSABLE_CONTENT = "no_reusable_content"
+    NEGATION_OR_QUOTE = "negation_or_quote"
+    REPORTED_SPEECH = "reported_speech"
+
+
+class ApplicabilityResult(StrEnum):
+    APPLICABLE = "applicable"
+    CURRENT_INSTRUCTION_OVERRIDE = "current_instruction_override"
+    CONFLICT = "conflict"
+    IRRELEVANT = "irrelevant"
+
+
+class ApplicabilityReasonCode(StrEnum):
+    SEMANTIC_MATCH = "semantic_match"
+    CURRENT_OVERRIDE = "current_override"
+    SCOPE_CONFLICT = "scope_conflict"
+    NO_SEMANTIC_LINK = "no_semantic_link"
+
+
+class EffectJudgment(StrEnum):
+    APPLIED = "applied"
+    VIOLATED = "violated"
+    NOT_OBSERVABLE = "not_observable"
+    UNKNOWN = "unknown"
+
+
+class EffectReasonCode(StrEnum):
+    MEMORY_DIRECTLY_INFLUENCED = "memory_directly_influenced"
+    MEMORY_CONTRADICTED = "memory_contradicted"
+    NO_OBSERVABLE_EFFECT = "no_observable_effect"
+    JUDGE_FAILED = "judge_failed"
+
+
+class ConsolidationDecision(StrEnum):
+    DUPLICATE = "duplicate"
+    UPDATE = "update"
+    SUPERSEDE = "supersede"
+    COEXIST = "coexist"
+    REVIEW = "review"
+
+
+class MemoryReflectionJobStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class LLMJudgeType(StrEnum):
+    APPLICABILITY = "applicability"
+    EFFECT = "effect"
+    CONSOLIDATION = "consolidation"
+
+
+class LLMJudgeStatus(StrEnum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+# ---- MemoryMutationBatch (LLM structured output) ----
+
+class MemoryMutationEvidence(ContractModel):
+    """Reference to user message that triggered this memory.
+
+    The server resolves ``message_id`` from the ``quote`` if not provided
+    or if the provided ID does not match any known user message.
+    """
+
+    message_id: str | None = None
+    quote: Annotated[str, StringConstraints(min_length=1, max_length=500)]
+
+
+class MemoryMutationOperation(ContractModel):
+    """Single operation in a mutation batch."""
+    operation: MutationOperation
+    target_memory_id: MemoryId | None = None
+    kind: MemoryKindV2
+    content: Annotated[str, StringConstraints(min_length=4, max_length=4000)]
+    applies_when: Annotated[str, StringConstraints(min_length=4, max_length=500)]
+    exceptions: Annotated[list[str], Field(max_length=8)] = Field(default_factory=list)
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)]
+    reason_code: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+    evidence: Annotated[list[MemoryMutationEvidence], Field(max_length=5)] = (
+        Field(default_factory=list)
+    )
+
+
+class MemoryMutationBatch(ContractModel):
+    """Structured output from the background Memory Manager LLM."""
+    schema_version: Literal["2.0"] = "2.0"
+    decision: MutationDecision
+    operations: Annotated[list[MemoryMutationOperation], Field(max_length=5)] = (
+        Field(default_factory=list)
+    )
+
+    @model_validator(mode="after")
+    def validate_decision_consistency(self) -> MemoryMutationBatch:
+        if self.decision == MutationDecision.NOOP:
+            if self.operations:
+                raise ValueError("noop decision must have empty operations")
+        elif self.decision in (MutationDecision.MUTATE, MutationDecision.NEEDS_REVIEW):
+            if not self.operations:
+                raise ValueError(f"{self.decision} decision requires at least one operation")
+        return self
+
+
+# ---- MemoryDurability Judgment (LLM output) ----
+
+class MemoryDurabilityResult(ContractModel):
+    durability: MemoryDurability
+    reason_code: DurabilityReasonCode
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)]
+
+
+# ---- Applicability Judge (LLM output) ----
+
+class ApplicabilityJudgeResult(ContractModel):
+    applicability: ApplicabilityResult
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)]
+    reason_code: ApplicabilityReasonCode
+    overridden_by: Annotated[str, StringConstraints(max_length=500)] | None = None
+    conflict_with: MemoryId | None = None
+
+
+# ---- Effect Judge (LLM output) ----
+
+class EffectJudgeResult(ContractModel):
+    judgment: EffectJudgment
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)]
+    evidence_excerpt: Annotated[str, StringConstraints(max_length=300)] | None = None
+    reason_code: EffectReasonCode
+
+
+# ---- Conflict/Consolidation (LLM output) ----
+
+class ConflictConsolidationResult(ContractModel):
+    decision: ConsolidationDecision
+    primary_memory_id: MemoryId | None = None
+    superseded_memory_id: MemoryId | None = None
+    reason: Annotated[str, StringConstraints(min_length=1, max_length=500)]
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)]
+
+
+# ---- Memory Reflection Job (v2) ----
+
+class MemoryReflectionJobResponse(ContractModel):
+    request_id: RequestId
+    job_id: MemoryReflectionJobId
+    task_id: TaskId
+    run_id: RunId
+    turn_index: int = Field(ge=0)
+    status: MemoryReflectionJobStatus
+    attempt: int = Field(ge=0)
+    mutation_decision: MutationDecision | None = None
+    provider_model: str
+    schema_version: Literal["2.0"] = "2.0"
+    error_code: Annotated[str, StringConstraints(max_length=64)] | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+# ---- LLM Judge Record (v2) ----
+
+class LLMJudgeRecordResponse(ContractModel):
+    request_id: RequestId
+    judge_id: LLMJudgeId
+    job_id: MemoryReflectionJobId
+    memory_id: MemoryId
+    judge_type: LLMJudgeType
+    status: LLMJudgeStatus
+    result: (
+        ApplicabilityJudgeResult
+        | EffectJudgeResult
+        | ConflictConsolidationResult
+        | None
+    ) = None
+    error_code: Annotated[str, StringConstraints(max_length=64)] | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+# ---- Memory List Filter (v2) ----
+
+class MemoryV2ListFilter(ContractModel):
+    kind: MemoryKindV2 | None = None
+    review_status: ReviewStatus | None = None
+    cursor: str | None = None
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+# ---- Memory Event projections (v2) ----
+
+class MemoryEventPayload(ContractModel):
+    """Base for memory events. Never contains user content, reasoning, or keys."""
+    event_id: str
+    event_type: str
+    memory_id: MemoryId | None = None
+    version_id: MemoryVersionId | None = None
+    old_status: ReviewStatus | None = None
+    new_status: ReviewStatus | None = None
+    reason_code: Annotated[str, StringConstraints(max_length=64)] | None = None
+    job_id: MemoryReflectionJobId | None = None
+    created_at: datetime | None = None
+
+
+# ===========================================================================
+# V2 API response / request models
+# ===========================================================================
+
+
+class MemoryV2EditRequest(ContractModel):
+    """PATCH /api/v2/memories/{memory_id} body."""
+    kind: MemoryKindV2 | None = None
+    content: Annotated[str, StringConstraints(min_length=4, max_length=4000)] | None = None
+    applies_when: Annotated[str, StringConstraints(min_length=4, max_length=500)] | None = None
+
+    @model_validator(mode="after")
+    def at_least_one_field(self) -> MemoryV2EditRequest:
+        if self.kind is None and self.content is None and self.applies_when is None:
+            raise ValueError("at least one of kind, content, applies_when must be set")
+        return self
+
+
+class MemoryV2EditResponse(ContractModel):
+    request_id: RequestId
+    memory_id: MemoryId
+    kind: MemoryKindV2
+    content: Annotated[str, StringConstraints(max_length=4000)]
+    applies_when: Annotated[str, StringConstraints(max_length=500)]
+    status: ReviewStatus
+    current_version_id: MemoryVersionId
+    updated_at: datetime
+
+
+class MemoryConfirmResponse(ContractModel):
+    request_id: RequestId
+    memory_id: MemoryId
+    old_status: ReviewStatus
+    new_status: Literal["active"] = "active"
+    updated_at: datetime
+
+
+class MemoryDismissResponse(ContractModel):
+    request_id: RequestId
+    memory_id: MemoryId
+    old_status: ReviewStatus
+    new_status: Literal["archived"] = "archived"
+    updated_at: datetime
+
+
+class MemoryV2ListResponse(ContractModel):
+    request_id: RequestId
+    items: Annotated[list[MemoryCard], Field(max_length=100)] = Field(default_factory=list)
+    next_cursor: str | None = None
+
+
+class MemoryEventListResponse(ContractModel):
+    request_id: RequestId
+    items: Annotated[list[MemoryEventPayload], Field(max_length=100)] = Field(default_factory=list)
+    next_seq: int | None = None
+
+
+class TaskMemoryUsageResponse(ContractModel):
+    request_id: RequestId
+    task_id: TaskId
+    memory_id: MemoryId
+    injected: bool
+    verified_applied: bool
+    helpful_count: int = Field(ge=0)
+    harmful_count: int = Field(ge=0)
+    stale_count: int = Field(ge=0)
+    last_used_at: datetime | None = None
+
+
+class MemoryFeedbackRequest(ContractModel):
+    effect: UserEffect
+
+
+class MemoryFeedbackResponse(ContractModel):
+    request_id: RequestId
+    task_id: TaskId
+    memory_id: MemoryId
+    effect: UserEffect
+    updated_at: datetime

@@ -25,6 +25,8 @@ from memtrace_api.db_models import (
     MemoryEvidenceLinkModel,
     MemoryEvidenceModel,
     MemoryJobModel,
+    MemoryLLMJudgeModel,
+    MemoryReflectionJobModel,
     MemoryRelationModel,
     MemoryUsageModel,
     MemoryVerificationJobModel,
@@ -46,12 +48,15 @@ from memtrace_api.schemas import (
     EffectiveMemoryMode,
     FeedbackEventRecord,
     FeedbackType,
+    MemoryKindV2,
     MessageRole,
     MessageSnapshot,
+    MutationOperation,
     ProviderMode,
     RunErrorSnapshot,
     RunStatus,
     Scenario,
+    SourceType,
     TaskCreateRequest,
     TaskFingerprint,
     TaskMessageRecord,
@@ -2266,3 +2271,743 @@ class PackRepository:
             secret, owner_id, batch_id, file_hash, exp_ts
         )
         return secrets.compare_digest(token, expected)
+
+
+# ===========================================================================
+# Day 6 v2: Memory Center — reflection jobs, mutations, v2 list/detail/review
+# ===========================================================================
+
+
+class _NotFoundError(Exception):
+    """Raised when an owner-scoped resource is not found."""
+
+
+class MemoryCenterRepository:
+    """All owner-scoped. Cross-owner raises NotFoundError."""
+
+    def __init__(self, user_ctx: UserContext, session: Session) -> None:
+        self.user_ctx = user_ctx
+        self.session = session
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+
+    def _raise_if_not_found(
+        self, row: Any, resource: str = "resource"
+    ) -> Any:
+        if row is None:
+            raise _NotFoundError(f"{resource} not found for owner {self.user_ctx.user_id}")
+        return row
+
+    def _owner_q(self) -> Any:
+        return MemoryReflectionJobModel.owner_id == self.user_ctx.user_id
+
+    def _card_owner_q(self) -> Any:
+        return and_(
+            MemoryCardModel.owner_id == self.user_ctx.user_id,
+            MemoryCardModel.status != "deleted",
+        )
+
+    # ── 1. create_reflection_job ──────────────────────────────────────────────
+
+    def create_reflection_job(
+        self,
+        *,
+        job_id: str,
+        owner_id: str,
+        task_id: str,
+        run_id: str,
+        turn_index: int,
+        schema_version: str = "2.0",
+    ) -> MemoryReflectionJobModel:
+        if owner_id != self.user_ctx.user_id:
+            raise _NotFoundError("owner mismatch")
+
+        job = MemoryReflectionJobModel(
+            id=job_id,
+            owner_id=owner_id,
+            task_id=task_id,
+            run_id=run_id,
+            turn_index=turn_index,
+            status="pending",
+            attempt=0,
+            schema_version=schema_version,
+        )
+        self.session.add(job)
+        self.session.flush()
+        return job
+
+    # ── 2. get_reflection_job ─────────────────────────────────────────────────
+
+    def get_reflection_job(self, job_id: str) -> MemoryReflectionJobModel | None:
+        return self.session.execute(
+            select(MemoryReflectionJobModel).where(
+                and_(
+                    MemoryReflectionJobModel.id == job_id,
+                    self._owner_q(),
+                )
+            )
+        ).scalar_one_or_none()
+
+    # ── 3. claim_reflection_job ───────────────────────────────────────────────
+
+    def claim_reflection_job(self) -> MemoryReflectionJobModel | None:
+        row = self.session.execute(
+            update(MemoryReflectionJobModel)
+            .where(
+                and_(
+                    MemoryReflectionJobModel.owner_id == self.user_ctx.user_id,
+                    MemoryReflectionJobModel.status == "pending",
+                )
+            )
+            .values(
+                status="running",
+                attempt=MemoryReflectionJobModel.attempt + 1,
+                updated_at=utc_now(),
+            )
+            .returning(MemoryReflectionJobModel)
+            .order_by(MemoryReflectionJobModel.created_at.asc())
+            .limit(1)
+        ).first()
+        return row[0] if row else None
+
+    # ── 4. update_reflection_job_result ──────────────────────────────────────
+
+    def update_reflection_job_result(
+        self,
+        job_id: str,
+        decision: str,
+        provider_model: str,
+        prompt_hash: str,
+        error_code: str | None = None,
+    ) -> MemoryReflectionJobModel | None:
+        status = "failed" if error_code else "completed"
+        self.session.execute(
+            update(MemoryReflectionJobModel)
+            .where(
+                and_(
+                    MemoryReflectionJobModel.id == job_id,
+                    self._owner_q(),
+                )
+            )
+            .values(
+                status=status,
+                mutation_decision=decision,
+                provider_model=provider_model,
+                prompt_hash=prompt_hash,
+                error_code=error_code,
+                updated_at=utc_now(),
+            )
+        )
+        return self.get_reflection_job(job_id)
+
+    # ── 5. create_memory_from_mutation ───────────────────────────────────────
+
+    def create_memory_from_mutation(
+        self,
+        *,
+        owner_id: str,
+        operation: MutationOperation,
+        target_memory_id: str | None,
+        kind: MemoryKindV2,
+        content: str,
+        applies_when: str,
+        exceptions: list[str],
+        confidence: float,
+        reason_code: str,
+        evidence_message_id: str,
+        evidence_quote: str,
+        scope_dict: dict[str, Any] | None = None,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Add/update/supersede a memory card + version + evidence in one transaction."""
+        now = now or utc_now()
+        created_by_action = CreatedByAction.ACCEPT.value
+
+        with self.session.begin_nested():
+            # Verify the message belongs to this owner
+            msg = self.session.execute(
+                select(MessageModel).where(
+                    and_(
+                        MessageModel.id == evidence_message_id,
+                        MessageModel.owner_id == self.user_ctx.user_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            self._raise_if_not_found(msg, resource="message")
+
+            existing_card = None
+            if operation != MutationOperation.ADD and target_memory_id:
+                existing_card = self.session.execute(
+                    select(MemoryCardModel).where(
+                        and_(
+                            MemoryCardModel.id == target_memory_id,
+                            self._card_owner_q(),
+                        )
+                    )
+                ).scalar_one_or_none()
+                self._raise_if_not_found(existing_card, resource="memory card")
+
+            memory_id = (
+                existing_card.id
+                if existing_card
+                else new_prefixed_ulid("mem")
+            )
+
+            # Build scope_json from dict
+            s = scope_dict or {}
+            scope_json = json.dumps(
+                {
+                    "level": s.get("level", "global"),
+                    "domain": s.get("domain", "other"),
+                    "task_type": s.get("task_type"),
+                    "artifact_type": s.get("artifact_type"),
+                    "audience": s.get("audience"),
+                    "project_key": s.get("project_key"),
+                    "language": s.get("language"),
+                    "framework": s.get("framework"),
+                    "concepts": s.get("concepts", []),
+                },
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+            exceptions_json = json.dumps(
+                [e for e in (exceptions or []) if e],
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+
+            if operation == MutationOperation.ADD:
+                version_id = new_prefixed_ulid("memver")
+                card = MemoryCardModel(
+                    id=memory_id,
+                    owner_id=self.user_ctx.user_id,
+                    status="active",
+                    kind=MemoryKindV2(kind).value,
+                    source_type=SourceType.ACCEPT.value,
+                    save_preselected=False,
+                    title=content[:40] if len(content) > 40 else content,
+                    rule=applies_when[:300] if len(applies_when) > 300 else applies_when,
+                    avoid="",
+                    trigger_text="",
+                    scope_level=s.get("level", "global"),
+                    domain=s.get("domain", "other"),
+                    task_type=s.get("task_type"),
+                    artifact_type=s.get("artifact_type"),
+                    audience=s.get("audience"),
+                    project_key=s.get("project_key"),
+                    scope_json=scope_json,
+                    exceptions_json=exceptions_json,
+                    source_trust=float(confidence),
+                    rule_confidence=float(confidence),
+                    scope_confidence=float(confidence),
+                    evidence_count=0,
+                    version=1,
+                    current_version_id=version_id,
+                    valid_from=now,
+                    retrieved_count=0,
+                    injected_count=0,
+                    verified_applied_count=0,
+                    helpful_count=0,
+                    harmful_count=0,
+                    stale_count=0,
+                    evidence_missing=False,
+                    created_at=now,
+                    updated_at=now,
+                )
+                self.session.add(card)
+                self.session.add(
+                    MemoryVersionModel(
+                        id=version_id,
+                        owner_id=self.user_ctx.user_id,
+                        memory_id=memory_id,
+                        version=1,
+                        title=card.title,
+                        rule=card.rule,
+                        avoid=card.avoid or "",
+                        trigger_text=card.trigger_text or "",
+                        scope_json=scope_json,
+                        exceptions_json=exceptions_json,
+                        created_by_action=created_by_action,
+                        created_at=now,
+                    )
+                )
+            elif operation == MutationOperation.UPDATE:
+                assert existing_card is not None
+                next_ver = existing_card.version + 1
+                version_id = new_prefixed_ulid("memver")
+                self.session.add(
+                    MemoryVersionModel(
+                        id=version_id,
+                        owner_id=self.user_ctx.user_id,
+                        memory_id=memory_id,
+                        version=next_ver,
+                        title=existing_card.title,
+                        rule=existing_card.rule,
+                        avoid=existing_card.avoid or "",
+                        trigger_text=existing_card.trigger_text or "",
+                        scope_json=existing_card.scope_json,
+                        exceptions_json=existing_card.exceptions_json,
+                        created_by_action=created_by_action,
+                        created_at=now,
+                    )
+                )
+                self.session.execute(
+                    update(MemoryCardModel)
+                    .where(
+                        and_(
+                            MemoryCardModel.id == memory_id,
+                            MemoryCardModel.owner_id == self.user_ctx.user_id,
+                        )
+                    )
+                    .values(
+                        updated_at=now,
+                        current_version_id=version_id,
+                        version=next_ver,
+                    )
+                )
+            elif operation == MutationOperation.SUPERSEDE:
+                assert existing_card is not None
+                # Mark old card as superseded
+                self.session.execute(
+                    update(MemoryCardModel)
+                    .where(
+                        and_(
+                            MemoryCardModel.id == target_memory_id,
+                            MemoryCardModel.owner_id == self.user_ctx.user_id,
+                        )
+                    )
+                    .values(
+                        status="superseded",
+                        valid_to=now,
+                        updated_at=now,
+                    )
+                )
+                memory_id = new_prefixed_ulid("mem")
+                version_id = new_prefixed_ulid("memver")
+                card = MemoryCardModel(
+                    id=memory_id,
+                    owner_id=self.user_ctx.user_id,
+                    status="active",
+                    kind=MemoryKindV2(kind).value,
+                    source_type=SourceType.ACCEPT.value,
+                    save_preselected=False,
+                    title=content[:40] if len(content) > 40 else content,
+                    rule=applies_when[:300] if len(applies_when) > 300 else applies_when,
+                    avoid="",
+                    trigger_text="",
+                    scope_level=s.get("level", "global"),
+                    domain=s.get("domain", "other"),
+                    task_type=s.get("task_type"),
+                    artifact_type=s.get("artifact_type"),
+                    audience=s.get("audience"),
+                    project_key=s.get("project_key"),
+                    scope_json=scope_json,
+                    exceptions_json=exceptions_json,
+                    source_trust=float(confidence),
+                    rule_confidence=float(confidence),
+                    scope_confidence=float(confidence),
+                    evidence_count=0,
+                    version=1,
+                    current_version_id=version_id,
+                    valid_from=now,
+                    retrieved_count=0,
+                    injected_count=0,
+                    verified_applied_count=0,
+                    helpful_count=0,
+                    harmful_count=0,
+                    stale_count=0,
+                    evidence_missing=False,
+                    created_at=now,
+                    updated_at=now,
+                )
+                self.session.add(card)
+                self.session.add(
+                    MemoryVersionModel(
+                        id=version_id,
+                        owner_id=self.user_ctx.user_id,
+                        memory_id=memory_id,
+                        version=1,
+                        title=card.title,
+                        rule=card.rule,
+                        avoid=card.avoid or "",
+                        trigger_text=card.trigger_text or "",
+                        scope_json=scope_json,
+                        exceptions_json=exceptions_json,
+                        created_by_action=created_by_action,
+                        created_at=now,
+                    )
+                )
+                # Create supersedes relation
+                rel_id = new_prefixed_ulid("rel")
+                self.session.add(
+                    MemoryRelationModel(
+                        id=rel_id,
+                        owner_id=self.user_ctx.user_id,
+                        from_memory_id=memory_id,
+                        to_memory_id=target_memory_id,
+                        relation_type="supersedes",
+                        status="resolved",
+                        resolved_at=now,
+                        created_at=now,
+                    )
+                )
+            else:
+                raise ValueError(f"unsupported mutation operation: {operation}")
+
+            # ── create evidence + evidence link ───────────────────────────────
+            evidence_id = new_prefixed_ulid("evidence")
+            task_id_for_evidence = msg.task_id
+            run_id_for_evidence = msg.run_id
+
+            self.session.add(
+                MemoryEvidenceModel(
+                    id=evidence_id,
+                    owner_id=self.user_ctx.user_id,
+                    feedback_id="",
+                    task_id=task_id_for_evidence,
+                    run_id=run_id_for_evidence,
+                    memory_job_id="",
+                    source_type=SourceType.ACCEPT.value,
+                    source_field="explicit_text",
+                    evidence_quote=evidence_quote[:2000],
+                    disposition="candidate_created",
+                    created_at=now,
+                )
+            )
+            self.session.add(
+                MemoryEvidenceLinkModel(
+                    id=new_prefixed_ulid("evtlk"),
+                    owner_id=self.user_ctx.user_id,
+                    memory_id=memory_id,
+                    evidence_id=evidence_id,
+                    ordinal=0,
+                    created_at=now,
+                )
+            )
+            self.session.flush()
+
+            # Update evidence_count on the card
+            if operation != MutationOperation.SUPERSEDE:
+                self.session.execute(
+                    update(MemoryCardModel)
+                    .where(
+                        and_(
+                            MemoryCardModel.id == memory_id,
+                            MemoryCardModel.owner_id == self.user_ctx.user_id,
+                        )
+                    )
+                    .values(evidence_count=1, updated_at=now)
+                )
+
+            return {
+                "memory_id": memory_id,
+                "version_id": version_id,
+                "evidence_id": evidence_id,
+                "operation": operation.value,
+            }
+
+    # ── 6. list_memories_v2 ──────────────────────────────────────────────────
+
+    def list_memories_v2(
+        self,
+        *,
+        kind: str | None = None,
+        review_status: str | None = None,
+        cursor: str | None = None,
+        limit: int = 20,
+    ) -> list[MemoryCardModel]:
+        q = select(MemoryCardModel).where(self._card_owner_q())
+        if kind:
+            q = q.where(MemoryCardModel.kind == kind)
+        if review_status:
+            q = q.where(MemoryCardModel.status == review_status)
+        if cursor:
+            q = q.where(MemoryCardModel.id < cursor)
+        q = q.order_by(MemoryCardModel.id.desc()).limit(limit)
+        return list(self.session.execute(q).scalars().all())
+
+    # ── 7. get_memory_detail_v2 ───────────────────────────────────────────────
+
+    def get_memory_detail_v2(
+        self, memory_id: str
+    ) -> tuple[MemoryCardModel, list[MemoryVersionModel], list[MemoryEvidenceModel]] | None:
+        card = self.session.execute(
+            select(MemoryCardModel).where(
+                and_(
+                    MemoryCardModel.id == memory_id,
+                    self._card_owner_q(),
+                )
+            )
+        ).scalar_one_or_none()
+        if card is None:
+            return None
+
+        versions = list(
+            self.session.execute(
+                select(MemoryVersionModel)
+                .where(
+                    and_(
+                        MemoryVersionModel.memory_id == memory_id,
+                        MemoryVersionModel.owner_id == self.user_ctx.user_id,
+                    )
+                )
+                .order_by(MemoryVersionModel.version.asc())
+            )
+            .scalars()
+            .all()
+        )
+
+        evidence = list(
+            self.session.execute(
+                select(MemoryEvidenceModel)
+                .join(
+                    MemoryEvidenceLinkModel,
+                    MemoryEvidenceModel.id == MemoryEvidenceLinkModel.evidence_id,
+                )
+                .where(
+                    and_(
+                        MemoryEvidenceLinkModel.memory_id == memory_id,
+                        MemoryEvidenceLinkModel.owner_id == self.user_ctx.user_id,
+                        MemoryEvidenceModel.owner_id == self.user_ctx.user_id,
+                    )
+                )
+                .order_by(MemoryEvidenceLinkModel.ordinal.asc())
+            )
+            .scalars()
+            .all()
+        )
+
+        return card, versions, evidence
+
+    # ── 8. update_memory_v2 ──────────────────────────────────────────────────
+
+    def update_memory_v2(
+        self,
+        *,
+        memory_id: str,
+        patch: dict[str, Any],
+        expected_version_id: str,
+    ) -> dict[str, Any]:
+        card = self.session.execute(
+            select(MemoryCardModel).where(
+                and_(
+                    MemoryCardModel.id == memory_id,
+                    self._card_owner_q(),
+                )
+            )
+        ).scalar_one_or_none()
+        self._raise_if_not_found(card, resource="memory card")
+
+        if card.current_version_id != expected_version_id:
+            raise ValueError("MEMORY_VERSION_CONFLICT")
+
+        allowed = {"active", "paused", "archived", "review"}
+        if card.status not in allowed:
+            raise ValueError(f"MEMORY_STATE_CONFLICT: cannot edit {card.status}")
+
+        next_ver = card.version + 1
+        version_id = new_prefixed_ulid("memver")
+        now = utc_now()
+
+        scope_obj = patch.get("scope")
+        scope_json = card.scope_json
+        if scope_obj is not None:
+            scope_json = json.dumps(
+                {
+                    "level": scope_obj.get("level", (card.scope_json and json.loads(card.scope_json).get("level", "global")) or "global"),
+                    "domain": scope_obj.get("domain", (card.scope_json and json.loads(card.scope_json).get("domain", "other")) or "other"),
+                    "task_type": scope_obj.get("task_type"),
+                    "artifact_type": scope_obj.get("artifact_type"),
+                    "audience": scope_obj.get("audience"),
+                    "project_key": scope_obj.get("project_key"),
+                    "language": scope_obj.get("language"),
+                    "framework": scope_obj.get("framework"),
+                    "concepts": scope_obj.get("concepts", []),
+                },
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+
+        exceptions_list = patch.get("exceptions")
+        exceptions_json = card.exceptions_json
+        if exceptions_list is not None:
+            exceptions_json = json.dumps(
+                [e for e in exceptions_list],
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+
+        new_title = patch.get("title", card.title)
+        new_rule = patch.get("rule", card.rule)
+        new_avoid = patch.get("avoid", card.avoid or "")
+        new_trigger = patch.get("trigger_text", card.trigger_text or "")
+
+        self.session.add(
+            MemoryVersionModel(
+                id=version_id,
+                owner_id=self.user_ctx.user_id,
+                memory_id=memory_id,
+                version=next_ver,
+                title=new_title,
+                rule=new_rule,
+                avoid=new_avoid,
+                trigger_text=new_trigger,
+                scope_json=scope_json,
+                exceptions_json=exceptions_json,
+                created_by_action=CreatedByAction.EDIT.value,
+                created_at=now,
+            )
+        )
+
+        self.session.execute(
+            update(MemoryCardModel)
+            .where(
+                and_(
+                    MemoryCardModel.id == memory_id,
+                    MemoryCardModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+            .values(
+                title=new_title,
+                rule=new_rule,
+                avoid=new_avoid,
+                trigger_text=new_trigger,
+                scope_json=scope_json,
+                exceptions_json=exceptions_json,
+                current_version_id=version_id,
+                version=next_ver,
+                updated_at=now,
+            )
+        )
+        self.session.flush()
+
+        updated = self.session.execute(
+            select(MemoryCardModel).where(
+                and_(
+                    MemoryCardModel.id == memory_id,
+                    self._card_owner_q(),
+                )
+            )
+        ).scalar_one_or_none()
+        assert updated is not None
+        return {"card": updated, "version_id": version_id}
+
+    # ── 9. confirm_memory_review ──────────────────────────────────────────────
+
+    def confirm_memory_review(self, memory_id: str) -> MemoryCardModel | None:
+        card = self.session.execute(
+            select(MemoryCardModel).where(
+                and_(
+                    MemoryCardModel.id == memory_id,
+                    self._card_owner_q(),
+                    MemoryCardModel.status == "review",
+                )
+            )
+        ).scalar_one_or_none()
+        if card is None:
+            return None
+        self.session.execute(
+            update(MemoryCardModel)
+            .where(
+                and_(
+                    MemoryCardModel.id == memory_id,
+                    MemoryCardModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+            .values(status="active", updated_at=utc_now())
+        )
+        self.session.flush()
+        updated = self.session.execute(
+            select(MemoryCardModel).where(
+                and_(
+                    MemoryCardModel.id == memory_id,
+                    self._card_owner_q(),
+                )
+            )
+        ).scalar_one_or_none()
+        return updated
+
+    # ── 10. dismiss_memory_review ─────────────────────────────────────────────
+
+    def dismiss_memory_review(self, memory_id: str) -> MemoryCardModel | None:
+        card = self.session.execute(
+            select(MemoryCardModel).where(
+                and_(
+                    MemoryCardModel.id == memory_id,
+                    self._card_owner_q(),
+                    MemoryCardModel.status == "review",
+                )
+            )
+        ).scalar_one_or_none()
+        if card is None:
+            return None
+        self.session.execute(
+            update(MemoryCardModel)
+            .where(
+                and_(
+                    MemoryCardModel.id == memory_id,
+                    MemoryCardModel.owner_id == self.user_ctx.user_id,
+                )
+            )
+            .values(status="archived", updated_at=utc_now())
+        )
+        self.session.flush()
+        updated = self.session.execute(
+            select(MemoryCardModel).where(
+                and_(
+                    MemoryCardModel.id == memory_id,
+                    self._card_owner_q(),
+                )
+            )
+        ).scalar_one_or_none()
+        return updated
+
+    # ── 11. create_llm_judgment ──────────────────────────────────────────────
+
+    def create_llm_judgment(
+        self,
+        *,
+        job_id: str,
+        memory_id: str | None,
+        judge_type: str,
+        result: dict[str, Any] | None,
+        error_code: str | None = None,
+    ) -> MemoryLLMJudgeModel:
+        judgment_id = new_prefixed_ulid("judge")
+        status = "failed" if error_code else "pending"
+        judgment = MemoryLLMJudgeModel(
+            id=judgment_id,
+            owner_id=self.user_ctx.user_id,
+            job_id=job_id,
+            memory_id=memory_id,
+            judge_type=judge_type,
+            status=status,
+            result_json=json.dumps(result, separators=(",", ":"), ensure_ascii=False)
+            if result
+            else None,
+            error_code=error_code,
+        )
+        self.session.add(judgment)
+        self.session.flush()
+        return judgment
+
+    # ── 12. get_memory_events ────────────────────────────────────────────────
+
+    def get_memory_events(
+        self, after_seq: int = 0
+    ) -> list[EventLogModel]:
+        return list(
+            self.session.execute(
+                select(EventLogModel)
+                .where(
+                    and_(
+                        EventLogModel.owner_id == self.user_ctx.user_id,
+                        EventLogModel.stream_type == "memory",
+                        EventLogModel.seq > after_seq,
+                    )
+                )
+                .order_by(EventLogModel.seq.asc())
+            )
+            .scalars()
+            .all()
+        )

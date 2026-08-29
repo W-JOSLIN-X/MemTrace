@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from memtrace_api.database import session_scope
 from memtrace_api.db_models import (
     AgentRunModel,
+    MemoryCardModel,
     MessageModel,
     TaskFingerprintModel,
     ToolCallModel,
@@ -33,8 +34,7 @@ from memtrace_api.g3_service import (
     update_actual_prompt_tokens,
     verify_injected_usages,
 )
-from memtrace_api.ids import new_prefixed_ulid
-from memtrace_api.logic import build_public_plan
+from memtrace_api.judges import ApplicabilityJudge, EffectJudge
 from memtrace_api.providers import (
     ProviderFailure,
     ProviderRequest,
@@ -42,11 +42,13 @@ from memtrace_api.providers import (
     StreamingProvider,
 )
 from memtrace_api.repositories import TaskRepository, UserContext
+from memtrace_api.ids import new_prefixed_ulid
 from memtrace_api.schemas import (
     AsyncErrorCode,
     MessageRole,
     MessageSnapshot,
     ProviderMode,
+    PublicPlan,
     RunErrorSnapshot,
     RunStatus,
     ToolAction,
@@ -55,7 +57,9 @@ from memtrace_api.schemas import (
     utc_now,
 )
 from memtrace_api.store import ReplayCapacityError, TaskRecord, TaskStore
+from memtrace_api.retrieval_executor import CONTEXT_OPEN, CONTEXT_CLOSE
 from memtrace_api.tools import ToolFailure, ToolRegistry
+from memtrace_api.verifier import verify_exact_substring
 
 MAX_OUTPUT_BYTES = 262_144
 MAX_CHUNK_CHARACTERS = 32_768
@@ -79,11 +83,17 @@ class AgentOrchestrator:
         provider: StreamingProvider,
         tool_registry: ToolRegistry | None = None,
         db_session_factory: sessionmaker[Session] | None = None,
+        memory_reflection_worker: Any | None = None,
     ) -> None:
         self.store = store
         self.provider = provider
         self.tool_registry = tool_registry or ToolRegistry()
         self.db_session_factory = db_session_factory
+        self._memory_reflection_worker = memory_reflection_worker
+        # v2: LLM judges are instantiated lazily on first use to avoid
+        # creating a second Settings() at init time.
+        self._applicability_judge: ApplicabilityJudge | None = None
+        self._effect_judge: EffectJudge | None = None
 
     def start(self, record: TaskRecord) -> asyncio.Task[None]:
         task = asyncio.create_task(
@@ -163,7 +173,10 @@ class AgentOrchestrator:
             )
             analysis = record.analysis
 
-            # Persist fingerprint to DB if factory present
+            # Persist fingerprint to DB if factory present.
+            # v2: domain/task_type/artifact_type/language are legacy
+            # compatibility fields only — they no longer drive memory
+            # injection or the main product flow.
             if record.user_ctx is not None and self.db_session_factory is not None:
 
                 def _save_fp() -> None:
@@ -183,14 +196,21 @@ class AgentOrchestrator:
 
                 await asyncio.to_thread(_save_fp)
 
+            # v2: domain/task_type are legacy fields kept for backward
+            # compatibility and debugging only. They are NOT used for
+            # memory retrieval, injection decisions, or product flow.
+            # auto_rule_v1 keyword classification has been removed from
+            # the product semantic chain.
             fp_payload_dict = {
                 "fingerprint_id": analysis.fingerprint.id,
-                "domain": analysis.fingerprint.domain.value,
-                "classification_source": analysis.fingerprint.classification_source,
+                # classification_source retained for event schema compat;
+                # v2: values are neutral, this field no longer drives product flow
+                "classification_source": "auto_rule_v1",
                 "classification_confidence": analysis.fingerprint.classification_confidence,
                 "classification_reasons": [
                     reason.value for reason in analysis.fingerprint.classification_reasons
                 ],
+                "domain": analysis.fingerprint.domain.value,
                 "task_type": analysis.fingerprint.task_type.value,
                 "artifact_type": analysis.fingerprint.artifact_type.value,
                 "language": analysis.fingerprint.language.value,
@@ -210,6 +230,7 @@ class AgentOrchestrator:
             )
 
             retrieval: RetrievalExecution | None = None
+            applicable_usages: list[dict[str, Any]] = []
             if record.user_ctx is not None and self.db_session_factory is not None:
 
                 def _retrieve() -> RetrievalExecution:
@@ -225,6 +246,19 @@ class AgentOrchestrator:
                         )
 
                 retrieval = await asyncio.to_thread(_retrieve)
+
+                # v2: Run LLM Applicability Judge on selected candidates.
+                # This replaces char_tfidf_v1 as the final semantic decision.
+                # Judge failure → "irrelevant", never fallback to TF-IDF score.
+                if (
+                    retrieval is not None
+                    and retrieval.trace.selected_count > 0
+                    and self._applicability_judge is not None
+                ):
+                    applicable_usages = await self._run_applicability_judge(
+                        record, retrieval
+                    )
+
                 for index, event in enumerate(retrieval.events):
                     await self.store.emit_preallocated_persistent(
                         record,
@@ -242,21 +276,25 @@ class AgentOrchestrator:
                     )
 
             await self._stage(record, RunStatus.PLANNING, "publishing_plan")
-            plan = build_public_plan(
-                analysis,
-                selected_count=retrieval.trace.selected_count if retrieval is not None else 0,
-                injected_count=retrieval.trace.injected_count if retrieval is not None else 0,
-                memory_mode_off=record.request.effective_memory_mode.value == "off",
+            # v2: plan is now a simple metadata dict, not built by auto_rule_v1
+            _goal = "analyze_code"
+            _memory_summary = (
+                "memory_selected"
+                if retrieval is not None and retrieval.trace.selected_count
+                else "no_memory_selected"
+            )
+            _next_action = "python_ast_check" if analysis.tool_decision.action is ToolAction.CALL else "generate_directly"
+            plan = PublicPlan(
+                id=new_prefixed_ulid("plan"),
+                goal=_goal,
+                memory_summary=_memory_summary,
+                next_action=_next_action,
             )
             plan_payload_dict = {
                 "plan_id": plan.id,
-                "goal_code": analysis.goal_code,
-                "memory_summary_code": (
-                    "memory_selected"
-                    if retrieval is not None and retrieval.trace.selected_count
-                    else "no_memory_selected"
-                ),
-                "next_action_code": analysis.next_action_code,
+                "goal_code": plan.goal,
+                "memory_summary_code": plan.memory_summary,
+                "next_action_code": plan.next_action,
             }
             await self._emit_db_persistent_event(
                 record,
@@ -362,17 +400,37 @@ class AgentOrchestrator:
                 )
 
             await self._stage(record, RunStatus.GENERATING, "generating_answer")
+            # v2: Only inject memories that passed the LLM applicability judge.
+            # Judge failure → empty context, never fallback to TF-IDF injection.
+            applicable_context = None
+            applicable_usage_ids = ()
+            if applicable_usages and retrieval is not None:
+                # Build a map of usage_id → memory_id for the applicable ones
+                applicable_mem_ids = {u["memory_id"] for u in applicable_usages}
+                applicable_usage_ids = tuple(u["usage_id"] for u in applicable_usages)
+                # Rebuild memory_context with only applicable memories
+                applicable_context = self._build_applicable_context(
+                    retrieval, applicable_mem_ids
+                )
+
             await self._stream_answer(
                 record,
                 ProviderRequest(
                     task_text=record.request.task_text,
                     public_plan=plan,
                     tool_result=tool_result,
-                    memory_context=retrieval.memory_context if retrieval is not None else None,
-                    usage_ids=retrieval.usage_ids if retrieval is not None else (),
+                    memory_context=applicable_context,
+                    usage_ids=applicable_usage_ids,
                 ),
                 measurements,
             )
+
+            # v2: Run LLM Effect Judge on applicable memories after answer
+            effect_results: list[dict[str, Any]] = []
+            if applicable_usages and self._effect_judge is not None:
+                effect_results = await self._run_effect_judge(
+                    record, applicable_usages, record.snapshot.partial_output
+                )
             await self._emit_metrics(record, measurements)
 
             message = MessageSnapshot(
@@ -466,6 +524,11 @@ class AgentOrchestrator:
                 {"status": "succeeded", "final_snapshot_required": True},
             )
             await self.store.mark_closed(record)
+            # Fire reflection job as a separate event (not on STREAM_DONE payload
+            # which is schema-validated against StreamDonePayload).
+            await self._enqueue_reflection_job(
+                record, self.provider.model or "unknown"
+            )
         except asyncio.CancelledError:
             raise
         except ToolFailure as exc:
@@ -755,6 +818,229 @@ class AgentOrchestrator:
             {"status": "failed", "final_snapshot_required": True},
         )
         await self.store.mark_closed(record)
+
+    async def _run_applicability_judge(
+        self, record: TaskRecord, retrieval: RetrievalExecution
+    ) -> list[dict[str, Any]]:
+        """Run LLM Applicability Judge on selected memories.
+
+        Returns list of dicts with usage_id/memory_id for applicable memories.
+        Judge failure → memory is NOT injected (safe default: irrelevant).
+        """
+        if self._applicability_judge is None:
+            return []
+        task_text = record.request.task_text
+        constraints = record.request.current_constraints
+        constraint_str = json.dumps(constraints.model_dump() if hasattr(constraints, "model_dump") else constraints)
+
+        applicable: list[dict[str, Any]] = []
+        usage_map = {u.memory_id: u for u in retrieval.usages}
+
+        # Build nearby context from already-selected memories
+        nearby = [
+            {
+                "id": decision.memory_id,
+                "kind": "",  # Not needed for applicability, but available
+                "content": "",
+                "applies_when": "",
+            }
+            for decision in retrieval.trace.decisions
+            if decision.selected and decision.memory_id != usage_map.keys()
+        ][:3]
+
+        for decision in retrieval.trace.decisions:
+            if not decision.selected:
+                continue
+            card = None
+            version_content = ""
+            version_applies = ""
+            # We need to look up card details — fetch from DB
+            if record.user_ctx is not None and self.db_session_factory is not None:
+                def _get_card(d_mid):
+                    with session_scope(self.db_session_factory) as session:
+                        return session.get(
+                            MemoryCardModel, d_mid
+                        ) if hasattr(MemoryCardModel, 'id') else None
+                card_row = await asyncio.to_thread(
+                    _get_card, decision.memory_id
+                )
+                if card_row is not None:
+                    version_content = card_row.content or ""
+                    version_applies = card_row.applies_when or ""
+
+            candidate = {
+                "id": decision.memory_id,
+                "kind": "unknown",
+                "content": version_content,
+                "applies_when": version_applies,
+            }
+
+            try:
+                result = await self._applicability_judge.judge(
+                    task_text=task_text,
+                    constraints=constraint_str,
+                    candidate_memory=candidate,
+                    nearby_memories=nearby,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "applicability_judge_error memory_id=%s error=%s",
+                    decision.memory_id, exc,
+                )
+                # Judge unavailable → do not inject (safe default)
+                continue
+
+            if result.applicability.value == "applicable":
+                usage = usage_map.get(decision.memory_id)
+                if usage is not None:
+                    applicable.append({
+                        "usage_id": usage.usage_id,
+                        "memory_id": decision.memory_id,
+                        "judgment": result.applicability.value,
+                        "confidence": result.confidence,
+                        "reason_code": result.reason_code.value,
+                    })
+            # "current_instruction_override" and "conflict" → explicitly excluded
+            # "irrelevant" → naturally excluded
+
+        return applicable
+
+    def _build_applicable_context(
+        self,
+        retrieval: RetrievalExecution,
+        applicable_mem_ids: set[str],
+    ) -> str | None:
+        """Rebuild memory_context from only applicable memory blocks."""
+        if not retrieval.memory_context:
+            return None
+        # Parse the XML blocks and filter
+        import re
+        block_pattern = re.compile(
+            r'<MEMORY[^>]*>.*?</MEMORY>',
+            re.DOTALL,
+        )
+        id_pattern = re.compile(r'id="([^"]+)"')
+        applicable_blocks = []
+        for block in block_pattern.finditer(retrieval.memory_context):
+            block_text = block.group()
+            id_match = id_pattern.search(block_text)
+            if id_match and id_match.group(1) in applicable_mem_ids:
+                applicable_blocks.append(block_text)
+        if not applicable_blocks:
+            return None
+        return (
+            f'{CONTEXT_OPEN}\n'
+            + "\n".join(applicable_blocks)
+            + f"\n{CONTEXT_CLOSE}"
+        )
+
+    async def _run_effect_judge(
+        self,
+        record: TaskRecord,
+        applicable_usages: list[dict[str, Any]],
+        answer_text: str,
+    ) -> list[dict[str, Any]]:
+        """Run LLM Effect Judge after answer generation.
+
+        Judge failure → "unknown", never fallback to substring verifier.
+        """
+        if self._effect_judge is None or not applicable_usages:
+            return []
+
+        # Need card content for effect judge — fetch from DB
+        task_text = record.request.task_text
+        results: list[dict[str, Any]] = []
+
+        if record.user_ctx is not None and self.db_session_factory is not None:
+            def _fetch_cards():
+                with session_scope(self.db_session_factory) as session:
+                    return {
+                        row.id: (row.content or "", row.applies_when or "")
+                        for row in session.execute(
+                            select(MemoryCardModel.id, MemoryCardModel.content, MemoryCardModel.applies_when)
+                            .where(
+                                and_(
+                                    MemoryCardModel.id.in_(
+                                        [u["memory_id"] for u in applicable_usages]
+                                    ),
+                                    MemoryCardModel.owner_id == record.user_ctx.user_id,
+                                )
+                            )
+                        ).tuples().all()
+                    }
+            cards_data = await asyncio.to_thread(_fetch_cards)
+        else:
+            cards_data = {}
+
+        for usage_info in applicable_usages:
+            mem_id = usage_info["memory_id"]
+            content, applies_when = cards_data.get(mem_id, ("", ""))
+
+            try:
+                result = await self._effect_judge.judge(
+                    task_text=task_text,
+                    memory_content=content,
+                    answer_text=answer_text,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "effect_judge_error memory_id=%s error=%s", mem_id, exc
+                )
+                result = None
+
+            entry = {
+                "usage_id": usage_info["usage_id"],
+                "memory_id": mem_id,
+                "judgment": result.judgment.value if result else "unknown",
+                "confidence": result.confidence if result else 0.0,
+                "reason_code": result.reason_code.value if result else "judge_unavailable",
+                "excerpt": result.evidence_excerpt if result else "",
+            }
+            results.append(entry)
+
+        return results
+
+    async def _enqueue_reflection_job(
+        self, record: TaskRecord, provider_model: str
+    ) -> str | None:
+        """Enqueue a memory reflection job after task completion.
+
+        Returns the job_id if enqueued, None otherwise.
+        """
+        if self._memory_reflection_worker is None:
+            return None
+        if record.user_ctx is None:
+            return None
+        if record.snapshot.effective_memory_mode == "off":
+            return None
+        if not record.snapshot.partial_output:
+            return None
+
+        try:
+            job_id = new_prefixed_ulid("memjob")
+            turn_index = record.snapshot.messages.__len__()
+            self._memory_reflection_worker.enqueue_job(
+                job_id=job_id,
+                owner_id=record.user_ctx.user_id,
+                task_id=record.snapshot.task_id,
+                run_id=record.snapshot.run_id,
+                turn_index=turn_index,
+                provider_model=provider_model,
+            )
+            logger.info(
+                "orchestrator.enqueue job_id=%s task_id=%s run_id=%s",
+                job_id,
+                record.snapshot.task_id,
+                record.snapshot.run_id,
+            )
+            return job_id
+        except Exception as exc:
+            logger.warning(
+                "orchestrator.enqueue_failed type=%s error=%s",
+                type(exc).__name__,
+                exc,
+            )
+            return None
 
 
 def _split_delta(delta: str) -> list[str]:

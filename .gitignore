@@ -45,3 +45,9 @@ output/
 # Legacy planning drafts intentionally excluded from this implementation
 Adaptive_MemAgent_Project_Plan.md
 Harness_MemAgent_Project_Plan.md
+
+# Scratch / temp artifacts
+scripts/**/.smoke_tmp/
+
+# Build artifacts
+*.egg-info/

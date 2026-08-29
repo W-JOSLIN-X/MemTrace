@@ -77,6 +77,7 @@ from memtrace_api.repositories import (
     IdempotencyRepository,
     ImportBatchRepository,
     MemoryCardG4Repository,
+    MemoryCenterRepository,
     MemoryJobRepository,
     MemoryMergeRepository,
     MemoryRelationRepository,
@@ -106,12 +107,18 @@ from memtrace_api.schemas import (
     MemoryConflictDetectResponse,
     MemoryConflictResolveRequest,
     MemoryConflictResolveResponse,
+    MemoryConfirmResponse,
+    MemoryDismissResponse,
+    MemoryEventListResponse,
     MemoryDeleteRequest,
     MemoryDeleteResponse,
     MemoryDetailResponse,
     MemoryEvidenceProjection,
+    MemoryFeedbackRequest,
+    MemoryFeedbackResponse,
     MemoryJobResponse,
     MemoryKind,
+    MemoryKindV2,
     MemoryListFilter,
     MemoryListResponse,
     MemoryMergeRequest,
@@ -119,11 +126,16 @@ from memtrace_api.schemas import (
     MemoryPackDocument,
     MemoryRelationListResponse,
     MemoryRelationProjection,
+    MemoryReflectionJobResponse,
     MemoryScope,
     MemoryStateRequest,
     MemoryUsageFeedbackRequest,
     MemoryUsageListResponse,
     MemoryUsageResponse,
+    MemoryV2EditRequest,
+    MemoryV2EditResponse,
+    MemoryV2ListFilter,
+    MemoryV2ListResponse,
     MemoryVersionDiffResponse,
     MemoryVersionListResponse,
     MemoryVersionProjection,
@@ -138,6 +150,7 @@ from memtrace_api.schemas import (
     ResolveRequest,
     ResolveResponse,
     RetrievalTraceResponse,
+    ReviewStatus,
     RunStatus,
     SourceType,
     TaskCreateAccepted,
@@ -145,8 +158,10 @@ from memtrace_api.schemas import (
     TaskDeleteRequest,
     TaskDeleteResponse,
     TaskFingerprint,
+    TaskMemoryUsageResponse,
     TaskSnapshot,
     TaskType,
+    UserEffect,
     derive_feedback_type,
     utc_now,
 )
@@ -170,6 +185,8 @@ from memtrace_api.store import (
     TaskStore,
 )
 from memtrace_api.worker import MemoryJobWorker, recover_stale_jobs
+from memtrace_api.memory_worker import MemoryReflectionWorker, get_worker_sync
+from memtrace_api.providers import build_structured_provider
 
 API_PREFIX = "/api/v1"
 TASK_ID_PATTERN = r"^task_[0-9A-HJKMNP-TV-Z]{26}$"
@@ -205,11 +222,25 @@ def create_app(
         subscriber_queue_size=resolved_settings.subscriber_queue_size,
     )
     resolved_provider = provider or _build_available_provider(resolved_settings)
+
+    # Memory Reflection Worker (Day 6 v2.0.0)
+    # Only create when we have a real or mock provider available.
+    _memory_provider = None
+    reflection_worker = None
+    if resolved_provider is not None:
+        _memory_provider = memory_provider or build_structured_provider(resolved_settings)
+        reflection_worker = (
+            MemoryReflectionWorker(factory, resolved_settings, provider=_memory_provider)
+            if factory is not None
+            else None
+        )
+
     orchestrator = (
         AgentOrchestrator(
             store=resolved_store,
             provider=resolved_provider,
             db_session_factory=factory,
+            memory_reflection_worker=reflection_worker,
         )
         if resolved_provider is not None
         else None
@@ -221,11 +252,7 @@ def create_app(
             resolved_store,
             provider=memory_provider,
         )
-        if (
-            resolved_settings.mock_mode
-            or resolved_settings.has_llm_api_key
-            or memory_provider is not None
-        )
+        if resolved_settings.mock_mode
         else None
     )
 
@@ -250,6 +277,8 @@ def create_app(
             logger.warning("startup.database_not_ready type=%s", type(exc).__name__)
         if database_ready and memory_worker is not None:
             memory_worker.start()
+        if database_ready and reflection_worker is not None:
+            reflection_worker.start()
 
         try:
             yield
@@ -274,6 +303,7 @@ def create_app(
     application.state.provider = resolved_provider
     application.state.orchestrator = orchestrator
     application.state.memory_worker = memory_worker
+    application.state.reflection_worker = reflection_worker
     application.state.db_session_factory = factory
     application.add_middleware(RequestIdMiddleware)
     install_exception_handlers(application)
@@ -3169,6 +3199,507 @@ def create_app(
                 error_message=batch.error_message,
             )
 
+    # ════════════════════════════════════════════════════════════════════════════
+    # V2 API — Conversation-first memory contract
+    # ════════════════════════════════════════════════════════════════════════════
+    API_PREFIX_V2 = "/api/v2"
+
+    # ── 1. GET /api/v2/memories — list with kind/review_status/cursor/limit ─────
+
+    @application.get(
+        f"{API_PREFIX_V2}/memories",
+        response_model=MemoryV2ListResponse,
+        responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}},
+    )
+    async def v2_list_memories(
+        request: Request,
+        kind: Annotated[MemoryKindV2 | None, Query()] = None,
+        review_status: Annotated[ReviewStatus | None, Query()] = None,
+        cursor: Annotated[str | None, Query(max_length=1024)] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> MemoryV2ListResponse:
+        session_factory = request.app.state.db_session_factory
+        with session_scope(session_factory) as session:
+            center_repo = MemoryCenterRepository(user_ctx, session)
+            cards = center_repo.list_memories_v2(
+                kind=kind.value if kind else None,
+                review_status=review_status.value if review_status else None,
+                cursor=cursor,
+                limit=limit + 1,
+            )
+            page = cards[:limit]
+            next_cursor = page[-1].id if len(cards) > limit else None
+            return MemoryV2ListResponse(
+                request_id=request.state.request_id,
+                items=[_card_projection(card) for card in page],
+                next_cursor=next_cursor,
+            )
+
+    # ── 2. GET /api/v2/memories/{memory_id} — detail with versions/evidence ─────
+
+    @application.get(
+        f"{API_PREFIX_V2}/memories/{{memory_id}}",
+        response_model=MemoryDetailResponse,
+        responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}},
+    )
+    async def v2_get_memory_detail(
+        request: Request,
+        memory_id: str = Path(pattern=MEMORY_ID_PATTERN),
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> MemoryDetailResponse:
+        session_factory = request.app.state.db_session_factory
+        with session_scope(session_factory) as session:
+            center_repo = MemoryCenterRepository(user_ctx, session)
+            result = center_repo.get_memory_detail_v2(memory_id)
+            if result is None:
+                raise _memory_not_found()
+            card, versions, evidence = result
+            relations = MemoryRelationRepository(user_ctx, session).list_relations(
+                memory_id=memory_id,
+            )
+            return MemoryDetailResponse(
+                request_id=request.state.request_id,
+                card=_card_projection(card),
+                evidence=[_evidence_projection(item) for item in evidence],
+                versions=[_version_projection(item) for item in versions],
+                relations=[
+                    MemoryRelationProjection(
+                        relation_id=rel.id,
+                        from_memory_id=rel.from_memory_id,
+                        to_memory_id=rel.to_memory_id,
+                        relation_type=rel.relation_type,
+                        status=rel.status,
+                        resolution_action=rel.resolution_action,
+                        resolution_memory_id=rel.resolution_memory_id,
+                        created_at=rel.created_at,
+                        resolved_at=rel.resolved_at,
+                    )
+                    for rel in relations
+                ],
+            )
+
+    # ── 3. PATCH /api/v2/memories/{memory_id} — edit kind/content/applies_when ───
+
+    @application.patch(
+        f"{API_PREFIX_V2}/memories/{{memory_id}}",
+        response_model=MemoryV2EditResponse,
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            409: {"model": ErrorEnvelope},
+            422: {"model": ErrorEnvelope},
+        },
+    )
+    async def v2_edit_memory(
+        request: Request,
+        body: MemoryV2EditRequest,
+        memory_id: str = Path(pattern=MEMORY_ID_PATTERN),
+        idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        idem_key = validate_idempotency_key(idempotency_key_raw)
+        path = f"{API_PREFIX_V2}/memories/{memory_id}"
+        route = f"PATCH:{path}"
+        normalized = body.model_dump(mode="json")
+        req_hash = compute_request_hash(method="PATCH", path=path, body=normalized)
+        factory = request.app.state.db_session_factory
+        try:
+            with session_scope(factory) as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                idem_repo = IdempotencyRepository(user_ctx, session)
+                existing = idem_repo.get_record(route, idem_key)
+                if existing is not None:
+                    if existing.request_hash != req_hash:
+                        raise _idempotency_conflict()
+                    return JSONResponse(
+                        status_code=existing.response_status,
+                        content=json.loads(existing.response_json),
+                    )
+                center_repo = MemoryCenterRepository(user_ctx, session)
+                patch = body.model_dump(exclude_none=True)
+                try:
+                    result = center_repo.update_memory_v2(
+                        memory_id=memory_id,
+                        patch=patch,
+                        expected_version_id=patch.get("expected_current_version_id", ""),
+                    )
+                except ValueError as exc:
+                    msg = str(exc)
+                    if msg.startswith("MEMORY_VERSION_CONFLICT"):
+                        raise _memory_version_conflict() from exc
+                    raise _memory_state_conflict(msg) from exc
+                except _NotFoundError:
+                    raise _memory_not_found() from None
+                updated_card = result["card"]
+                response_payload = MemoryV2EditResponse(
+                    request_id=request.state.request_id,
+                    memory_id=memory_id,
+                    kind=MemoryKindV2(updated_card.kind),
+                    content=updated_card.rule,
+                    applies_when=updated_card.trigger_text or updated_card.rule[:500],
+                    status=ReviewStatus(updated_card.status),
+                    current_version_id=updated_card.current_version_id,
+                    updated_at=updated_card.updated_at,
+                )
+                idem_repo.save_record(
+                    route=route,
+                    key=idem_key,
+                    request_hash=req_hash,
+                    response_status=200,
+                    response_json=response_payload.model_dump_json(),
+                    expires_at=utc_now() + SESSION_DURATION * 2,
+                )
+        except IntegrityError:
+            return _replay_idempotent_response(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+        return JSONResponse(content=response_payload.model_dump(mode="json"))
+
+    # ── 4. POST /api/v2/memories/{memory_id}/confirm — confirm review → active ───
+
+    @application.post(
+        f"{API_PREFIX_V2}/memories/{{memory_id}}/confirm",
+        response_model=MemoryConfirmResponse,
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            409: {"model": ErrorEnvelope},
+        },
+    )
+    async def v2_confirm_memory(
+        request: Request,
+        memory_id: str = Path(pattern=MEMORY_ID_PATTERN),
+        idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        idem_key = validate_idempotency_key(idempotency_key_raw)
+        path = f"{API_PREFIX_V2}/memories/{memory_id}/confirm"
+        route = f"POST:{path}"
+        req_hash = compute_request_hash(method="POST", path=path, body="")
+        factory = request.app.state.db_session_factory
+        try:
+            with session_scope(factory) as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                idem_repo = IdempotencyRepository(user_ctx, session)
+                existing = idem_repo.get_record(route, idem_key)
+                if existing is not None:
+                    if existing.request_hash != req_hash:
+                        raise _idempotency_conflict()
+                    return JSONResponse(
+                        status_code=existing.response_status,
+                        content=json.loads(existing.response_json),
+                    )
+                center_repo = MemoryCenterRepository(user_ctx, session)
+                card = center_repo.confirm_memory_review(memory_id)
+                if card is None:
+                    raise _memory_not_found()
+                now = utc_now()
+                response_payload = MemoryConfirmResponse(
+                    request_id=request.state.request_id,
+                    memory_id=memory_id,
+                    old_status=ReviewStatus.REVIEW,
+                    new_status=ReviewStatus.ACTIVE,
+                    updated_at=now,
+                )
+                idem_repo.save_record(
+                    route=route,
+                    key=idem_key,
+                    request_hash=req_hash,
+                    response_status=200,
+                    response_json=response_payload.model_dump_json(),
+                    expires_at=utc_now() + SESSION_DURATION * 2,
+                )
+        except IntegrityError:
+            return _replay_idempotent_response(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+        return JSONResponse(content=response_payload.model_dump(mode="json"))
+
+    # ── 5. POST /api/v2/memories/{memory_id}/dismiss — dismiss review → archived ──
+
+    @application.post(
+        f"{API_PREFIX_V2}/memories/{{memory_id}}/dismiss",
+        response_model=MemoryDismissResponse,
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            409: {"model": ErrorEnvelope},
+        },
+    )
+    async def v2_dismiss_memory(
+        request: Request,
+        memory_id: str = Path(pattern=MEMORY_ID_PATTERN),
+        idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        idem_key = validate_idempotency_key(idempotency_key_raw)
+        path = f"{API_PREFIX_V2}/memories/{memory_id}/dismiss"
+        route = f"POST:{path}"
+        req_hash = compute_request_hash(method="POST", path=path, body="")
+        factory = request.app.state.db_session_factory
+        try:
+            with session_scope(factory) as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                idem_repo = IdempotencyRepository(user_ctx, session)
+                existing = idem_repo.get_record(route, idem_key)
+                if existing is not None:
+                    if existing.request_hash != req_hash:
+                        raise _idempotency_conflict()
+                    return JSONResponse(
+                        status_code=existing.response_status,
+                        content=json.loads(existing.response_json),
+                    )
+                center_repo = MemoryCenterRepository(user_ctx, session)
+                card = center_repo.dismiss_memory_review(memory_id)
+                if card is None:
+                    raise _memory_not_found()
+                now = utc_now()
+                response_payload = MemoryDismissResponse(
+                    request_id=request.state.request_id,
+                    memory_id=memory_id,
+                    old_status=ReviewStatus.REVIEW,
+                    new_status=ReviewStatus.ARCHIVED,
+                    updated_at=now,
+                )
+                idem_repo.save_record(
+                    route=route,
+                    key=idem_key,
+                    request_hash=req_hash,
+                    response_status=200,
+                    response_json=response_payload.model_dump_json(),
+                    expires_at=utc_now() + SESSION_DURATION * 2,
+                )
+        except IntegrityError:
+            return _replay_idempotent_response(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+        return JSONResponse(content=response_payload.model_dump(mode="json"))
+
+    # ── 6. GET /api/v2/memory-events — owner/session catch-up after_seq ──────────
+
+    @application.get(
+        f"{API_PREFIX_V2}/memory-events",
+        response_model=MemoryEventListResponse,
+        responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}},
+    )
+    async def v2_list_memory_events(
+        request: Request,
+        after_seq: Annotated[int, Query(ge=0)] = 0,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> MemoryEventListResponse:
+        session_factory = request.app.state.db_session_factory
+        with session_scope(session_factory) as session:
+            center_repo = MemoryCenterRepository(user_ctx, session)
+            events = center_repo.get_memory_events(after_seq=after_seq)
+            items: list[MemoryEventPayload] = []
+            next_seq: int | None = None
+            for ev in events:
+                metadata = json.loads(ev.metadata_json) if ev.metadata_json else {}
+                items.append(
+                    MemoryEventPayload(
+                        event_id=ev.id,
+                        event_type=ev.event_type,
+                        memory_id=metadata.get("memory_id"),
+                        version_id=metadata.get("version_id"),
+                        old_status=metadata.get("old_status"),
+                        new_status=metadata.get("new_status"),
+                        reason_code=metadata.get("reason_code"),
+                        job_id=metadata.get("job_id"),
+                        created_at=ev.created_at,
+                    )
+                )
+                next_seq = ev.seq
+            return MemoryEventListResponse(
+                request_id=request.state.request_id,
+                items=items,
+                next_seq=next_seq,
+            )
+
+    # ── 7. GET /api/v2/reflection-jobs/{job_id} — job status ────────────────────
+
+    @application.get(
+        f"{API_PREFIX_V2}/reflection-jobs/{{job_id}}",
+        response_model=MemoryReflectionJobResponse,
+        responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}},
+    )
+    async def v2_get_reflection_job(
+        request: Request,
+        job_id: str = Path(pattern=JOB_ID_PATTERN),
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> MemoryReflectionJobResponse:
+        session_factory = request.app.state.db_session_factory
+        with session_scope(session_factory) as session:
+            center_repo = MemoryCenterRepository(user_ctx, session)
+            job = center_repo.get_reflection_job(job_id)
+            if job is None:
+                raise ApiError(
+                    status_code=404,
+                    code=ErrorCode.MEMORY_NOT_FOUND,
+                    message="指定的 Reflection Job 不存在或无权访问。",
+                )
+            return MemoryReflectionJobResponse(
+                request_id=request.state.request_id,
+                job_id=job.id,
+                task_id=job.task_id,
+                run_id=job.run_id,
+                turn_index=job.turn_index,
+                status=MemoryReflectionJobStatus(job.status),
+                attempt=job.attempt,
+                mutation_decision=job.mutation_decision,
+                provider_model=job.provider_model or "",
+                schema_version=job.schema_version,
+                error_code=job.last_error_code,
+                created_at=job.created_at,
+                updated_at=job.updated_at,
+            )
+
+    # ── 8. GET /api/v2/tasks/{task_id}/memory-usage — task memory usage ──────────
+
+    @application.get(
+        f"{API_PREFIX_V2}/tasks/{{task_id}}/memory-usage",
+        response_model=list[TaskMemoryUsageResponse],
+        responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}},
+    )
+    async def v2_get_task_memory_usage(
+        request: Request,
+        task_id: str = Path(pattern=TASK_ID_PATTERN),
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> list[TaskMemoryUsageResponse]:
+        session_factory = request.app.state.db_session_factory
+        with session_scope(session_factory) as session:
+            task_repo = TaskRepository(user_ctx, session)
+            task = task_repo.get_task(task_id)
+            if task is None:
+                raise _task_not_found(task_id)
+            usage_repo = MemoryUsageRepository(user_ctx, session)
+            run = task_repo.get_latest_run(task_id)
+            if run is None:
+                return []
+            usages = usage_repo.list_by_run(task_id, run.id)
+            return [
+                TaskMemoryUsageResponse(
+                    request_id=request.state.request_id,
+                    task_id=task_id,
+                    memory_id=usage.memory_id,
+                    injected=usage.injected,
+                    verified_applied=usage.verification_status == "applied",
+                    helpful_count=(
+                        _get_card_helpful_count(user_ctx, session, usage.memory_id)
+                    ),
+                    harmful_count=(
+                        _get_card_harmful_count(user_ctx, session, usage.memory_id)
+                    ),
+                    stale_count=(
+                        _get_card_stale_count(user_ctx, session, usage.memory_id)
+                    ),
+                    last_used_at=usage.updated_at,
+                )
+                for usage in usages
+            ]
+
+    # ── 9. POST /api/v2/tasks/{task_id}/memory-effect/{memory_id}/feedback ───────
+
+    @application.post(
+        f"{API_PREFIX_V2}/tasks/{{task_id}}/memory-effect/{{memory_id}}/feedback",
+        response_model=MemoryFeedbackResponse,
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            409: {"model": ErrorEnvelope},
+        },
+    )
+    async def v2_record_memory_effect_feedback(
+        request: Request,
+        body: MemoryFeedbackRequest,
+        task_id: str = Path(pattern=TASK_ID_PATTERN),
+        memory_id: str = Path(pattern=MEMORY_ID_PATTERN),
+        idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        idem_key = validate_idempotency_key(idempotency_key_raw)
+        path = (
+            f"{API_PREFIX_V2}/tasks/{task_id}"
+            f"/memory-effect/{memory_id}/feedback"
+        )
+        route = f"POST:{path}"
+        normalized = body.model_dump(mode="json")
+        req_hash = compute_request_hash(method="POST", path=path, body=normalized)
+        factory = request.app.state.db_session_factory
+        try:
+            with session_scope(factory) as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                idem_repo = IdempotencyRepository(user_ctx, session)
+                existing = idem_repo.get_record(route, idem_key)
+                if existing is not None:
+                    if existing.request_hash != req_hash:
+                        raise _idempotency_conflict()
+                    return JSONResponse(
+                        status_code=existing.response_status,
+                        content=json.loads(existing.response_json),
+                    )
+                task_repo = TaskRepository(user_ctx, session)
+                task = task_repo.get_task(task_id)
+                if task is None:
+                    raise _task_not_found(task_id)
+                card_repo = MemoryCardG4Repository(user_ctx, session)
+                card = card_repo._get(memory_id)
+                if card is None:
+                    raise _memory_not_found()
+                usage_repo = MemoryUsageRepository(user_ctx, session)
+                run = task_repo.get_latest_run(task_id)
+                if run is None:
+                    raise _task_not_found(task_id)
+                usage = usage_repo.get_usage(task_id, run.id, memory_id)
+                if usage is None:
+                    raise _task_not_found(task_id)
+                if usage.user_effect is not None:
+                    raise _memory_state_conflict("该 memory usage 已记录过效果反馈。")
+                usage.user_effect = body.effect.value
+                usage.updated_at = utc_now()
+                setattr(
+                    card,
+                    f"{body.effect.value}_count",
+                    getattr(card, f"{body.effect.value}_count") + 1,
+                )
+                card.updated_at = utc_now()
+                response_payload = MemoryFeedbackResponse(
+                    request_id=request.state.request_id,
+                    task_id=task_id,
+                    memory_id=memory_id,
+                    effect=body.effect,
+                    updated_at=utc_now(),
+                )
+                idem_repo.save_record(
+                    route=route,
+                    key=idem_key,
+                    request_hash=req_hash,
+                    response_status=200,
+                    response_json=response_payload.model_dump_json(),
+                    expires_at=utc_now() + SESSION_DURATION * 2,
+                )
+        except IntegrityError:
+            return _replay_idempotent_response(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+        return JSONResponse(content=response_payload.model_dump(mode="json"))
+
     web_dist = resolved_settings.memtrace_web_dist
     if web_dist is not None and web_dist.is_dir():
         assets_dir = web_dist / "assets"
@@ -3868,3 +4399,45 @@ async def _subscription_body(
 
 
 app = create_app()
+
+
+def _get_card_helpful_count(
+    user_ctx: UserContext, session: Session, memory_id: str
+) -> int:
+    row = session.execute(
+        select(MemoryCardModel.helpful_count).where(
+            and_(
+                MemoryCardModel.id == memory_id,
+                MemoryCardModel.owner_id == user_ctx.user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    return int(row) if row is not None else 0
+
+
+def _get_card_harmful_count(
+    user_ctx: UserContext, session: Session, memory_id: str
+) -> int:
+    row = session.execute(
+        select(MemoryCardModel.harmful_count).where(
+            and_(
+                MemoryCardModel.id == memory_id,
+                MemoryCardModel.owner_id == user_ctx.user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    return int(row) if row is not None else 0
+
+
+def _get_card_stale_count(
+    user_ctx: UserContext, session: Session, memory_id: str
+) -> int:
+    row = session.execute(
+        select(MemoryCardModel.stale_count).where(
+            and_(
+                MemoryCardModel.id == memory_id,
+                MemoryCardModel.owner_id == user_ctx.user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    return int(row) if row is not None else 0
