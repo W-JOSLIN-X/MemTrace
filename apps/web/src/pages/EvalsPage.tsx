@@ -1,3 +1,7 @@
+import { useEffect, useState } from 'react'
+
+import { publicApi } from '../auth/api'
+import type { SystemInfo } from '../auth/types'
 import { day7EvalArtifact } from '../release/evalArtifact'
 
 const gateLabels = {
@@ -17,8 +21,16 @@ const baselineLabels = {
 
 export function EvalsPage() {
   const artifact = day7EvalArtifact
+  const [system, setSystem] = useState<SystemInfo | null>(null)
   const passed = artifact.release_status === 'passed' && artifact.metrics !== null
   const semanticPassed = artifact.release_status === 'semantic_gates_passed'
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void publicApi.system(controller.signal).then(setSystem).catch(() => undefined)
+    return () => controller.abort()
+  }, [])
+
   return (
     <main className="page-shell" aria-labelledby="eval-title">
       <header className="page-heading">
@@ -39,7 +51,10 @@ export function EvalsPage() {
               : '真实 DeepSeek 发布门禁尚未执行完，当前构建不可发布。'}
         </p>
         <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-          <Info label="候选提交" value={artifact.candidate_commit ?? '等待最终候选提交'} />
+          <Info label="当前运行 revision" value={system?.revision ?? '正在读取已认证运行时'} />
+          {artifact.candidate_commit ? (
+            <Info label="评测基线提交" value={artifact.candidate_commit} />
+          ) : null}
           <Info label="冻结模型" value={artifact.model ?? '等待真实 Provider 预检'} />
           <Info label="数据划分" value={artifact.split} />
           <Info label="生成时间" value={artifact.generated_at ?? '等待真实评测'} />
