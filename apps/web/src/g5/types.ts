@@ -16,6 +16,7 @@ export type ReviewStatus =
   | 'paused'
   | 'archived'
   | 'superseded'
+export type MemoryEventStatus = ReviewStatus | 'deleted'
 
 export type ConversationMessage = {
   message_id: MessageId
@@ -425,7 +426,7 @@ export type MemoryEvent = {
   memory_id: MemoryId | null
   version_id: MemoryVersionId | null
   old_status: ReviewStatus | null
-  new_status: ReviewStatus | null
+  new_status: MemoryEventStatus | null
   reason_code: string | null
   job_id: ReflectionJobId | null
   created_at: string | null

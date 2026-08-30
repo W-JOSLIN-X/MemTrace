@@ -1026,7 +1026,9 @@ function parseMemoryEvent(value: unknown): MemoryEvent {
     memory_id: nullable(row.memory_id, (item) => id(item, patterns.memory)) as MemoryEvent['memory_id'],
     version_id: nullable(row.version_id, (item) => id(item, patterns.version)) as MemoryEvent['version_id'],
     old_status: nullable(row.old_status, parseReviewStatus),
-    new_status: nullable(row.new_status, parseReviewStatus),
+    new_status: nullable(row.new_status, (item) =>
+      oneOf(item, ['pending', 'active', 'paused', 'archived', 'superseded', 'deleted'] as const),
+    ),
     reason_code: nullable(row.reason_code, (item) => string(item, 64)),
     job_id: nullable(row.job_id, (item) => id(item, patterns.job)) as MemoryEvent['job_id'],
     created_at: nullable(row.created_at, (item) => string(item, 64)),

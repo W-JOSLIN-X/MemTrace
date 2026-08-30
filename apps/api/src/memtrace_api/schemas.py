@@ -1797,7 +1797,7 @@ class MemoryEventPayload(ContractModel):
     memory_id: MemoryId | None = None
     version_id: MemoryVersionId | None = None
     old_status: ReviewStatus | None = None
-    new_status: ReviewStatus | None = None
+    new_status: ReviewStatus | Literal["deleted"] | None = None
     reason_code: Annotated[str, StringConstraints(max_length=64)] | None = None
     job_id: MemoryReflectionJobId | None = None
     created_at: datetime | None = None

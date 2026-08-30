@@ -157,6 +157,30 @@ def test_v2_versions_diff_restore_usage_owner_isolation_and_deletes(tmp_path: Pa
         assert replay.json() == deleted.json()
         assert client.get(f"/api/v2/memories/{memory_id}").status_code == 404
 
+        owner_events = client.get("/api/v2/memory-events", params={"after_seq": 0})
+        assert owner_events.status_code == 200, owner_events.text
+        deletion_events = [
+            item
+            for item in owner_events.json()["items"]
+            if item["event_type"] == "memory.deleted" and item["memory_id"] == memory_id
+        ]
+        assert len(deletion_events) == 1
+        assert deletion_events[0]["old_status"] == current["review_status"]
+        assert deletion_events[0]["new_status"] == "deleted"
+        assert deletion_events[0]["reason_code"] == "user_permanent_delete"
+        assert set(deletion_events[0]) == {
+            "event_id",
+            "event_seq",
+            "event_type",
+            "memory_id",
+            "version_id",
+            "old_status",
+            "new_status",
+            "reason_code",
+            "job_id",
+            "created_at",
+        }
+
 
 @pytest.mark.parametrize("action", ["prefer", "separate_scopes", "merge", "pause_both"])
 def test_v2_conflict_actions_are_atomic_and_user_controlled(tmp_path: Path, action: str) -> None:

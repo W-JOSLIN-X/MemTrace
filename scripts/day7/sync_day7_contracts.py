@@ -91,15 +91,15 @@ def _rewrite_refs(value: Any) -> Any:
 
 def _collect(components: dict[str, Any], roots: set[str]) -> dict[str, Any]:
     pending = list(roots)
-    definitions: dict[str, Any] = {}
+    selected: set[str] = set()
     while pending:
         name = pending.pop()
-        if name in definitions:
+        if name in selected:
             continue
         schema = components[name]
-        definitions[name] = _rewrite_refs(schema)
-        pending.extend(_referenced_names(schema) - definitions.keys())
-    return definitions
+        selected.add(name)
+        pending.extend(_referenced_names(schema) - selected)
+    return {name: _rewrite_refs(components[name]) for name in sorted(selected)}
 
 
 def _write(path: Path, value: Any) -> None:

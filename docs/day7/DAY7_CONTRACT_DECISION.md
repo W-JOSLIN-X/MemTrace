@@ -29,6 +29,17 @@ compatibility-only G1-G4 paths and never decide G5 semantics.
 - Public pages and API use only the v2 memory projection
   `kind/content/applies_when`; v1 stays a compatibility test surface.
 
+### `2.1.0` deletion-event clarification
+
+Permanent deletion does not add `deleted` to the mutable memory lifecycle.
+Memory projections and lifecycle write responses therefore remain limited to
+`pending | active | paused | archived | superseded`.  The metadata-only owner
+event `memory.deleted` is the single exception: its `old_status` is the last
+valid lifecycle status and its `new_status` is the terminal literal `deleted`.
+The deleted memory remains unavailable through detail and memory-scoped event
+routes (404); the owner catch-up route may replay this tombstone event so that a
+client can remove stale UI state.  Unknown event statuses remain invalid.
+
 ## Streaming and tool safety
 
 `assistant.delta` is transient SSE content and is never written to the event

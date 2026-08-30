@@ -4763,6 +4763,7 @@ def create_app(
                         code=ErrorCode.CONFIRMATION_MISMATCH,
                         message="确认内容与当前记忆内容不一致。",
                     )
+                old_status = card.review_status
                 result = MemoryCardG4Repository(user_ctx, session).permanent_delete(
                     memory_id=memory_id,
                     expected_version_id=body.expected_current_version_id,
@@ -4779,7 +4780,7 @@ def create_app(
                     event_type="memory.deleted",
                     metadata={
                         "memory_id": memory_id,
-                        "old_status": card.review_status,
+                        "old_status": old_status,
                         "new_status": "deleted",
                         "reason_code": "user_permanent_delete",
                     },

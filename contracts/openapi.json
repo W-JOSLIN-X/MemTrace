@@ -9247,9 +9247,14 @@
                 "$ref": "#/components/schemas/ReviewStatus"
               },
               {
+                "type": "string",
+                "const": "deleted"
+              },
+              {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "New Status"
           },
           "reason_code": {
             "anyOf": [

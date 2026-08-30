@@ -58,6 +58,22 @@ describe('G5 strict runtime parser', () => {
     ).toThrow('too many events')
   })
 
+  it('accepts only the terminal deleted status in deletion events', () => {
+    const page = createG5EventList()
+    const deletedEvent = {
+      ...page.items[0],
+      event_type: 'memory.deleted',
+      new_status: 'deleted',
+      reason_code: 'user_permanent_delete',
+    }
+    expect(parseMemoryEvents({ ...page, items: [deletedEvent] }).items[0]?.new_status).toBe(
+      'deleted',
+    )
+    expect(() =>
+      parseMemoryEvents({ ...page, items: [{ ...deletedEvent, new_status: 'removed' }] }),
+    ).toThrow('invalid enum')
+  })
+
   it('strictly validates the persisted latest-turn snapshot projection', () => {
     const snapshot = createG5SnapshotResponse()
     expect(() =>

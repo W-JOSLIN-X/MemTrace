@@ -1664,7 +1664,7 @@
     "MemoryLifecyclePayload": {
       "type":"object","additionalProperties":false,
       "required":["memory_id","action","old_status","new_status","version_id"],
-      "properties":{"memory_id":{"$ref":"#/$defs/MemoryId"},"action":{"enum":["edit","pause","resume","archive","restore","permanent_delete"]},"old_status":{"type":"string"},"new_status":{"type":"string"},"version_id":{"anyOf":[{"$ref":"#/$defs/MemoryVersionId"},{"type":"null"}]}}
+      "properties":{"memory_id":{"$ref":"#/$defs/MemoryId"},"action":{"enum":["edit","pause","resume","archive","restore","permanent_delete"]},"old_status":{"enum":["candidate","active","rejected","conflicted","paused","superseded","merged","archived"]},"new_status":{"enum":["candidate","active","rejected","conflicted","paused","superseded","merged","archived","deleted"]},"version_id":{"anyOf":[{"$ref":"#/$defs/MemoryVersionId"},{"type":"null"}]}}
     },
     "MemoryConflictDetectedPayload": {
       "type":"object","additionalProperties":false,

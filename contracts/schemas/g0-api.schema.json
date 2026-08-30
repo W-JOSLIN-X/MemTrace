@@ -5455,9 +5455,14 @@
               "$ref": "#/$defs/ReviewStatus"
             },
             {
+              "type": "string",
+              "const": "deleted"
+            },
+            {
               "type": "null"
             }
-          ]
+          ],
+          "title": "New Status"
         },
         "reason_code": {
           "anyOf": [

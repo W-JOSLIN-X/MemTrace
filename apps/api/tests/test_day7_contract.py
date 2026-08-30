@@ -98,6 +98,11 @@ def test_day7_rest_definitions_match_actual_openapi_components() -> None:
         assert normative["$defs"][name] == _rewrite_refs(openapi["components"]["schemas"][name])
 
 
+def test_day7_generated_definition_order_is_deterministic() -> None:
+    pack_schema = json.loads((SCHEMAS / "memory-pack-v2.schema.json").read_text(encoding="utf-8"))
+    assert list(pack_schema["$defs"]) == sorted(pack_schema["$defs"])
+
+
 def test_day7_examples_validate_and_stream_text_is_transient_only() -> None:
     examples = json.loads(
         (PROJECT_ROOT / "contracts" / "examples" / "day7-release.json").read_text("utf-8")
