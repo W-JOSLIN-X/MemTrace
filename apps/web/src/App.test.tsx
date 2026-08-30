@@ -87,6 +87,13 @@ function renderApp(initialEntry = '/') {
 }
 
 describe('MemTrace public release shell', () => {
+  it('does not probe an authenticated session from a public registration entry', async () => {
+    renderApp('/register')
+
+    expect(await screen.findByRole('heading', { name: '创建账号' })).toBeInTheDocument()
+    expect(fetch).not.toHaveBeenCalledWith('/api/v2/auth/session', expect.anything())
+  })
+
   it('restores the public account and renders the ordinary Agent experience', async () => {
     renderApp()
 

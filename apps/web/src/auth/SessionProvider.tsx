@@ -5,6 +5,7 @@ import {
   useState,
 } from 'react'
 import type { ReactNode } from 'react'
+import { useLocation } from 'react-router-dom'
 
 import { publicApi, setCsrfToken } from './api'
 import { SessionContext } from './sessionContext'
@@ -12,7 +13,11 @@ import type { SessionContextValue } from './sessionContext'
 import type { AuthSession, LoginInput, RegisterInput } from './types'
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [phase, setPhase] = useState<SessionContextValue['phase']>('loading')
+  const location = useLocation()
+  const [restoreOnMount] = useState(() => !PUBLIC_AUTH_PATHS.has(location.pathname))
+  const [phase, setPhase] = useState<SessionContextValue['phase']>(
+    restoreOnMount ? 'loading' : 'unauthenticated',
+  )
   const [session, setSession] = useState<AuthSession | null>(null)
 
   const clear = useCallback(() => {
@@ -36,23 +41,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const controller = new AbortController()
-    void publicApi.session(controller.signal).then(
-      (current) => {
-        setSession(current)
-        setPhase('authenticated')
-      },
-      (error: unknown) => {
-        if (error instanceof DOMException && error.name === 'AbortError') return
-        clear()
-      },
-    )
+    if (restoreOnMount) {
+      void publicApi.session(controller.signal).then(
+        (current) => {
+          setSession(current)
+          setPhase('authenticated')
+        },
+        (error: unknown) => {
+          if (error instanceof DOMException && error.name === 'AbortError') return
+          clear()
+        },
+      )
+    }
     const authRequired = () => clear()
     globalThis.addEventListener('memtrace:auth-required', authRequired)
     return () => {
       controller.abort()
       globalThis.removeEventListener('memtrace:auth-required', authRequired)
     }
-  }, [clear])
+  }, [clear, restoreOnMount])
 
   const login = useCallback(async (input: LoginInput, signal?: AbortSignal) => {
     const current = await publicApi.login(input, signal)
@@ -92,3 +99,5 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   )
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
 }
+
+const PUBLIC_AUTH_PATHS = new Set(['/login', '/register', '/recover'])
