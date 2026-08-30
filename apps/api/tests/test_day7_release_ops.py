@@ -361,6 +361,7 @@ def test_release_compose_and_dockerfile_keep_secrets_and_dev_tools_out() -> None
     assert 'MOCK_MODE: "false"' in compose
     assert 'ALLOW_DEMO_SESSIONS: "false"' in compose
     assert 'COOKIE_SECURE: "${COOKIE_SECURE:-true}"' in compose
+    assert 'IMPORT_PREVIEW_TTL_SECONDS: "${IMPORT_PREVIEW_TTL_SECONDS:-1800}"' in compose
     assert "LLM_API_KEY_FILE: /run/secrets/llm_api_key" in compose
     assert "SESSION_SECRET_FILE: /run/secrets/session_secret" in compose
     assert "LLM_API_KEY:" not in compose
