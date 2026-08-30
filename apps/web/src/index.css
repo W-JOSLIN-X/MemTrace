@@ -28,8 +28,368 @@ body {
 }
 
 button,
+input,
+select,
 textarea {
   font: inherit;
+}
+
+.page-shell {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.page-heading {
+  position: relative;
+  overflow: hidden;
+  padding: clamp(1.35rem, 3vw, 2.25rem);
+  border: 1px solid #d6d3d1;
+  border-radius: 1.75rem;
+  background:
+    radial-gradient(circle at 88% 18%, rgb(167 243 208 / 55%), transparent 28%),
+    linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 5%);
+}
+
+.page-heading > * {
+  position: relative;
+  z-index: 1;
+}
+
+.page-heading h1 {
+  margin: 0.25rem 0 0;
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+
+.page-heading > p:last-child {
+  max-width: 58rem;
+  margin: 0.8rem 0 0;
+  color: #475569;
+  font-size: 0.95rem;
+  line-height: 1.75;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #047857;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.error-banner,
+.success-banner {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid;
+  border-radius: 0.9rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.error-banner {
+  border-color: #fecaca;
+  color: #991b1b;
+  background: #fef2f2;
+}
+
+.success-banner {
+  border-color: #a7f3d0;
+  color: #065f46;
+  background: #ecfdf5;
+}
+
+.memory-actions {
+  display: grid;
+  grid-template-columns: minmax(15rem, 2fr) repeat(4, minmax(7.5rem, 1fr)) auto auto;
+  gap: 0.75rem;
+  align-items: end;
+  padding: 1rem;
+  border: 1px solid #e7e5e4;
+  border-radius: 1.25rem;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
+}
+
+.memory-actions label,
+.memory-detail label {
+  display: grid;
+  gap: 0.4rem;
+  color: #334155;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.memory-actions input,
+.memory-actions select,
+.memory-detail input:not([type="file"]),
+.memory-detail select,
+.memory-detail textarea {
+  width: 100%;
+  min-height: 2.7rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #d6d3d1;
+  border-radius: 0.8rem;
+  color: #0f172a;
+  background: #ffffff;
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.memory-actions input:focus,
+.memory-actions select:focus,
+.memory-detail input:focus,
+.memory-detail select:focus,
+.memory-detail textarea:focus {
+  border-color: #059669;
+  box-shadow: 0 0 0 3px rgb(16 185 129 / 18%);
+}
+
+.memory-actions button,
+.memory-detail button {
+  min-height: 2.65rem;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid #047857;
+  border-radius: 0.8rem;
+  color: #ffffff;
+  background: #047857;
+  font-size: 0.8rem;
+  font-weight: 900;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.memory-actions button:hover:not(:disabled),
+.memory-detail button:hover:not(:disabled) {
+  border-color: #065f46;
+  background: #065f46;
+  transform: translateY(-1px);
+}
+
+.memory-actions button:focus-visible,
+.memory-detail button:focus-visible,
+.memory-list > button:focus-visible {
+  outline: 3px solid rgb(16 185 129 / 35%);
+  outline-offset: 2px;
+}
+
+.memory-actions button:disabled,
+.memory-detail button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.memory-layout {
+  display: grid;
+  grid-template-columns: minmax(17rem, 0.85fr) minmax(0, 1.45fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.memory-list,
+.memory-detail {
+  min-width: 0;
+  padding: 1.15rem;
+  border: 1px solid #e7e5e4;
+  border-radius: 1.4rem;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 5%);
+}
+
+.memory-list {
+  display: grid;
+  gap: 0.65rem;
+  max-height: 48rem;
+  overflow-y: auto;
+}
+
+.memory-list > button {
+  display: grid;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.9rem;
+  border: 1px solid #e7e5e4;
+  border-radius: 1rem;
+  color: #0f172a;
+  background: #fafaf9;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+
+.memory-list > button:hover {
+  border-color: #6ee7b7;
+  background: #ecfdf5;
+  transform: translateY(-1px);
+}
+
+.memory-list > button strong {
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.memory-list > button span {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.memory-list > p {
+  margin: 0;
+  padding: 2rem 1rem;
+  color: #64748b;
+  text-align: center;
+}
+
+.memory-detail {
+  overflow-x: auto;
+}
+
+.memory-detail h2,
+.memory-detail h3 {
+  margin: 0;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.memory-detail h2 {
+  font-size: 1.15rem;
+}
+
+.memory-detail h3 {
+  margin-top: 1.35rem;
+  font-size: 0.95rem;
+}
+
+.memory-detail p {
+  margin: 0.65rem 0 0;
+  color: #475569;
+  line-height: 1.65;
+}
+
+.memory-detail > label,
+.memory-detail > select,
+.memory-detail > textarea {
+  margin-top: 0.9rem;
+}
+
+.memory-detail textarea {
+  min-height: 6.5rem;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.memory-detail > button,
+.memory-detail > label + button,
+.memory-detail > div + button {
+  margin-top: 1rem;
+}
+
+.memory-detail input[type="file"] {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px dashed #a8a29e;
+  border-radius: 0.8rem;
+  background: #fafaf9;
+}
+
+.memory-detail ol,
+.memory-detail ul {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memory-detail li {
+  padding: 0.75rem;
+  border: 1px solid #e7e5e4;
+  border-radius: 0.85rem;
+  overflow-wrap: anywhere;
+  color: #334155;
+  background: #fafaf9;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.memory-detail li button {
+  min-height: 2rem;
+  margin: 0.5rem 0.35rem 0 0;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.72rem;
+}
+
+.page-shell table {
+  width: 100%;
+  min-width: 38rem;
+  margin-top: 0.85rem;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.page-shell th,
+.page-shell td {
+  padding: 0.75rem;
+  border-bottom: 1px solid #e7e5e4;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.page-shell th {
+  color: #475569;
+  background: #f5f5f4;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+}
+
+.page-shell tbody tr:hover {
+  background: #fafaf9;
+}
+
+@media (max-width: 74rem) {
+  .memory-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .memory-actions > label:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .memory-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .memory-list {
+    max-height: 30rem;
+  }
+}
+
+@media (max-width: 40rem) {
+  .page-heading,
+  .memory-list,
+  .memory-detail {
+    padding: 1rem;
+    border-radius: 1.1rem;
+  }
+
+  .memory-actions {
+    grid-template-columns: 1fr;
+    padding: 0.85rem;
+  }
+
+  .memory-actions > label:first-child {
+    grid-column: auto;
+  }
+
+  .page-shell table {
+    min-width: 34rem;
+  }
 }
 
 ::selection {

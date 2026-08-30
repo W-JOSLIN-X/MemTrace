@@ -105,7 +105,7 @@ export function AppShell() {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-[1440px] gap-6 px-4 pb-24 pt-5 sm:px-5 lg:grid-cols-[232px_minmax(0,1fr)] lg:px-8 lg:pb-8 lg:pt-8">
+      <div className="mx-auto grid max-w-[1440px] gap-6 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-5 sm:px-5 lg:grid-cols-[232px_minmax(0,1fr)] lg:px-8 lg:pb-8 lg:pt-8">
         <aside className="hidden lg:block">
           <nav
             aria-label="主要导航"
@@ -126,7 +126,7 @@ export function AppShell() {
 
       <nav
         aria-label="移动端主要导航"
-        className="fixed inset-x-3 bottom-3 z-10 grid grid-cols-4 rounded-2xl border border-stone-200 bg-white/95 p-1.5 shadow-lg backdrop-blur lg:hidden"
+        className="fixed inset-x-3 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-10 grid grid-cols-4 rounded-2xl border border-stone-200 bg-white/95 p-1.5 shadow-lg backdrop-blur lg:hidden"
       >
         {navigation.map((item) => (
           <NavigationLink compact item={item} key={item.to} />
