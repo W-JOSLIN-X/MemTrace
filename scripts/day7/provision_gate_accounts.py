@@ -14,6 +14,7 @@ import urllib.request
 from pathlib import Path
 
 USERNAME_PATTERN = re.compile(r"^[a-z0-9_]{3,32}$")
+CONTAINER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 API_SRC = PROJECT_ROOT / "apps/api/src"
 
@@ -22,16 +23,24 @@ class ProvisionFailure(RuntimeError):
     """Controlled account-provisioning failure without upstream body leakage."""
 
 
-def _create_invite() -> str:
+def _create_invite(admin_container: str | None = None) -> str:
     child_environment = dict(os.environ)
     child_environment["PYTHONPATH"] = os.pathsep.join(
         part for part in (str(API_SRC), child_environment.get("PYTHONPATH", "")) if part
     )
-    result = subprocess.run(
-        [
-            sys.executable,
+    command = [sys.executable, "-m", "memtrace_api.admin_cli"]
+    if admin_container is not None:
+        command = [
+            "docker",
+            "exec",
+            admin_container,
+            "python",
             "-m",
             "memtrace_api.admin_cli",
+        ]
+    result = subprocess.run(
+        [
+            *command,
             "invite-create",
             "--max-uses",
             "1",
@@ -56,8 +65,15 @@ def _create_invite() -> str:
     return code
 
 
-def _register(base_url: str, origin: str, username: str, password: str) -> str:
-    invitation_code = _create_invite()
+def _register(
+    base_url: str,
+    origin: str,
+    username: str,
+    password: str,
+    *,
+    admin_container: str | None = None,
+) -> str:
+    invitation_code = _create_invite(admin_container)
     body = json.dumps(
         {
             "invitation_code": invitation_code,
@@ -103,6 +119,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--origin", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--username", action="append", required=True)
+    parser.add_argument(
+        "--admin-container",
+        help="create one-time invites through this release container's admin CLI",
+    )
     return parser
 
 
@@ -113,6 +133,14 @@ def main() -> int:
         USERNAME_PATTERN.fullmatch(username) is None for username in usernames
     ):
         print(json.dumps({"status": "failed", "failure_code": "USERNAME_INVALID"}))
+        return 2
+    if (
+        args.admin_container is not None
+        and CONTAINER_PATTERN.fullmatch(args.admin_container) is None
+    ):
+        print(
+            json.dumps({"status": "failed", "failure_code": "ADMIN_CONTAINER_INVALID"})
+        )
         return 2
     output_dir = args.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -129,7 +157,13 @@ def main() -> int:
             if password_path.exists() or recovery_path.exists():
                 raise ProvisionFailure("OUTPUT_ALREADY_EXISTS")
             password = "D7!" + secrets.token_urlsafe(24)
-            recovery_code = _register(args.base_url, args.origin, username, password)
+            recovery_code = _register(
+                args.base_url,
+                args.origin,
+                username,
+                password,
+                admin_container=args.admin_container,
+            )
             _write_secret(password_path, password)
             _write_secret(recovery_path, recovery_code)
             manifest["accounts"].append(

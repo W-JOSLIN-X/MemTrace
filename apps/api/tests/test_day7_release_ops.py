@@ -18,6 +18,7 @@ BACKUP_SCRIPT = PROJECT_ROOT / "scripts/day7/backup_sqlite.py"
 RESTORE_SCRIPT = PROJECT_ROOT / "scripts/day7/restore_sqlite.py"
 CALIBRATION_SCRIPT = PROJECT_ROOT / "scripts/day7/calibrate_config.py"
 PREPARE_SECRETS_SCRIPT = PROJECT_ROOT / "scripts/day7/prepare_release_secrets.py"
+PROVISION_ACCOUNTS_SCRIPT = PROJECT_ROOT / "scripts/day7/provision_gate_accounts.py"
 
 
 def _load_calibrate():
@@ -26,6 +27,16 @@ def _load_calibrate():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.calibrate
+
+
+def _load_provision_accounts():
+    spec = importlib.util.spec_from_file_location(
+        "day7_provision_gate_accounts", PROVISION_ACCOUNTS_SCRIPT
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _run_json(script: Path, *arguments: str) -> tuple[int, dict[str, object]]:
@@ -162,6 +173,39 @@ def test_release_secret_preparation_is_quiet_and_refuses_overwrite(tmp_path: Pat
     )
     assert retry_code == 2
     assert retry_report["failure_code"] == "SECRET_TARGET_ALREADY_EXISTS"
+
+
+def test_release_account_provisioner_uses_bounded_container_admin_cli(monkeypatch) -> None:
+    module = _load_provision_accounts()
+    invitation_code = "inv_" + "s" * 43
+    captured: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps({"invitation_code": invitation_code}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    assert module._create_invite("memtrace-d7-release-gate-app-1") == invitation_code
+    assert captured["command"] == [
+        "docker",
+        "exec",
+        "memtrace-d7-release-gate-app-1",
+        "python",
+        "-m",
+        "memtrace_api.admin_cli",
+        "invite-create",
+        "--max-uses",
+        "1",
+        "--expires-hours",
+        "24",
+    ]
+    assert module.CONTAINER_PATTERN.fullmatch("../../another-container") is None
 
 
 def test_release_runtime_lock_contains_production_imports_but_excludes_dev_tools() -> None:
