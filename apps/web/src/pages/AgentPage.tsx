@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 import { useSession } from '../auth/useSession'
 import { browserG5Api, G5ApiError, newIdempotencyKey } from '../g5/api'
@@ -30,6 +31,8 @@ const kindLabel: Record<MemoryKind, string> = {
 
 export function AgentPage() {
   const { session, refresh } = useSession()
+  const [searchParams] = useSearchParams()
+  const initialTaskParam = useRef(searchParams.get('task'))
   const [tasks, setTasks] = useState<ConversationListItem[]>([])
   const [taskId, setTaskId] = useState<TaskId | null>(null)
   const [messages, setMessages] = useState<ConversationMessage[]>([])
@@ -92,6 +95,18 @@ export function AgentPage() {
   const loadTasks = useCallback(async (signal?: AbortSignal) => {
     const page = await browserG5Api.listTasks(undefined, signal)
     setTasks(page.items)
+    return page.items
+  }, [])
+
+  const syncTaskParam = useCallback((nextTaskId: TaskId | null) => {
+    const url = new URL(globalThis.location.href)
+    if (nextTaskId === null) url.searchParams.delete('task')
+    else url.searchParams.set('task', nextTaskId)
+    globalThis.history.replaceState(
+      globalThis.history.state,
+      '',
+      `${url.pathname}${url.search}${url.hash}`,
+    )
   }, [])
 
   const restoreTask = useCallback(async (nextTaskId: TaskId, signal?: AbortSignal) => {
@@ -167,7 +182,20 @@ export function AgentPage() {
     const controller = registerController()
     const run = async () => {
       try {
-        await Promise.all([loadTasks(controller.signal), loadMemories(controller.signal)])
+        const [loadedTasks] = await Promise.all([
+          loadTasks(controller.signal),
+          loadMemories(controller.signal),
+        ])
+        const requested = initialTaskParam.current
+        const target =
+          loadedTasks.find((item) => item.task_id === requested)?.task_id ??
+          loadedTasks[0]?.task_id ??
+          null
+        if (target === null) syncTaskParam(null)
+        else {
+          await restoreTask(target, controller.signal)
+          syncTaskParam(target)
+        }
       } catch (reason) {
         if (!controller.signal.aborted) setError(message(reason, '无法载入账号数据。'))
       } finally {
@@ -180,7 +208,15 @@ export function AgentPage() {
       releaseController(controller)
       cancelPrivateWork()
     }
-  }, [cancelPrivateWork, loadMemories, loadTasks, registerController, releaseController])
+  }, [
+    cancelPrivateWork,
+    loadMemories,
+    loadTasks,
+    registerController,
+    releaseController,
+    restoreTask,
+    syncTaskParam,
+  ])
 
   useEffect(() => {
     if (taskId === null) return
@@ -232,6 +268,7 @@ export function AgentPage() {
     const controller = registerController()
     try {
       await restoreTask(nextTaskId, controller.signal)
+      syncTaskParam(nextTaskId)
     } catch (reason) {
       if (!controller.signal.aborted) setError(message(reason, '无法恢复该对话。'))
     } finally {
@@ -241,6 +278,7 @@ export function AgentPage() {
 
   function newConversation() {
     cancelPrivateWork()
+    syncTaskParam(null)
     setTaskId(null)
     setMessages([])
     setDecisions([])
@@ -270,6 +308,7 @@ export function AgentPage() {
         operationKeys.current.delete('task:create')
         activeTaskId = created.task_id
         setTaskId(activeTaskId)
+        syncTaskParam(activeTaskId)
       }
       await connectTaskStream(activeTaskId)
       const turnKeyName = `turn:${activeTaskId}:${content}`

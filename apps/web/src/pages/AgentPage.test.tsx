@@ -6,12 +6,63 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppRoutes } from '../App'
 import {
   createG5Response,
+  createG5SnapshotResponse,
   createG5TurnResponse,
 } from '../test/g5Fixtures'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  FakeEventSource.instances = []
+  globalThis.history.replaceState({}, '', '/')
+})
 
 describe('production Agent streaming page', () => {
+  it('restores the newest server task after a browser refresh', async () => {
+    const snapshot = createG5SnapshotResponse()
+    vi.stubGlobal('EventSource', FakeEventSource as unknown as typeof EventSource)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === '/api/v2/auth/session') return json(session())
+        if (url === '/api/v2/system') return json(system())
+        if (url.startsWith('/api/v2/tasks?')) {
+          return json({
+            schema_version: '2.1.0',
+            request_id: 'req-tasks',
+            items: [
+              {
+                task_id: snapshot.task_id,
+                title: '恢复后的会话',
+                memory_mode: 'on',
+                message_count: 2,
+                created_at: snapshot.created_at,
+                updated_at: snapshot.updated_at,
+              },
+            ],
+            next_cursor: null,
+          })
+        }
+        if (url === `/api/v2/tasks/${snapshot.task_id}`) return json(snapshot)
+        if (url.startsWith('/api/v2/memories?')) return json(memoryList())
+        if (url.startsWith('/api/v2/memory-events?')) return json(memoryEvents())
+        return notFound()
+      }),
+    )
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('以后请用中文回答。')).toBeInTheDocument()
+    expect(screen.getByText('本轮实际 token：30')).toBeInTheDocument()
+    expect(new URLSearchParams(globalThis.location.search).get('task')).toBe(snapshot.task_id)
+    await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1))
+    expect(FakeEventSource.instances[0].url).toContain(snapshot.task_id)
+  })
+
   it('opens SSE before the first real turn, renders deltas, then replaces them with authority', async () => {
     let resolveTurn!: (response: Response) => void
     const turnResponse = new Promise<Response>((resolve) => {
