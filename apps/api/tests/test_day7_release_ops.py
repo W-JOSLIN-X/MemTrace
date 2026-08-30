@@ -213,6 +213,51 @@ def test_release_account_provisioner_uses_bounded_container_admin_cli(monkeypatc
     assert module.CONTAINER_PATTERN.fullmatch("../../another-container") is None
 
 
+def test_release_account_provisioner_can_prepare_browser_invites_without_disclosure(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    module = _load_provision_accounts()
+    invitation_code = "inv_" + "b" * 43
+    monkeypatch.setattr(module, "_create_invite", lambda container: invitation_code)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(PROVISION_ACCOUNTS_SCRIPT),
+            "--base-url",
+            "http://127.0.0.1:18070",
+            "--origin",
+            "http://127.0.0.1:18070",
+            "--output-dir",
+            str(tmp_path),
+            "--username",
+            "browser_gate",
+            "--admin-container",
+            "memtrace-d7-release-gate-app-1",
+            "--invite-only",
+        ],
+    )
+
+    assert module.main() == 0
+    stdout = capsys.readouterr().out
+    report = json.loads(stdout)
+    manifest = json.loads((tmp_path / "credentials.manifest.json").read_text("utf-8"))
+    assert report["registration"] == "browser_pending"
+    assert report["secrets_printed"] is False
+    assert manifest["accounts"] == [
+        {
+            "username": "browser_gate",
+            "password_file": "browser_gate.password",
+            "invite_file": "browser_gate.invite",
+            "registration": "browser_pending",
+        }
+    ]
+    assert (tmp_path / "browser_gate.invite").read_text("utf-8").strip() == invitation_code
+    assert (tmp_path / "browser_gate.password").read_text("utf-8").startswith("D7!")
+    assert invitation_code not in stdout
+    assert invitation_code not in json.dumps(manifest)
+
+
 def test_release_runtime_lock_contains_production_imports_but_excludes_dev_tools() -> None:
     runtime_lock = (PROJECT_ROOT / "apps/api/requirements.runtime.lock").read_text("utf-8")
     lowered = runtime_lock.casefold()

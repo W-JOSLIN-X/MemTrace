@@ -120,6 +120,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--username", action="append", required=True)
     parser.add_argument(
+        "--invite-only",
+        action="store_true",
+        help="write one-time invite/password files for a later browser registration",
+    )
+    parser.add_argument(
         "--admin-container",
         help="create one-time invites through this release container's admin CLI",
     )
@@ -154,9 +159,28 @@ def main() -> int:
         for username in usernames:
             password_path = output_dir / f"{username}.password"
             recovery_path = output_dir / f"{username}.recovery"
-            if password_path.exists() or recovery_path.exists():
+            invite_path = output_dir / f"{username}.invite"
+            expected_paths = (
+                (password_path, invite_path)
+                if args.invite_only
+                else (password_path, recovery_path)
+            )
+            if any(path.exists() for path in expected_paths):
                 raise ProvisionFailure("OUTPUT_ALREADY_EXISTS")
             password = "D7!" + secrets.token_urlsafe(24)
+            if args.invite_only:
+                invitation_code = _create_invite(args.admin_container)
+                _write_secret(password_path, password)
+                _write_secret(invite_path, invitation_code)
+                manifest["accounts"].append(
+                    {
+                        "username": username,
+                        "password_file": password_path.name,
+                        "invite_file": invite_path.name,
+                        "registration": "browser_pending",
+                    }
+                )
+                continue
             recovery_code = _register(
                 args.base_url,
                 args.origin,
@@ -188,6 +212,7 @@ def main() -> int:
                 "status": "passed",
                 "created": len(usernames),
                 "manifest": str(manifest_path),
+                "registration": "browser_pending" if args.invite_only else "completed",
                 "secrets_printed": False,
             },
             sort_keys=True,
