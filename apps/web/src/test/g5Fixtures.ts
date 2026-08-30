@@ -3,7 +3,7 @@ const AT = '2026-08-30T12:00:00Z'
 
 export function createG5Response() {
   return {
-    schema_version: '2.0.0',
+    schema_version: '2.1.0',
     request_id: 'req-test',
     task_id: `task_${ID}`,
     provider_mode: 'real',
@@ -15,7 +15,7 @@ export function createG5Response() {
 
 export function createG5TurnResponse() {
   return {
-    schema_version: '2.0.0',
+    schema_version: '2.1.0',
     request_id: 'req-turn',
     task_id: `task_${ID}`,
     run_id: `run_${ID}`,
@@ -39,6 +39,7 @@ export function createG5TurnResponse() {
     reflection_job_id: `job_${ID}`,
     memory_mode: 'on',
     memory_decisions: [],
+    tool_calls: [],
     usage: [
       {
         stage: 'chat',
@@ -50,6 +51,7 @@ export function createG5TurnResponse() {
         total_tokens: 30,
         reasoning_tokens: null,
         latency_ms: 100,
+        first_token_ms: 20,
       },
     ],
   }
@@ -58,7 +60,7 @@ export function createG5TurnResponse() {
 export function createG5SnapshotResponse() {
   const turn = createG5TurnResponse()
   return {
-    schema_version: '2.0.0',
+    schema_version: '2.1.0',
     request_id: 'req-snapshot',
     task_id: turn.task_id,
     memory_mode: 'on',
@@ -70,6 +72,7 @@ export function createG5SnapshotResponse() {
       turn_index: turn.turn_index,
       reflection_job_id: turn.reflection_job_id,
       memory_decisions: turn.memory_decisions,
+      tool_calls: turn.tool_calls,
       usage: turn.usage,
     },
     last_event_seq: 1,
@@ -80,6 +83,7 @@ export function createG5SnapshotResponse() {
 
 export function createG5MemoryList() {
   return {
+    schema_version: '2.1.0',
     request_id: 'req-memory',
     items: [
       {
@@ -92,6 +96,13 @@ export function createG5MemoryList() {
         current_version_id: `memver_${ID}`,
         version: 1,
         source_type: 'conversation_turn',
+        retrieved_count: 2,
+        injected_count: 1,
+        verified_applied_count: 1,
+        helpful_count: 1,
+        harmful_count: 0,
+        stale_count: 0,
+        last_used_at: AT,
         created_at: AT,
         updated_at: AT,
       },
@@ -102,6 +113,7 @@ export function createG5MemoryList() {
 
 export function createG5EventList() {
   return {
+    schema_version: '2.1.0',
     request_id: 'req-events',
     items: [
       {

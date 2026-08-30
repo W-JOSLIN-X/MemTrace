@@ -30,6 +30,7 @@ describe('Day 6 conversation-first UI', () => {
     let memory = makeMemory()
     const api = makeApi({
       listMemories: vi.fn(async () => ({
+        schema_version: '2.1.0' as const,
         request_id: 'req-list',
         items: activeAlias === 'blank_demo' && memoryVisible ? [memory] : [],
         next_cursor: null,
@@ -121,6 +122,7 @@ describe('Day 6 conversation-first UI', () => {
   it('drains owner memory event pages before returning to interval polling', async () => {
     const afterSeqs: number[] = []
     const listMemories = vi.fn(async () => ({
+      schema_version: '2.1.0' as const,
       request_id: 'req-list',
       items: [],
       next_cursor: null,
@@ -131,12 +133,14 @@ describe('Day 6 conversation-first UI', () => {
         afterSeqs.push(afterSeq)
         if (afterSeq === 0) {
           return {
+            schema_version: '2.1.0' as const,
             request_id: 'req-events-1',
             items: Array.from({ length: 100 }, (_, index) => makeEvent(index + 1)),
             next_seq: 100,
           }
         }
         return {
+          schema_version: '2.1.0' as const,
           request_id: 'req-events-2',
           items: [makeEvent(101)],
           next_seq: 101,
@@ -167,7 +171,7 @@ describe('Day 6 conversation-first UI', () => {
     localStorage.setItem('memtrace:g5:task:blank_demo', TASK_ID)
     const api = makeApi({
       getTask: vi.fn(async () => ({
-        schema_version: '2.0.0' as const,
+        schema_version: '2.1.0' as const,
         request_id: 'req-snapshot',
         task_id: TASK_ID,
         memory_mode: 'on' as const,
@@ -179,6 +183,7 @@ describe('Day 6 conversation-first UI', () => {
           turn_index: turn.turn_index,
           reflection_job_id: null,
           memory_decisions: [decision],
+          tool_calls: [],
           usage: turn.usage,
         },
         last_event_seq: 1,
@@ -199,11 +204,24 @@ describe('Day 6 conversation-first UI', () => {
 })
 
 function makeApi(overrides: Partial<G5Api> = {}): G5Api {
-  const emptyEvents = { request_id: 'req-events', items: [], next_seq: 0 }
+  const emptyEvents = {
+    schema_version: '2.1.0' as const,
+    request_id: 'req-events',
+    items: [],
+    next_seq: 0,
+  }
   const base: G5Api = {
+    async listTasks() {
+      return {
+        schema_version: '2.1.0',
+        request_id: 'req-tasks',
+        items: [],
+        next_cursor: null,
+      }
+    },
     async createTask() {
       return {
-      schema_version: '2.0.0',
+      schema_version: '2.1.0',
       request_id: 'req-task',
       task_id: TASK_ID,
       provider_mode: 'real',
@@ -217,7 +235,7 @@ function makeApi(overrides: Partial<G5Api> = {}): G5Api {
     },
     async getTask() {
       return {
-      schema_version: '2.0.0',
+      schema_version: '2.1.0',
       request_id: 'req-snapshot',
       task_id: TASK_ID,
       memory_mode: 'on',
@@ -231,7 +249,64 @@ function makeApi(overrides: Partial<G5Api> = {}): G5Api {
       }
     },
     async listMemories() {
-      return { request_id: 'req-list', items: [], next_cursor: null }
+      return {
+        schema_version: '2.1.0',
+        request_id: 'req-list',
+        items: [],
+        next_cursor: null,
+      }
+    },
+    async getMemory(memoryId) {
+      return {
+        schema_version: '2.1.0',
+        request_id: 'req-detail',
+        memory: { ...makeMemory(), memory_id: memoryId },
+        versions: [],
+        evidence: [],
+      }
+    },
+    async getMemoryVersionDiff() {
+      throw new Error('not used by conversation compatibility tests')
+    },
+    async getMemoryUsages() {
+      return {
+        schema_version: '2.1.0',
+        request_id: 'req-usages',
+        items: [],
+        next_cursor: null,
+      }
+    },
+    async getMemoryRelations() {
+      return {
+        schema_version: '2.1.0',
+        request_id: 'req-relations',
+        items: [],
+        next_cursor: null,
+      }
+    },
+    async restoreMemoryVersion() {
+      return makeMemory()
+    },
+    async listMemoryConflicts() {
+      return {
+        schema_version: '2.1.0',
+        request_id: 'req-conflicts',
+        items: [],
+        next_cursor: null,
+      }
+    },
+    async getMemoryConflict() {
+      throw new Error('not used by conversation compatibility tests')
+    },
+    async resolveMemoryConflict(relationId, request) {
+      return {
+        schema_version: '2.1.0',
+        request_id: 'req-resolve',
+        relation_id: relationId as `rel_${string}`,
+        action: request.action,
+        status: 'resolved',
+        resolution_memory_id: null,
+      }
     },
     async getTaskEvents() {
       return emptyEvents
@@ -247,12 +322,44 @@ function makeApi(overrides: Partial<G5Api> = {}): G5Api {
     },
     async changeMemory(memoryId, action) {
       return {
+        schema_version: '2.1.0',
         request_id: 'req-lifecycle',
         memory_id: memoryId,
         old_status: action === 'resume' ? 'paused' : 'active',
         new_status: action === 'pause' ? 'paused' : 'active',
         updated_at: AT,
       }
+    },
+    async deleteMemory(memoryId) {
+      return {
+        schema_version: '2.1.0',
+        request_id: 'req-delete-memory',
+        memory_id: memoryId,
+        status: 'deleted',
+        deleted_at: AT,
+      }
+    },
+    async deleteSourceTask(taskId) {
+      return {
+        schema_version: '2.1.0',
+        request_id: 'req-delete-task',
+        task_id: taskId,
+        status: 'deleted',
+        memory_policy: 'preserve_and_mark_evidence_missing',
+        affected_memory_count: 0,
+      }
+    },
+    async exportMemoryPack() {
+      throw new Error('not used by conversation compatibility tests')
+    },
+    async previewMemoryPack() {
+      throw new Error('not used by conversation compatibility tests')
+    },
+    async commitMemoryPack() {
+      throw new Error('not used by conversation compatibility tests')
+    },
+    async recordMemoryEffect() {
+      return undefined
     },
   }
   return {
@@ -278,7 +385,7 @@ function makeSessionApi(onSwitch?: (alias: 'blank_demo' | 'seeded_demo') => void
 
 function makeTurn(reflectionJobId: ReflectionJobId | null): ConversationTurnResponse {
   return {
-    schema_version: '2.0.0' as const,
+    schema_version: '2.1.0' as const,
     request_id: 'req-turn',
     task_id: TASK_ID,
     run_id: `run_${ID}` as const,
@@ -302,6 +409,7 @@ function makeTurn(reflectionJobId: ReflectionJobId | null): ConversationTurnResp
     reflection_job_id: reflectionJobId,
     memory_mode: 'on' as const,
     memory_decisions: [],
+    tool_calls: [],
     usage: [
       {
         stage: 'chat' as const,
@@ -313,6 +421,7 @@ function makeTurn(reflectionJobId: ReflectionJobId | null): ConversationTurnResp
         total_tokens: 30,
         reasoning_tokens: null,
         latency_ms: 100,
+        first_token_ms: 20,
       },
     ],
   }
@@ -347,6 +456,13 @@ function makeMemory(): MemoryProjection {
     current_version_id: `memver_${ID}`,
     version: 1,
     source_type: 'conversation_turn',
+    retrieved_count: 2,
+    injected_count: 1,
+    verified_applied_count: 1,
+    helpful_count: 1,
+    harmful_count: 0,
+    stale_count: 0,
+    last_used_at: AT,
     created_at: AT,
     updated_at: AT,
   }

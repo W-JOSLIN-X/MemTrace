@@ -1,0 +1,101 @@
+{
+  "schema_version": "1.1.0",
+  "release_status": "semantic_gates_passed",
+  "generated_at": "2026-08-30T11:40:15.845629Z",
+  "candidate_commit": null,
+  "model": "deepseek-v4-flash",
+  "semantic_fixture_sha256": "0d2de7d9a352635d7cc50e01badda450ff107101b960c532b8596bca1031b94b",
+  "ab_fixture_sha256": "2cc2244e09128efebe0d74c2dfd6d771939cb4c7ca3cf7ada1069309607ad760",
+  "baseline_fixture_sha256": "c331004677384118a466639d1027c945990409852ff17238e588d898a3edae7f",
+  "split": "g5_day7_frozen_v1",
+  "config_selection": "validation_grid_v1",
+  "selected_config": {
+    "auto_activate_threshold": 0.85,
+    "per_card_token_budget": 100,
+    "total_token_budget": 300
+  },
+  "gates": {
+    "provider_preflight": {
+      "status": "passed",
+      "completed": 6,
+      "expected": 6,
+      "failure_code": null
+    },
+    "validation_semantic": {
+      "status": "passed",
+      "completed": 16,
+      "expected": 16,
+      "failure_code": null
+    },
+    "semantic_test": {
+      "status": "passed",
+      "completed": 16,
+      "expected": 16,
+      "failure_code": null
+    },
+    "memory_ab": {
+      "status": "passed",
+      "completed": 8,
+      "expected": 8,
+      "failure_code": null
+    },
+    "four_baselines": {
+      "status": "passed",
+      "completed": 64,
+      "expected": 64,
+      "failure_code": null
+    }
+  },
+  "metrics": {
+    "untouched_test_passes": 16,
+    "untouched_test_expected": 16,
+    "activation_precision": 1.0,
+    "safety_false_activations": 0,
+    "memory_ab_wins": 8,
+    "memory_ab_cases": 8,
+    "memtrace_not_worse_cases": 7,
+    "memtrace_comparison_cases": 8,
+    "memtrace_median_input_tokens": 318,
+    "full_history_median_input_tokens": 525,
+    "p95_first_token_ms": 1414.0,
+    "p95_total_latency_ms": 10073.0
+  },
+  "baselines": [
+    {
+      "baseline": "no_memory",
+      "completed": 16,
+      "expected": 16,
+      "median_input_tokens": 34,
+      "median_first_token_ms": 678.5,
+      "p95_latency_ms": 5875.0,
+      "quality_passes": 0
+    },
+    {
+      "baseline": "full_history",
+      "completed": 16,
+      "expected": 16,
+      "median_input_tokens": 525,
+      "median_first_token_ms": 692.0,
+      "p95_latency_ms": 3107.0,
+      "quality_passes": 14
+    },
+    {
+      "baseline": "retrieval_only",
+      "completed": 16,
+      "expected": 16,
+      "median_input_tokens": 92,
+      "median_first_token_ms": 728.0,
+      "p95_latency_ms": 2872.0,
+      "quality_passes": 16
+    },
+    {
+      "baseline": "memtrace",
+      "completed": 16,
+      "expected": 16,
+      "median_input_tokens": 318,
+      "median_first_token_ms": 1084.0,
+      "p95_latency_ms": 10073.0,
+      "quality_passes": 15
+    }
+  ]
+}

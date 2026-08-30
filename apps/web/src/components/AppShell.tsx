@@ -1,5 +1,11 @@
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+
+import { publicApi } from '../auth/api'
+import { useSession } from '../auth/useSession'
+import type { SystemInfo } from '../auth/types'
+import { RouteErrorBoundary } from './RouteErrorBoundary'
 
 type NavigationItem = {
   label: string
@@ -38,6 +44,22 @@ const navigation: NavigationItem[] = [
 ]
 
 export function AppShell() {
+  const { session, logout } = useSession()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [system, setSystem] = useState<SystemInfo | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void publicApi.system(controller.signal).then(setSystem).catch(() => undefined)
+    return () => controller.abort()
+  }, [])
+
+  async function signOut() {
+    await logout()
+    navigate('/login', { replace: true })
+  }
+
   return (
     <div className="min-h-screen bg-stone-50 text-slate-950">
       <header className="border-b border-stone-200/90 bg-stone-50/95 backdrop-blur">
@@ -60,12 +82,25 @@ export function AppShell() {
             </span>
           </NavLink>
 
-          <div
-            aria-label="当前开发阶段"
-            className="flex items-center gap-2 rounded-full border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm"
-          >
-            <span className="size-2 rounded-full bg-emerald-500" />
-            Day 6 · G5 · 真实模型
+          <div className="flex items-center gap-3">
+            <div
+              aria-label="服务状态"
+              className="hidden items-center gap-2 rounded-full border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm sm:flex"
+            >
+              <span className={`size-2 rounded-full ${system?.provider_mode === 'real' && system.key_configured ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+              {system ? `${system.version} · ${system.provider_mode === 'real' ? '真实模型' : system.provider_mode}` : '正在读取服务状态'}
+            </div>
+            <div className="text-right">
+              <p className="text-sm font-black">{session?.account.display_name}</p>
+              <p className="text-xs text-slate-500">今日剩余 {session?.quota.remaining ?? 0} 轮</p>
+            </div>
+            <button
+              className="rounded-xl border border-stone-200 px-3 py-2 text-xs font-bold hover:bg-stone-100"
+              onClick={() => void signOut()}
+              type="button"
+            >
+              退出
+            </button>
           </div>
         </div>
       </header>
@@ -83,7 +118,9 @@ export function AppShell() {
         </aside>
 
         <main className="min-w-0">
-          <Outlet />
+          <RouteErrorBoundary key={location.pathname}>
+            <Outlet />
+          </RouteErrorBoundary>
         </main>
       </div>
 

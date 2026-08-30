@@ -15,17 +15,22 @@ afterEach(() => vi.unstubAllGlobals())
 
 describe('browser G5 API', () => {
   it('uses only public v2 REST routes, cookies and caller-owned idempotency keys', async () => {
-    const edit = {
-      request_id: 'req-edit',
-      memory_id: `mem_${ID}`,
+    const editedMemory = {
+      ...createG5MemoryList().items[0],
       kind: 'rule',
       content: '始终使用中文',
       applies_when: '所有回答',
-      status: 'active',
       current_version_id: 'memver_01J00000000000000000000002',
-      updated_at: '2026-08-30T12:00:00Z',
+      version: 2,
+      source_type: 'user_edit',
+    }
+    const edit = {
+      schema_version: '2.1.0',
+      request_id: 'req-edit',
+      memory: editedMemory,
     }
     const lifecycle = {
+      schema_version: '2.1.0',
       request_id: 'req-pause',
       memory_id: `mem_${ID}`,
       old_status: 'active',
