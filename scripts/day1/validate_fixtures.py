@@ -16,8 +16,11 @@ DAY2_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day2"
 DAY3_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day3"
 DAY4_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day4"
 DAY5_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day5"
+DAY6_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day6"
 API_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "schemas" / "g0-api.schema.json"
 EVENT_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "schemas" / "events.schema.json"
+G5_LLM_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "schemas" / "g5-llm.schema.json"
+G5_EXAMPLES_PATH = PROJECT_ROOT / "contracts" / "examples" / "day6-g5.json"
 
 MOCK_FIXTURES = (
     FIXTURE_ROOT / "mock_sse_python_success.json",
@@ -329,7 +332,9 @@ def validate_day4_g3_cases() -> None:
     cases = fixture["cases"]
     assert len(cases) == 30, f"Day 4 G3 fixture must contain 30 cases, got {len(cases)}"
     assert len({case["id"] for case in cases}) == 30
-    assert {case["id"] for case in cases} == {f"d4-g3-{index:02d}" for index in range(1, 31)}
+    assert {case["id"] for case in cases} == {
+        f"d4-g3-{index:02d}" for index in range(1, 31)
+    }
     required_operations = {
         "retrieve",
         "negative",
@@ -375,12 +380,24 @@ def validate_day5_g4_cases() -> None:
         }
         assert all(case["operation"] and case["expected"] for case in cases)
     assert {case["action"] for case in conflict["cases"]} >= {
-        "prefer", "separate_scopes", "merge", "pause_both"
+        "prefer",
+        "separate_scopes",
+        "merge",
+        "pause_both",
     }
     required_security = {
-        "round_trip", "oversized_file", "duplicate_keys", "unsupported_version",
-        "integrity_mismatch", "dangling_relation", "self_relation", "forbidden_field",
-        "xss_text", "cross_owner_batch", "expired_commit", "tampered_token",
+        "round_trip",
+        "oversized_file",
+        "duplicate_keys",
+        "unsupported_version",
+        "integrity_mismatch",
+        "dangling_relation",
+        "self_relation",
+        "forbidden_field",
+        "xss_text",
+        "cross_owner_batch",
+        "expired_commit",
+        "tampered_token",
     }
     assert {case["operation"] for case in security["cases"]} == required_security
     manifest = load_json(DAY5_FIXTURE_ROOT / "g4_eval_manifest.json")
@@ -391,6 +408,117 @@ def validate_day5_g4_cases() -> None:
         for source in group["sources"]:
             payload = (PROJECT_ROOT / source["path"]).read_bytes()
             assert hashlib.sha256(payload).hexdigest() == source["sha256"]
+
+
+def validate_day6_g5_cases(
+    api_schema: dict[str, Any], g5_llm_schema: dict[str, Any]
+) -> None:
+    semantic = load_json(DAY6_FIXTURE_ROOT / "semantic_cases.json")
+    ab = load_json(DAY6_FIXTURE_ROOT / "ab_cases.json")
+    examples = load_json(G5_EXAMPLES_PATH)
+    for label, payload in (
+        ("day6_semantic_cases", semantic),
+        ("day6_ab_cases", ab),
+        ("day6_g5_examples", examples),
+    ):
+        scan_forbidden(payload, label)
+
+    for fixture in (semantic, ab):
+        assert fixture["schema_version"] == "2.0.0"
+        assert fixture["status"] == "member_b_real_gate_2026-08-30"
+        assert fixture["provider_requirement"] == "real_only"
+
+    semantic_cases = semantic["cases"]
+    assert len(semantic_cases) == 16
+    assert len({case["case_id"] for case in semantic_cases}) == 16
+    assert all(
+        re.fullmatch(r"g5-\d{2}-[a-z0-9-]+", case["case_id"]) for case in semantic_cases
+    )
+    allowed_kinds = {"preference", "rule", "experience"}
+    allowed_operations = {"add", "update", "supersede", "coexist", "noop"}
+    allowed_applicability = {
+        "applicable",
+        "current_instruction_override",
+        "conflict",
+        "irrelevant",
+    }
+    allowed_effect = {"applied", "violated", "not_observable", "unknown"}
+    for case in semantic_cases:
+        assert case["seed_turns"]
+        assert all(turn["content"].strip() for turn in case["seed_turns"])
+        assert case["probe"].strip()
+        assert case["probe_memory_mode"] in {"on", "off"}
+        assert set(case["allowed_kinds"]) <= allowed_kinds
+        assert set(case["allowed_operations"]) <= allowed_operations
+        assert set(case.get("required_operations", [])) <= set(
+            case["allowed_operations"]
+        )
+        assert set(case["allowed_applicability"]) <= allowed_applicability
+        assert set(case["allowed_effect"]) <= allowed_effect
+        if not case["expected_injected"]:
+            assert case["allowed_effect"] == []
+
+    assert any(case["probe_memory_mode"] == "off" for case in semantic_cases)
+    assert any(case.get("cross_owner_probe") for case in semantic_cases)
+    assert any(case.get("security_case") for case in semantic_cases)
+    assert any(
+        "supersede" in case.get("required_operations", []) for case in semantic_cases
+    )
+    assert any(
+        "coexist" in case.get("required_operations", []) for case in semantic_cases
+    )
+    assert any(
+        not turn["content"].isascii()
+        for case in semantic_cases
+        for turn in case["seed_turns"]
+    )
+    assert any(
+        turn["content"].isascii()
+        for case in semantic_cases
+        for turn in case["seed_turns"]
+    )
+
+    ab_cases = ab["cases"]
+    assert len(ab_cases) == 8
+    assert {case["case_id"] for case in ab_cases} == {
+        f"ab-{index:02d}-{suffix}"
+        for index, suffix in enumerate(
+            (
+                "concise",
+                "bullets",
+                "assumptions",
+                "analogy",
+                "table",
+                "risks",
+                "debug-timeline",
+                "explain-before-code",
+            ),
+            start=1,
+        )
+    }
+    assert all(
+        case["memory"].strip() and case["probe"].strip() and case["criterion"].strip()
+        for case in ab_cases
+    )
+
+    assert examples["schema_version"] == "2.0.0"
+    assert examples["evidence_label"] == (
+        "synthetic_contract_examples_not_semantic_evidence"
+    )
+    for example in examples["rest_requests"]:
+        assert_valid(
+            schema_validator(api_schema, example["definition"]),
+            example["value"],
+            f"day6-g5/rest/{example['definition']}",
+        )
+    for example in examples["llm_outputs"]:
+        assert_valid(
+            schema_validator(g5_llm_schema, example["definition"]),
+            example["value"],
+            f"day6-g5/llm/{example['definition']}",
+        )
+
+
 def trace_signature(events: list[dict[str, Any]]) -> list[str]:
     signature: list[str] = []
     chunk_seen = False
@@ -555,8 +683,10 @@ def validate_mock_fixture(
 def main() -> int:
     api_schema = load_json(API_SCHEMA_PATH)
     event_schema = load_json(EVENT_SCHEMA_PATH)
+    g5_llm_schema = load_json(G5_LLM_SCHEMA_PATH)
     Draft202012Validator.check_schema(api_schema)
     Draft202012Validator.check_schema(event_schema)
+    Draft202012Validator.check_schema(g5_llm_schema)
     event_validator = Draft202012Validator(event_schema, format_checker=FormatChecker())
 
     validate_demo_core(api_schema)
@@ -565,6 +695,7 @@ def main() -> int:
     validate_day3_learning_events(api_schema)
     validate_day4_g3_cases()
     validate_day5_g4_cases()
+    validate_day6_g5_cases(api_schema, g5_llm_schema)
     for path in MOCK_FIXTURES:
         validate_mock_fixture(path, api_schema, event_validator)
 
@@ -576,6 +707,7 @@ def main() -> int:
     )
     print("PASS: 30 owner-verified Day 4 G3 REST-only cases and privacy metadata")
     print("PASS: 8 Day 5 conflict and 12 Pack/security REST-only cases")
+    print("PASS: 16 Day 6 real semantic and 8 blind A/B cases plus strict G5 examples")
     print("PASS: python_success, no_tool_success, and run_failure SSE fixtures")
     print(
         "PASS: UTF-8 byte offsets, trace order, metadata IDs, and secret/reasoning scan"

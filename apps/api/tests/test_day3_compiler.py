@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -14,6 +14,11 @@ from memtrace_api.compiler import (
     ProviderFailure,
 )
 from memtrace_api.config import Settings
+from memtrace_api.providers import (
+    ProviderFailure as ResponsesProviderFailure,
+)
+from memtrace_api.providers import ProviderRequest, ProviderUsage, StructuredOutput
+from memtrace_api.schemas import AsyncErrorCode
 
 
 @pytest.mark.asyncio
@@ -131,26 +136,69 @@ async def test_mock_provider_distinguishes_experience_procedure_and_factual_edit
     assert factual.candidates == []
 
 
-class _FakeCompletions:
-    def __init__(self, content: str) -> None:
-        self.content = content
-        self.kwargs = None
+class _FakeResponsesProvider:
+    def __init__(self, parsed: dict[str, Any] | None = None, *, fail: bool = False) -> None:
+        self.parsed = parsed or {}
+        self.fail = fail
+        self.request: ProviderRequest | None = None
+        self.schema: dict[str, Any] | None = None
 
-    async def create(self, **kwargs):
-        self.kwargs = kwargs
-        return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=self.content))]
+    async def complete_json(
+        self,
+        request: ProviderRequest,
+        output_schema: dict[str, Any] | None = None,
+    ) -> StructuredOutput:
+        self.request = request
+        self.schema = output_schema
+        if self.fail:
+            raise ResponsesProviderFailure(
+                AsyncErrorCode.PROVIDER_ERROR,
+                "controlled",
+                retryable=False,
+            )
+        return StructuredOutput(
+            raw=json.dumps(self.parsed),
+            parsed=self.parsed,
+            usage=ProviderUsage(
+                prompt_tokens=12,
+                output_tokens=5,
+                total_tokens=17,
+                reasoning_tokens=0,
+            ),
+            response_id="resp_legacy_adapter",
+            model="deepseek-v4-flash",
+            prompt_hash="sha256:" + "d" * 64,
+            latency_ms=2,
         )
 
+    async def aclose(self) -> None:
+        return None
 
-class _FakeClient:
-    def __init__(self, content: str) -> None:
-        self.completions = _FakeCompletions(content)
-        self.chat = SimpleNamespace(completions=self.completions)
+
+class _RepairThenSuccessProvider(_FakeResponsesProvider):
+    def __init__(self, parsed: dict[str, Any], *, fail_twice: bool = False) -> None:
+        super().__init__(parsed)
+        self.fail_twice = fail_twice
+        self.requests: list[ProviderRequest] = []
+
+    async def complete_json(
+        self,
+        request: ProviderRequest,
+        output_schema: dict[str, Any] | None = None,
+    ) -> StructuredOutput:
+        self.requests.append(request)
+        if len(self.requests) == 1 or self.fail_twice:
+            raise ResponsesProviderFailure(
+                AsyncErrorCode.PROVIDER_ERROR,
+                "validator=maxLength; path=candidates/0/title",
+                retryable=False,
+                failure_kind="structured_schema_invalid",
+            )
+        return await super().complete_json(request, output_schema)
 
 
 @pytest.mark.asyncio
-async def test_real_provider_uses_json_schema_response_format_with_fake_client() -> None:
+async def test_real_provider_uses_strict_responses_schema_adapter() -> None:
     body = {
         "schema_version": "1.0",
         "feedback_summary": "没有可复用内容。",
@@ -158,36 +206,80 @@ async def test_real_provider_uses_json_schema_response_format_with_fake_client()
         "disposition": "no_memory",
         "candidates": [],
     }
-    fake = _FakeClient(json.dumps(body, ensure_ascii=False))
+    fake = _FakeResponsesProvider(body)
     settings = Settings(
         _env_file=None,
         mock_mode=False,
         llm_api_key="unit-test-placeholder",
     )
-    provider = DeepSeekStructuredProvider(settings, client=fake)
+    provider = DeepSeekStructuredProvider(settings, provider=fake)  # type: ignore[arg-type]
     schema = ExtractionSchema.model_json_schema()
     result = await provider.complete_json("prompt", schema)
     assert result == body
-    assert fake.completions.kwargs["response_format"] == {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "memory_extraction",
-            "strict": True,
-            "schema": schema,
-        },
+    assert fake.request is not None
+    assert fake.request.stage == "reflection"
+    assert fake.request.task_text == "prompt"
+    assert fake.schema == {
+        "name": "legacy_memory_extraction",
+        "strict": True,
+        "schema": schema,
     }
 
 
 @pytest.mark.asyncio
-async def test_real_provider_maps_invalid_json_to_controlled_error() -> None:
-    fake = _FakeClient("not-json")
+async def test_real_provider_maps_responses_failure_to_controlled_error() -> None:
+    fake = _FakeResponsesProvider(fail=True)
     settings = Settings(
         _env_file=None,
         mock_mode=False,
         llm_api_key="unit-test-placeholder",
     )
-    provider = DeepSeekStructuredProvider(settings, client=fake)
+    provider = DeepSeekStructuredProvider(settings, provider=fake)  # type: ignore[arg-type]
     with pytest.raises(ProviderFailure) as caught:
         await provider.complete_json("prompt", ExtractionSchema.model_json_schema())
-    assert caught.value.code == "MEMORY_JSON_INVALID"
+    assert caught.value.code == "MEMORY_PROVIDER_ERROR"
     assert caught.value.retryable is False
+
+
+@pytest.mark.asyncio
+async def test_real_provider_repairs_one_schema_invalid_response() -> None:
+    body = {
+        "schema_version": "1.0",
+        "feedback_summary": "没有可复用内容。",
+        "durability": "ambiguous",
+        "disposition": "no_memory",
+        "candidates": [],
+    }
+    fake = _RepairThenSuccessProvider(body)
+    settings = Settings(
+        _env_file=None,
+        mock_mode=False,
+        llm_api_key="unit-test-placeholder",
+    )
+    provider = DeepSeekStructuredProvider(settings, provider=fake)  # type: ignore[arg-type]
+
+    assert (
+        await provider.complete_json("original prompt", ExtractionSchema.model_json_schema())
+        == body
+    )
+    assert len(fake.requests) == 2
+    assert fake.requests[0].task_text == "original prompt"
+    assert "SCHEMA_REPAIR_REQUIRED" in fake.requests[1].task_text
+    assert "validator=maxLength" in fake.requests[1].task_text
+
+
+@pytest.mark.asyncio
+async def test_real_provider_fails_closed_after_second_invalid_schema() -> None:
+    fake = _RepairThenSuccessProvider({}, fail_twice=True)
+    settings = Settings(
+        _env_file=None,
+        mock_mode=False,
+        llm_api_key="unit-test-placeholder",
+    )
+    provider = DeepSeekStructuredProvider(settings, provider=fake)  # type: ignore[arg-type]
+
+    with pytest.raises(ProviderFailure) as caught:
+        await provider.complete_json("prompt", ExtractionSchema.model_json_schema())
+    assert caught.value.code == "MEMORY_REPAIR_FAILED"
+    assert caught.value.retryable is False
+    assert len(fake.requests) == 2

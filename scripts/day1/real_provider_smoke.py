@@ -77,7 +77,14 @@ def run_smoke(
 ) -> dict[str, Any]:
     normalized_base = base_url.rstrip("/") + "/"
     timeout = httpx.Timeout(timeout_seconds, connect=min(timeout_seconds, 15.0))
-    with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+    # The gate always targets an API that the operator selected explicitly (normally
+    # localhost).  Do not let a workstation-wide HTTP proxy turn a healthy local
+    # API into a synthetic 502 response.
+    with httpx.Client(
+        timeout=timeout,
+        follow_redirects=False,
+        trust_env=False,
+    ) as client:
         ready_response = client.get(urljoin(normalized_base, "api/v1/ready"))
         require(ready_response.status_code == 200, "ready endpoint did not return 200")
         ready = safe_json(ready_response, "ready response")
@@ -219,7 +226,8 @@ def run_smoke(
         }
         require(
             required_events.issubset(event_types),
-            "successful Provider trace is incomplete",
+            "successful Provider trace is incomplete; missing="
+            + ",".join(sorted(required_events.difference(event_types))),
         )
         require(saw_done, "successful Provider trace has no stream.done")
         require(bool(output), "successful Provider trace has no answer chunks")
@@ -228,9 +236,7 @@ def run_smoke(
             metrics.get("provider_mode") == expected_mode,
             "metrics provider mode mismatch",
         )
-        expected_token_sources = (
-            {"mock"} if expected_mode == "mock" else {"actual", "unavailable"}
-        )
+        expected_token_sources = {"mock"} if expected_mode == "mock" else {"actual"}
         require(
             metrics.get("token_source") in expected_token_sources,
             "metrics token source mismatch",

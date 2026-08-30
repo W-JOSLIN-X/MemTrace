@@ -24,7 +24,7 @@ from memtrace_api.readiness import DatabaseRevisionError, ensure_database_curren
 from memtrace_api.schemas import utc_now
 
 ALEMBIC_INI = str(PROJECT_ROOT / "apps" / "api" / "alembic.ini")
-EXPECTED_HEAD = "005_g4_memory_center_pack"
+EXPECTED_HEAD = "006_conversation_first_memory"
 
 
 def _run_alembic(db_url: str, *args: str) -> None:
@@ -87,7 +87,64 @@ def test_fresh_empty_database_upgrades_to_head() -> None:
         "memory_evidence",
         "memory_evidence_links",
         "memory_relations",
+        "memory_reflection_jobs",
+        "memory_llm_judgments",
+        "memory_event_cursors",
     } <= tables
+    with Session(engine) as session:
+        assert ensure_database_current(session) == EXPECTED_HEAD
+    engine.dispose()
+
+
+def test_day5_to_day6_downgrade_and_reupgrade_cycle() -> None:
+    _, db_url = _new_db("day6-cycle.sqlite3")
+    _run_alembic(db_url, "upgrade", "005_g4_memory_center_pack")
+    engine = create_engine(db_url)
+    with engine.connect() as conn:
+        tables_at_005 = {
+            row[0]
+            for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+        }
+    assert "memory_reflection_jobs" not in tables_at_005
+    engine.dispose()
+
+    _run_alembic(db_url, "upgrade", EXPECTED_HEAD)
+    engine = create_engine(db_url)
+    with engine.connect() as conn:
+        tables_at_006 = {
+            row[0]
+            for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+        }
+        card_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(memory_cards)"))}
+    assert {"memory_reflection_jobs", "memory_llm_judgments", "memory_event_cursors"} <= (
+        tables_at_006
+    )
+    assert {"memory_kind_v2", "content", "applies_when", "review_status"} <= card_columns
+    engine.dispose()
+
+    _run_alembic(db_url, "downgrade", "005_g4_memory_center_pack")
+    engine = create_engine(db_url)
+    with engine.connect() as conn:
+        tables_after_down = {
+            row[0]
+            for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+        }
+        card_columns_after_down = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(memory_cards)"))
+        }
+    assert (
+        not {
+            "memory_reflection_jobs",
+            "memory_llm_judgments",
+            "memory_event_cursors",
+        }
+        & tables_after_down
+    )
+    assert "memory_kind_v2" not in card_columns_after_down
+    engine.dispose()
+
+    _run_alembic(db_url, "upgrade", EXPECTED_HEAD)
+    engine = create_engine(db_url)
     with Session(engine) as session:
         assert ensure_database_current(session) == EXPECTED_HEAD
     engine.dispose()

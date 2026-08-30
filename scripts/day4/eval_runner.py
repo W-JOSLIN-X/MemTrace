@@ -19,7 +19,7 @@ class RestClient:
         self.base_url = base_url.rstrip("/")
         jar = http.cookiejar.CookieJar()
         self.opener = urllib.request.build_opener(
-            urllib.request.HTTPCookieProcessor(jar)
+            urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(jar)
         )
 
     def request(

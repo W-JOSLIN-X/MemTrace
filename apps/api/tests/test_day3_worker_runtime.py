@@ -10,6 +10,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from memtrace_api.config import Settings
 from memtrace_api.db_models import EventLogModel, FeedbackEventModel, MemoryJobModel
 from memtrace_api.ids import new_prefixed_ulid
 from memtrace_api.main import create_app
@@ -96,21 +97,41 @@ def test_memory_scope_normalizes_provider_concepts_without_g2_regression() -> No
     assert scope.concepts == ["debugging", "loops"]
 
 
+def test_real_provider_mode_keeps_legacy_g2_worker_available(tmp_path) -> None:
+    settings = Settings(
+        _env_file=None,
+        app_env="test",
+        mock_mode=False,
+        llm_api_key="unit-test-placeholder",
+        memtrace_data_dir=tmp_path / "data",
+        memtrace_database_url=f"sqlite:///{(tmp_path / 'stale.sqlite3').as_posix()}",
+    )
+    app = create_app(settings)
+
+    with TestClient(app):
+        assert app.state.memory_worker is not None
+        assert app.state.memory_worker._provider.mode == "real"
+
+
 def test_two_workers_atomically_claim_eight_jobs_once(tmp_path) -> None:
     client = _client(tmp_path)
     try:
         task = _task_to_terminal(client, key="g2-task-claim-race-0001")
         snapshot = client.get(f"/api/v1/tasks/{task['task_id']}").json()
-        job_ids = _seed_jobs(
-            client,
-            task_id=task["task_id"],
-            run_id=snapshot["run_id"],
-            count=8,
-        )
         factory = client.app.state.db_session_factory
         settings = client.app.state.settings
     finally:
         client.__exit__(None, None, None)
+
+    # Seed only after the app-owned worker has stopped. Seeding while the
+    # TestClient is alive races that background worker against the eight
+    # explicit claim calls below and makes this atomicity test nondeterministic.
+    job_ids = _seed_jobs(
+        client,
+        task_id=task["task_id"],
+        run_id=snapshot["run_id"],
+        count=8,
+    )
 
     workers = [
         MemoryJobWorker(factory, settings, _store()),
