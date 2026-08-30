@@ -1,0 +1,75 @@
+name: memtrace-release
+
+services:
+  app:
+    image: memtrace:0.1.0
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VCS_REF: "${APP_REVISION:?APP_REVISION must be the frozen git commit}"
+        IMAGE_SOURCE: "${IMAGE_SOURCE:-https://github.com/W-JOSLIN-X/MemTrace}"
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:${MEMTRACE_PORT:-18070}:8000"
+    environment:
+      APP_NAME: MemTrace API
+      APP_ENV: production
+      APP_VERSION: 0.1.0
+      APP_REVISION: "${APP_REVISION}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      MOCK_MODE: "false"
+      ALLOW_DEMO_SESSIONS: "false"
+      PUBLIC_ORIGIN: "${PUBLIC_ORIGIN:?PUBLIC_ORIGIN must be the exact browser origin}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-true}"
+      DAILY_REAL_TURN_LIMIT: "50"
+      MAX_ACTIVE_TURNS_PER_OWNER: "1"
+      MAX_REQUEST_BODY_BYTES: "1048576"
+      MEMORY_AUTO_ACTIVATE_CONFIDENCE: "${MEMORY_AUTO_ACTIVATE_CONFIDENCE:-0.85}"
+      MEMORY_TOKEN_BUDGET_PER_CARD: "${MEMORY_TOKEN_BUDGET_PER_CARD:-100}"
+      MEMORY_TOKEN_BUDGET_TOTAL: "${MEMORY_TOKEN_BUDGET_TOTAL:-300}"
+      MEMORY_MAX_CANDIDATES: "50"
+      MEMORY_TOP_K: "5"
+      PROVIDER_TIMEOUT_SECONDS: "60"
+      LLM_BASE_URL: "${LLM_BASE_URL:-https://api.deepseek.com}"
+      LLM_MODEL: "${LLM_MODEL:?LLM_MODEL must be live-verified before release}"
+      LLM_API_KEY_FILE: /run/secrets/llm_api_key
+      SESSION_SECRET_FILE: /run/secrets/session_secret
+      MEMTRACE_DATA_DIR: /app/data
+      MEMTRACE_DATABASE_URL: sqlite:////app/data/memtrace.sqlite3
+      MEMTRACE_WEB_DIST: /app/static
+    secrets:
+      - llm_api_key
+      - session_secret
+    volumes:
+      - memtrace-data:/app/data
+      - memtrace-backups:/app/backups
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/ready', timeout=2).read()"
+      interval: 10s
+      timeout: 3s
+      start_period: 15s
+      retries: 5
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+secrets:
+  llm_api_key:
+    file: "${LLM_API_KEY_FILE:?LLM_API_KEY_FILE must point to a read-only local secret file}"
+  session_secret:
+    file: "${SESSION_SECRET_FILE:?SESSION_SECRET_FILE must point to a read-only local secret file}"
+
+volumes:
+  memtrace-data:
+  memtrace-backups:

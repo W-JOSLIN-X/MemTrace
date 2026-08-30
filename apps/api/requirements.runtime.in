@@ -1,0 +1,11 @@
+# Runtime-only dependencies for the public release image.
+fastapi==0.141.1
+uvicorn==0.51.0
+pydantic-settings==2.14.2
+httpx==0.28.1
+openai==2.38.0
+rapidfuzz==3.14.3
+SQLAlchemy==2.0.52
+alembic==1.19.1
+rfc8785==0.1.4
+argon2-cffi==25.1.0

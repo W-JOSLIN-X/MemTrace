@@ -2,7 +2,7 @@ name: memtrace
 
 services:
   app:
-    image: memtrace:day6-g5-real
+    image: memtrace:day7-g5-release
     build:
       context: .
       dockerfile: Dockerfile
@@ -13,6 +13,7 @@ services:
       APP_NAME: "${APP_NAME:-MemTrace API}"
       APP_ENV: production
       APP_VERSION: "${APP_VERSION:-0.1.0}"
+      APP_REVISION: "${APP_REVISION:-development}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
       MOCK_MODE: "${MOCK_MODE:-true}"
       MOCK_CHUNK_DELAY_MS: "${MOCK_CHUNK_DELAY_MS:-250}"
@@ -26,7 +27,15 @@ services:
       LLM_MODEL: "${LLM_MODEL:-deepseek-v4-flash}"
       LLM_API_KEY: "${LLM_API_KEY:-}"
       SESSION_SECRET: "${SESSION_SECRET:?SESSION_SECRET must be set}"
+      ALLOW_DEMO_SESSIONS: "${ALLOW_DEMO_SESSIONS:-true}"
+      PUBLIC_ORIGIN: "${PUBLIC_ORIGIN:-http://127.0.0.1:8000}"
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+      DAILY_REAL_TURN_LIMIT: "${DAILY_REAL_TURN_LIMIT:-50}"
+      MAX_ACTIVE_TURNS_PER_OWNER: "${MAX_ACTIVE_TURNS_PER_OWNER:-1}"
+      MAX_REQUEST_BODY_BYTES: "${MAX_REQUEST_BODY_BYTES:-1048576}"
+      MEMORY_AUTO_ACTIVATE_CONFIDENCE: "${MEMORY_AUTO_ACTIVATE_CONFIDENCE:-0.85}"
+      MEMORY_TOKEN_BUDGET_PER_CARD: "${MEMORY_TOKEN_BUDGET_PER_CARD:-100}"
+      MEMORY_TOKEN_BUDGET_TOTAL: "${MEMORY_TOKEN_BUDGET_TOTAL:-300}"
       MEMTRACE_DATA_DIR: /app/data
       MEMTRACE_DATABASE_URL: sqlite:////app/data/memtrace.sqlite3
       MEMTRACE_WEB_DIST: /app/static
