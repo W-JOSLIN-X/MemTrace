@@ -1,6 +1,6 @@
 # Day 6 所有者整合与验收报告
 
-> 状态：整合进行中。本文先保存成员 A 分支的独立失败基线；修复后的证据只追加，不删除或覆盖本节。
+> 状态：本地、真实 Provider、Docker 与双浏览器门禁已通过，等待最终远端竞态复核和普通 push。本文先保存成员 A 分支的独立失败基线；修复后的证据只追加，不删除或覆盖本节。
 >
 > 所有者 / 最终发布者：`W-JOSLIN-X`
 >
@@ -256,5 +256,24 @@ API 或 Day 7 能力。真实模型有统计波动，因此 16×2、A/B 和安�
 
 ## 9. 报告提交后的最终发布门禁
 
-本节将在本报告首次提交后追加最终全量复跑、竞态 fetch、普通 push 与远端 SHA。只有该节记录的
-所有命令退出 0，且远端 `main` 等于本地已验证 HEAD，状态才可改为“Day 6 完成”。
+首版 owner report 提交为 `dd624d2`。该提交之后重新执行了全部本地自动化：
+
+- `pip check`、`ruff check apps/api`、`ruff format --check apps/api`：全部 exit 0；82 个后端
+  Python 文件已格式化。
+- `pytest apps/api/tests -q`：exit 0，`466 passed in 373.57s`。
+- `alembic heads`：exit 0，唯一 `006_conversation_first_memory (head)`。
+- `scripts/day1/validate_fixtures.py`：exit 0，G1–G5、16 semantic、8 A/B、strict G5 examples
+  全部通过。
+- `npm run typecheck`、`npm run lint`、`npm test`、`npm run build`：全部 exit 0；12 files、
+  63 tests passed，53 modules production build 成功。
+- 报告提交后再次连续导出 OpenAPI/REST/LLM Schema 两次：哈希与第 4 节一致，第二次零 diff，
+  committed contracts 无漂移。
+- `git diff --check`：exit 0；工作区在追加本节前为 clean。
+- 对 `origin/main...HEAD` 的 58 个新增/修改文件扫描：实际 DeepSeek Key 精确命中 0，通用
+  `sk-*`/Bearer 形状文件 0，`.env`/SQLite/output/dist/node_modules/Playwright 产物 0。
+- A 的实际 head `9ef1c6f8b276e7a267517e4ce5d811b66a4ae5ef` 仍是当前候选祖先；最后已验证的产品代码
+  SHA 仍为 `d0d2658b47d5b1c06898fddffa7e5d7cd0fb8b46`，本节仅追加文档证据。
+
+剩余动作只有再次 `git fetch --prune origin`、确认 `origin/main` 仍是已测试 base、普通执行
+`git push origin HEAD:main`，并读取远端 SHA。若 main 已移动或 push 失败，本报告只能保持“等待
+发布”，不能写 Day 6 完成。
