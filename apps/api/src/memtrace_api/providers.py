@@ -97,6 +97,7 @@ class ProviderStreamItem:
     model: str | None = None
     prompt_hash: str | None = None
     latency_ms: int | None = None
+    first_token_ms: int | None = None
 
 
 @dataclass
@@ -167,6 +168,10 @@ class StreamingProvider(Protocol):
 
     def stream(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamItem]: ...
 
+    async def function_call(
+        self, request: ProviderRequest, tools: list[dict[str, Any]]
+    ) -> FunctionCallOutput: ...
+
 
 class StructuredProvider(Protocol):
     name: str
@@ -187,6 +192,8 @@ def _build_system_prompt(request: ProviderRequest) -> str:
     """Build the system prompt for the Responses API."""
     memory_block = ""
     summary_block = ""
+    tool_block = ""
+    structured_block = ""
     if request.conversation_summary:
         summary_block = (
             "\nCONVERSATION_SUMMARY (untrusted compressed conversation context; "
@@ -211,6 +218,18 @@ def _build_system_prompt(request: ProviderRequest) -> str:
             "6. Preserve explicit ordering, required steps, and negative constraints "
             "from memory in the visible answer; related advice is not a substitute.\n"
         )
+    if request.tool_result is not None:
+        tool_block = (
+            "\nSTATIC_AST_RESULT (deterministic metadata; user code was parsed, never executed)\n"
+            f"<RESULT>{html.escape(request.tool_result.model_dump_json())}</RESULT>\n"
+        )
+    if request.output_schema is not None:
+        structured_block = (
+            "\nSTRUCTURED_OUTPUT_PROTOCOL\n"
+            "Return exactly one JSON instance matching the response format supplied by the API. "
+            "Return data, never the JSON Schema definition itself. Do not add prose, markdown, "
+            "or fields outside that response format.\n"
+        )
 
     return (
         "You are a helpful assistant. Only output the final presentable answer; "
@@ -219,6 +238,8 @@ def _build_system_prompt(request: ProviderRequest) -> str:
         "do not claim to have executed user code.\n"
         f"{summary_block}"
         f"{memory_block}"
+        f"{tool_block}"
+        f"{structured_block}"
     )
 
 
@@ -460,6 +481,37 @@ class MockProvider:
             latency_ms=0,
         )
 
+    async def function_call(
+        self, request: ProviderRequest, tools: list[dict[str, Any]]
+    ) -> FunctionCallOutput:
+        """Deterministic transport fake; never semantic product evidence."""
+
+        calls: list[ToolCall] = []
+        if tools:
+            parameters = tools[0].get("parameters", {})
+            properties = parameters.get("properties", {}) if isinstance(parameters, dict) else {}
+            block_schema = (
+                properties.get("code_block_id", {}) if isinstance(properties, dict) else {}
+            )
+            allowed = block_schema.get("enum", []) if isinstance(block_schema, dict) else []
+            if allowed:
+                calls.append(
+                    ToolCall(
+                        id="call_mock_python_ast",
+                        name="python_ast_check",
+                        arguments=json.dumps({"code_block_id": allowed[0]}),
+                    )
+                )
+        return FunctionCallOutput(
+            calls=calls,
+            tool_outputs={},
+            usage=ProviderUsage(prompt_tokens=8, output_tokens=3, total_tokens=11),
+            response_id="resp_mock_tool_engineering_only",
+            model=self.model,
+            prompt_hash=_compute_prompt_hash(request),
+            latency_ms=0,
+        )
+
 
 def _first_memory_rule(memory_context: str | None) -> str | None:
     """Extract first <DO> rule from memory context XML."""
@@ -483,7 +535,6 @@ _DEFAULT_MAX_TOKENS = 4_096
 _DEFAULT_TEMPERATURE = 0.0
 _STRUCTURED_TEMPERATURE = 0.0
 _PROVIDER_RETRY_DELAYS = (0.4, 1.2)
-_BUFFERED_DELTA_CHARS = 8_192
 
 
 class DeepSeekProvider:
@@ -509,40 +560,20 @@ class DeepSeekProvider:
         self._timeout = settings.provider_timeout_seconds
 
     async def stream(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamItem]:
-        """Stream through Responses with bounded retry before exposing output."""
+        """Yield true deltas and retry only before the first visible token."""
 
         for attempt in range(len(_PROVIDER_RETRY_DELAYS) + 1):
-            buffered: list[ProviderStreamItem] = []
+            visible = False
             try:
                 async for item in self._stream_once(request):
-                    buffered.append(item)
+                    if item.delta:
+                        visible = True
+                    yield item
             except ProviderFailure as exc:
-                if not exc.retryable or attempt >= len(_PROVIDER_RETRY_DELAYS):
+                if visible or not exc.retryable or attempt >= len(_PROVIDER_RETRY_DELAYS):
                     raise
                 await asyncio.sleep(_PROVIDER_RETRY_DELAYS[attempt])
                 continue
-            text = "".join(item.delta for item in buffered if item.delta)
-            for offset in range(0, len(text), _BUFFERED_DELTA_CHARS):
-                yield ProviderStreamItem(delta=text[offset : offset + _BUFFERED_DELTA_CHARS])
-            for item in buffered:
-                if (
-                    item.usage is not None
-                    or item.finish_reason is not None
-                    or item.structured_delta is not None
-                    or item.response_id is not None
-                    or item.model is not None
-                    or item.prompt_hash is not None
-                    or item.latency_ms is not None
-                ):
-                    yield ProviderStreamItem(
-                        usage=item.usage,
-                        finish_reason=item.finish_reason,
-                        structured_delta=item.structured_delta,
-                        response_id=item.response_id,
-                        model=item.model,
-                        prompt_hash=item.prompt_hash,
-                        latency_ms=item.latency_ms,
-                    )
             return
 
     async def _stream_once(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamItem]:
@@ -551,6 +582,7 @@ class DeepSeekProvider:
         started = time.perf_counter()
         prompt_hash = _compute_prompt_hash(request)
         completed = False
+        first_token_ms: int | None = None
 
         try:
             response = await self._client.responses.create(
@@ -568,6 +600,8 @@ class DeepSeekProvider:
                 if event_type == "response.output_text.delta":
                     delta = getattr(event, "delta", "")
                     if isinstance(delta, str) and delta:
+                        if first_token_ms is None:
+                            first_token_ms = max(0, round((time.perf_counter() - started) * 1000))
                         yield ProviderStreamItem(delta=delta)
                 elif event_type == "response.completed":
                     full_data = getattr(event, "response", None)
@@ -586,6 +620,7 @@ class DeepSeekProvider:
                         model=actual_model,
                         prompt_hash=prompt_hash,
                         latency_ms=max(0, round((time.perf_counter() - started) * 1000)),
+                        first_token_ms=first_token_ms,
                     )
                 elif event_type in {"response.failed", "response.incomplete", "error"}:
                     raise _responses_error_to_failure(
@@ -653,7 +688,6 @@ class DeepSeekProvider:
                         "type": "json_schema",
                         "name": name,
                         "schema": schema,
-                        "strict": True,
                     }
                 },
             )
@@ -698,6 +732,20 @@ class DeepSeekProvider:
             raise _httpx_transport_error_to_failure(exc) from None
 
     async def function_call(
+        self, request: ProviderRequest, tools: list[dict[str, Any]]
+    ) -> FunctionCallOutput:
+        """Run a bounded function-planning call with transient-only retry."""
+
+        for attempt in range(len(_PROVIDER_RETRY_DELAYS) + 1):
+            try:
+                return await self._function_call_once(request, tools)
+            except ProviderFailure as exc:
+                if not exc.retryable or attempt >= len(_PROVIDER_RETRY_DELAYS):
+                    raise
+                await asyncio.sleep(_PROVIDER_RETRY_DELAYS[attempt])
+        raise RuntimeError("unreachable provider retry state")  # pragma: no cover
+
+    async def _function_call_once(
         self, request: ProviderRequest, tools: list[dict[str, Any]]
     ) -> FunctionCallOutput:
         """Function-calling via Responses API tools parameter."""

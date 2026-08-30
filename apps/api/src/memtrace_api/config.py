@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 APP_VERSION = "0.1.0"
@@ -44,12 +44,19 @@ class Settings(BaseSettings):
         max_length=32,
         validation_alias="APP_VERSION",
     )
+    app_revision: str = Field(
+        default="development",
+        min_length=1,
+        max_length=64,
+        validation_alias="APP_REVISION",
+    )
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
         default="INFO", validation_alias="LOG_LEVEL"
     )
 
     mock_mode: bool = Field(default=True, validation_alias="MOCK_MODE")
     llm_api_key: SecretStr | None = Field(default=None, validation_alias="LLM_API_KEY")
+    llm_api_key_file: Path | None = Field(default=None, validation_alias="LLM_API_KEY_FILE")
     llm_base_url: str = Field(
         default="https://api.deepseek.com",
         min_length=1,
@@ -84,6 +91,31 @@ class Settings(BaseSettings):
         default=1800, ge=1, le=1800, validation_alias="IMPORT_PREVIEW_TTL_SECONDS"
     )
 
+    # Day 7 public-release settings. Demo identities stay available for
+    # compatibility tests, while release Compose explicitly disables them.
+    allow_demo_sessions: bool = Field(default=True, validation_alias="ALLOW_DEMO_SESSIONS")
+    public_origin: str = Field(
+        default="http://127.0.0.1:8000",
+        min_length=8,
+        max_length=2_048,
+        validation_alias="PUBLIC_ORIGIN",
+    )
+    public_session_hours: int = Field(
+        default=168, ge=1, le=24 * 90, validation_alias="PUBLIC_SESSION_HOURS"
+    )
+    daily_real_turn_limit: int = Field(
+        default=50, ge=1, le=10_000, validation_alias="DAILY_REAL_TURN_LIMIT"
+    )
+    max_active_turns_per_owner: int = Field(
+        default=1, ge=1, le=8, validation_alias="MAX_ACTIVE_TURNS_PER_OWNER"
+    )
+    max_request_body_bytes: int = Field(
+        default=1_048_576,
+        ge=1_024,
+        le=16 * 1_048_576,
+        validation_alias="MAX_REQUEST_BODY_BYTES",
+    )
+
     # Day 6 memory settings
     memory_token_budget_per_card: int = Field(
         default=100, ge=10, le=2_000, validation_alias="MEMORY_TOKEN_BUDGET_PER_CARD"
@@ -104,9 +136,6 @@ class Settings(BaseSettings):
         validation_alias="CONVERSATION_CONTEXT_TOKEN_BUDGET",
     )
     memory_top_k: int = Field(default=5, ge=1, le=50, validation_alias="MEMORY_TOP_K")
-    memory_similarity_threshold: float = Field(
-        default=0.55, ge=0.0, le=1.0, validation_alias="MEMORY_SIMILARITY_THRESHOLD"
-    )
     memory_max_reflection_attempts: int = Field(
         default=3, ge=1, le=10, validation_alias="MEMORY_MAX_REFLECTION_ATTEMPTS"
     )
@@ -120,6 +149,7 @@ class Settings(BaseSettings):
         validation_alias="MEMTRACE_DATABASE_URL",
     )
     session_secret: SecretStr | None = Field(default=None, validation_alias="SESSION_SECRET")
+    session_secret_file: Path | None = Field(default=None, validation_alias="SESSION_SECRET_FILE")
     cookie_secure: bool = Field(default=False, validation_alias="COOKIE_SECURE")
 
     @field_validator("session_secret", mode="before")
@@ -151,7 +181,9 @@ class Settings(BaseSettings):
             return None
         return value
 
-    @field_validator("app_name", "app_version", "llm_base_url", "llm_model", mode="before")
+    @field_validator(
+        "app_name", "app_version", "app_revision", "llm_base_url", "llm_model", mode="before"
+    )
     @classmethod
     def strip_bounded_text(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
@@ -178,6 +210,28 @@ class Settings(BaseSettings):
             path = PROJECT_ROOT / path
         return path.resolve()
 
+    @field_validator("llm_api_key_file", "session_secret_file", mode="before")
+    @classmethod
+    def resolve_secret_file(cls, value: object) -> Path | None:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        path = Path(str(value)).expanduser()
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
+        return path.resolve()
+
+    @model_validator(mode="after")
+    def load_file_backed_secrets(self) -> Settings:
+        """Load read-only Docker/local secret files without logging values."""
+
+        if self.llm_api_key is None and self.llm_api_key_file is not None:
+            self.llm_api_key = SecretStr(_read_secret_file(self.llm_api_key_file, "LLM_API_KEY"))
+        if self.session_secret is None and self.session_secret_file is not None:
+            self.session_secret = SecretStr(
+                _read_secret_file(self.session_secret_file, "SESSION_SECRET")
+            )
+        return self
+
     @property
     def provider_mode(self) -> Literal["mock", "real"]:
         return "mock" if self.mock_mode else "real"
@@ -191,3 +245,14 @@ def get_settings() -> Settings:
     """Build settings once at application construction time."""
 
     return Settings()
+
+
+def _read_secret_file(path: Path, setting_name: str) -> str:
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"{setting_name}_FILE is not readable") from exc
+    value = raw.strip()
+    if not value or len(value.encode("utf-8")) > 16_384:
+        raise ValueError(f"{setting_name}_FILE is empty or too large")
+    return value

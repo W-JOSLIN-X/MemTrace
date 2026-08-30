@@ -11,6 +11,7 @@ from sqlalchemy import and_, delete, func, select, text
 from sqlalchemy.orm import Session
 
 from memtrace_api.config import Settings
+from memtrace_api.conversation_stream import ConversationStreamHub
 from memtrace_api.database import session_scope
 from memtrace_api.db_models import (
     AgentRunModel,
@@ -25,11 +26,14 @@ from memtrace_api.db_models import (
     RetrievalDecisionModel,
     RetrievalTraceModel,
     TaskModel,
+    ToolCallModel,
 )
 from memtrace_api.ids import new_prefixed_ulid
 from memtrace_api.judges import ApplicabilityJudge, EffectJudge, JudgeCall
 from memtrace_api.memory_worker import MemoryReflectionWorker
 from memtrace_api.providers import (
+    FunctionCallOutput,
+    ProviderFailure,
     ProviderMessage,
     ProviderRequest,
     ProviderStreamItem,
@@ -47,6 +51,7 @@ from memtrace_api.retrieval_executor import (
 from memtrace_api.schemas import (
     ApplicabilityJudgeResult,
     ApplicabilityResult,
+    AsyncErrorCode,
     ConversationMessageProjection,
     ConversationTaskSnapshotResponse,
     ConversationTurnResponse,
@@ -56,11 +61,22 @@ from memtrace_api.schemas import (
     MemoryReflectionJobId,
     MessageRole,
     ProviderMode,
+    PythonAstResult,
     ReviewStatus,
     RollingSummaryWireResult,
     StageUsageProjection,
+    ToolArgsSummary,
+    ToolCallSnapshot,
+    ToolCallStatus,
     TurnMemoryDecisionProjection,
     utc_now,
+)
+from memtrace_api.tools import (
+    ExtractedPython,
+    ToolExecution,
+    ToolFailure,
+    ToolRegistry,
+    extract_python_candidates,
 )
 
 _SAFE_FTS_TOKEN = re.compile(r"[\w\-]{2,}", re.UNICODE)
@@ -108,6 +124,15 @@ class SummaryCall:
     provider: StructuredOutput
 
 
+@dataclass(frozen=True, slots=True)
+class ToolPlanningCall:
+    provider: FunctionCallOutput
+    candidate: ExtractedPython | None
+    execution: ToolExecution | None
+    tool_call_id: str | None
+    result_ref: str | None
+
+
 class ConversationBusyError(RuntimeError):
     """A task already has a live G5 turn and must remain sequential."""
 
@@ -121,12 +146,15 @@ class ConversationService:
         chat_provider: StreamingProvider,
         semantic_provider: StructuredProvider,
         reflection_worker: MemoryReflectionWorker | None,
+        stream_hub: ConversationStreamHub | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings
         self._chat_provider = chat_provider
         self._semantic_provider = semantic_provider
         self._reflection_worker = reflection_worker
+        self._stream_hub = stream_hub
+        self._tools = ToolRegistry()
         self._applicability = ApplicabilityJudge(provider=semantic_provider)
         self._effect = EffectJudge(provider=semantic_provider)
 
@@ -169,13 +197,24 @@ class ConversationService:
     ) -> ConversationTurnResponse:
         run_id = new_prefixed_ulid("run")
         user_message_id = new_prefixed_ulid("msg")
-        turn_index, effective_mode = self._begin_turn(
+        turn_index, effective_mode, started_event_seq = self._begin_turn(
             user_ctx,
             task_id=task_id,
             run_id=run_id,
             user_message_id=user_message_id,
             content=content,
             memory_mode=memory_mode,
+        )
+        await self._publish_state(
+            user_ctx,
+            task_id=task_id,
+            event_type="turn.started",
+            event_seq=started_event_seq,
+            metadata={
+                "run_id": run_id,
+                "turn_index": turn_index,
+                "user_message_id": user_message_id,
+            },
         )
         try:
             history_rows, candidates, existing_summary = self._load_context(
@@ -212,12 +251,49 @@ class ConversationService:
                 memory_mode=effective_mode,
             )
             memory_context = _compile_section(compiled)
+            tool_plan = await self._plan_tool(
+                content=content,
+                history=history,
+                conversation_summary=conversation_summary,
+            )
+            tool_projection: ToolCallSnapshot | None = None
+            if tool_plan is not None:
+                tool_projection, tool_event_seq = self._persist_tool_plan(
+                    user_ctx,
+                    task_id=task_id,
+                    run_id=run_id,
+                    turn_index=turn_index,
+                    plan=tool_plan,
+                )
+                await self._publish_state(
+                    user_ctx,
+                    task_id=task_id,
+                    event_type=(
+                        "conversation.tool.completed"
+                        if tool_projection is not None
+                        else "conversation.tool.skipped"
+                    ),
+                    event_seq=tool_event_seq,
+                    metadata=_tool_event_metadata(
+                        run_id=run_id,
+                        turn_index=turn_index,
+                        plan=tool_plan,
+                    ),
+                )
             chat = await self._chat(
+                user_ctx=user_ctx,
+                task_id=task_id,
+                run_id=run_id,
                 content=content,
                 history=history,
                 conversation_summary=conversation_summary,
                 memory_context=memory_context,
                 usage_ids=usage_ids,
+                tool_result=(
+                    tool_plan.execution.result
+                    if tool_plan is not None and tool_plan.execution is not None
+                    else None
+                ),
             )
             effects = await self._judge_effects(
                 current_turn=content,
@@ -230,7 +306,7 @@ class ConversationService:
                 if self._reflection_worker is not None and effective_mode is EffectiveMemoryMode.ON
                 else None
             )
-            user_message, assistant_message, decisions = self._commit_turn(
+            user_message, assistant_message, decisions, completed_event_seq = self._commit_turn(
                 user_ctx,
                 task_id=task_id,
                 run_id=run_id,
@@ -245,6 +321,20 @@ class ConversationService:
                 effects=effects,
                 reflection_job_id=reflection_job_id,
             )
+            await self._publish_state(
+                user_ctx,
+                task_id=task_id,
+                event_type="turn.completed",
+                event_seq=completed_event_seq,
+                metadata={
+                    "run_id": run_id,
+                    "turn_index": turn_index,
+                    "user_message_id": user_message_id,
+                    "assistant_message_id": assistant_message_id,
+                    "reflection_pending": reflection_job_id is not None,
+                    "job_id": reflection_job_id,
+                },
+            )
             if reflection_job_id is not None and self._reflection_worker is not None:
                 self._reflection_worker.notify()
             usage = [
@@ -256,6 +346,11 @@ class ConversationService:
                 *(
                     _stage_usage("applicability", item.call.provider, self._semantic_provider)
                     for item in applicability_calls
+                ),
+                *(
+                    [_stage_usage_from_function(tool_plan.provider, self._chat_provider)]
+                    if tool_plan is not None
+                    else []
                 ),
                 _stage_usage_from_stream(chat.final, self._chat_provider),
                 *(
@@ -273,11 +368,53 @@ class ConversationService:
                 reflection_job_id=reflection_job_id,
                 memory_mode=effective_mode,
                 memory_decisions=decisions,
+                tool_calls=[tool_projection] if tool_projection is not None else [],
                 usage=usage,
             )
-        except Exception:
-            self._fail_run(user_ctx, task_id=task_id, run_id=run_id)
+        except Exception as exc:
+            error_code = (
+                exc.code.value
+                if isinstance(exc, (ProviderFailure, ToolFailure))
+                else "PROVIDER_ERROR"
+            )
+            failed_event_seq = self._fail_run(
+                user_ctx,
+                task_id=task_id,
+                run_id=run_id,
+                error_code=error_code,
+            )
+            if failed_event_seq is not None:
+                await self._publish_state(
+                    user_ctx,
+                    task_id=task_id,
+                    event_type="turn.failed",
+                    event_seq=failed_event_seq,
+                    metadata={
+                        "run_id": run_id,
+                        "turn_index": turn_index,
+                        "error_code": error_code,
+                    },
+                )
             raise
+
+    async def _publish_state(
+        self,
+        user_ctx: UserContext,
+        *,
+        task_id: str,
+        event_type: str,
+        event_seq: int,
+        metadata: dict[str, object],
+    ) -> None:
+        if self._stream_hub is None:
+            return
+        await self._stream_hub.publish_state(
+            owner_id=user_ctx.user_id,
+            task_id=task_id,
+            event_type=event_type,
+            event_seq=event_seq,
+            metadata=metadata,
+        )
 
     def snapshot(
         self,
@@ -380,7 +517,9 @@ class ConversationService:
                         MemoryLLMJudgeModel.run_id == run.id,
                         MemoryLLMJudgeModel.job_id.is_(None),
                         MemoryLLMJudgeModel.status == "completed",
-                        MemoryLLMJudgeModel.judge_type.in_(("summary", "applicability", "effect")),
+                        MemoryLLMJudgeModel.judge_type.in_(
+                            ("summary", "applicability", "tool_planning", "effect")
+                        ),
                     )
                 )
                 .order_by(MemoryLLMJudgeModel.created_at.asc(), MemoryLLMJudgeModel.id.asc())
@@ -433,7 +572,7 @@ class ConversationService:
 
         stage_usage = [
             projection
-            for stage in ("summary", "applicability")
+            for stage in ("summary", "applicability", "tool_planning")
             for row in judgment_rows
             if row.judge_type == stage
             if (projection := _stage_usage_from_judgment(stage, row)) is not None
@@ -454,11 +593,28 @@ class ConversationService:
                 )
             )
         ).scalar_one_or_none()
+        tool_rows = list(
+            session.execute(
+                select(ToolCallModel)
+                .where(
+                    and_(
+                        ToolCallModel.owner_id == owner_id,
+                        ToolCallModel.task_id == task_id,
+                        ToolCallModel.run_id == run.id,
+                    )
+                )
+                .order_by(ToolCallModel.created_at.asc(), ToolCallModel.id.asc())
+                .limit(1)
+            )
+            .scalars()
+            .all()
+        )
         return ConversationTurnStateProjection(
             run_id=run.id,
             turn_index=latest_assistant.turn_index,
             reflection_job_id=reflection_job.id if reflection_job is not None else None,
             memory_decisions=decisions,
+            tool_calls=[_tool_projection(row) for row in tool_rows],
             usage=stage_usage,
         )
 
@@ -471,7 +627,7 @@ class ConversationService:
         user_message_id: str,
         content: str,
         memory_mode: EffectiveMemoryMode | None,
-    ) -> tuple[int, EffectiveMemoryMode]:
+    ) -> tuple[int, EffectiveMemoryMode, int]:
         with session_scope(self._session_factory) as session:
             session.execute(text("BEGIN IMMEDIATE"))
             task = session.execute(
@@ -534,7 +690,17 @@ class ConversationService:
             )
             task.next_turn_index += 1
             task.updated_at = now
-            return turn_index, effective
+            event_seq = _append_task_event(
+                session,
+                task=task,
+                event_type="turn.started",
+                metadata={
+                    "run_id": run_id,
+                    "turn_index": turn_index,
+                    "user_message_id": user_message_id,
+                },
+            )
+            return turn_index, effective, event_seq
 
     def _load_context(
         self,
@@ -760,17 +926,253 @@ class ConversationService:
             calls.append(ApplicabilityCall(candidate=candidate, call=call))
         return calls
 
-    async def _chat(
+    async def _plan_tool(
         self,
         *,
         content: str,
         history: tuple[ProviderMessage, ...],
         conversation_summary: str | None,
+    ) -> ToolPlanningCall | None:
+        candidates = extract_python_candidates(content)
+        if not candidates:
+            return None
+        function_call = getattr(self._chat_provider, "function_call", None)
+        if not callable(function_call):
+            raise ProviderFailure(
+                AsyncErrorCode.PROVIDER_ERROR,
+                "当前真实模型未提供冻结的 function calling 能力。",
+                retryable=False,
+                failure_kind="tool_planning_unsupported",
+            )
+        allowed_ids = [candidate.code_block_id for candidate in candidates]
+        tools = [
+            {
+                "type": "function",
+                "name": "python_ast_check",
+                "description": (
+                    "Statically parse one server-enumerated Python candidate with ast.parse. "
+                    "It never executes code and must be selected only when syntax validation "
+                    "materially helps answer the current user turn."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "code_block_id": {
+                            "type": "string",
+                            "enum": allowed_ids,
+                            "description": "Server-issued identifier for a bounded code block.",
+                        }
+                    },
+                    "required": ["code_block_id"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            }
+        ]
+        output = await function_call(
+            ProviderRequest(
+                task_text=content,
+                conversation=history,
+                conversation_summary=conversation_summary,
+                stage="tool_planning",
+            ),
+            tools,
+        )
+        if output.model != self._chat_provider.model or output.usage.total_tokens is None:
+            raise ProviderFailure(
+                AsyncErrorCode.PROVIDER_ERROR,
+                "工具规划未返回冻结模型的完整实际 usage。",
+                retryable=False,
+                failure_kind="tool_planning_usage_invalid",
+            )
+        if len(output.calls) > 1:
+            raise ProviderFailure(
+                AsyncErrorCode.TOOL_INPUT_INVALID,
+                "模型返回了超过白名单上限的工具调用。",
+                retryable=False,
+                failure_kind="tool_call_cardinality_invalid",
+            )
+        if not output.calls:
+            return ToolPlanningCall(
+                provider=output,
+                candidate=None,
+                execution=None,
+                tool_call_id=None,
+                result_ref=None,
+            )
+        call = output.calls[0]
+        if call.name != "python_ast_check":
+            raise ProviderFailure(
+                AsyncErrorCode.TOOL_NOT_FOUND,
+                "模型请求了不在白名单中的工具。",
+                retryable=False,
+                failure_kind="tool_not_allowed",
+            )
+        try:
+            arguments = json.loads(call.arguments)
+        except json.JSONDecodeError as exc:
+            raise ProviderFailure(
+                AsyncErrorCode.TOOL_INPUT_INVALID,
+                "模型返回了无效的工具参数。",
+                retryable=False,
+                failure_kind="tool_arguments_json_invalid",
+            ) from exc
+        if not isinstance(arguments, dict) or set(arguments) != {"code_block_id"}:
+            raise ProviderFailure(
+                AsyncErrorCode.TOOL_INPUT_INVALID,
+                "模型返回了超出冻结 Schema 的工具参数。",
+                retryable=False,
+                failure_kind="tool_arguments_schema_invalid",
+            )
+        code_block_id = arguments.get("code_block_id")
+        candidate = next(
+            (item for item in candidates if item.code_block_id == code_block_id),
+            None,
+        )
+        if candidate is None:
+            raise ProviderFailure(
+                AsyncErrorCode.TOOL_INPUT_INVALID,
+                "模型引用了不存在的服务端代码块。",
+                retryable=False,
+                failure_kind="tool_code_block_unknown",
+            )
+        try:
+            execution = self._tools.run("python_ast_check", candidate)
+        except ToolFailure as exc:
+            raise ProviderFailure(
+                exc.code,
+                "静态工具拒绝了该输入。",
+                retryable=False,
+                failure_kind="tool_execution_rejected",
+            ) from exc
+        return ToolPlanningCall(
+            provider=output,
+            candidate=candidate,
+            execution=execution,
+            tool_call_id=new_prefixed_ulid("tool"),
+            result_ref=new_prefixed_ulid("toolres"),
+        )
+
+    def _persist_tool_plan(
+        self,
+        user_ctx: UserContext,
+        *,
+        task_id: str,
+        run_id: str,
+        turn_index: int,
+        plan: ToolPlanningCall,
+    ) -> tuple[ToolCallSnapshot | None, int]:
+        projection: ToolCallSnapshot | None = None
+        now = utc_now()
+        with session_scope(self._session_factory) as session:
+            session.execute(text("BEGIN IMMEDIATE"))
+            task = session.execute(
+                select(TaskModel).where(
+                    and_(
+                        TaskModel.id == task_id,
+                        TaskModel.owner_id == user_ctx.user_id,
+                    )
+                )
+            ).scalar_one()
+            _add_judgment(
+                session,
+                owner_id=user_ctx.user_id,
+                task_id=task_id,
+                run_id=run_id,
+                memory_id=None,
+                judge_type="tool_planning",
+                result_json=json.dumps(
+                    {
+                        "action": "call" if plan.candidate is not None else "skip",
+                        "tool_name": ("python_ast_check" if plan.candidate is not None else None),
+                    },
+                    separators=(",", ":"),
+                ),
+                provider=plan.provider,
+                provider_mode=self._chat_provider.mode,
+            )
+            if (
+                plan.candidate is not None
+                and plan.execution is not None
+                and plan.execution.result is not None
+                and plan.tool_call_id is not None
+                and plan.result_ref is not None
+            ):
+                projection = ToolCallSnapshot(
+                    tool_call_id=plan.tool_call_id,
+                    reason="模型选择了允许的 Python AST 静态检查",
+                    args_summary=plan.candidate.summary,
+                    status=ToolCallStatus.SUCCEEDED,
+                    latency_ms=plan.execution.latency_ms,
+                    result_ref=plan.result_ref,
+                    result=plan.execution.result,
+                )
+                session.add(
+                    ToolCallModel(
+                        id=plan.tool_call_id,
+                        owner_id=user_ctx.user_id,
+                        task_id=task_id,
+                        run_id=run_id,
+                        tool_name="python_ast_check",
+                        reason="model_selected_allowed_tool",
+                        args_summary_json=json.dumps(
+                            {
+                                "language": "python",
+                                "code_source": plan.candidate.source.value,
+                                "code_bytes": plan.candidate.byte_count,
+                                "code_block_id": plan.candidate.code_block_id,
+                            },
+                            separators=(",", ":"),
+                        ),
+                        result_summary_json=plan.execution.result.model_dump_json(),
+                        status="succeeded",
+                        duration_ms=plan.execution.latency_ms,
+                        result_ref=plan.result_ref,
+                        provider_mode=self._chat_provider.mode.value,
+                        provider_model=plan.provider.model,
+                        prompt_hash=plan.provider.prompt_hash,
+                        prompt_tokens=plan.provider.usage.prompt_tokens,
+                        output_tokens=plan.provider.usage.output_tokens,
+                        total_tokens=plan.provider.usage.total_tokens,
+                        token_source=(
+                            "actual" if self._chat_provider.mode is ProviderMode.REAL else "mock"
+                        ),
+                        provider_latency_ms=plan.provider.latency_ms,
+                        created_at=now,
+                    )
+                )
+            event_seq = _append_task_event(
+                session,
+                task=task,
+                event_type=(
+                    "conversation.tool.completed"
+                    if projection is not None
+                    else "conversation.tool.skipped"
+                ),
+                metadata=_tool_event_metadata(
+                    run_id=run_id,
+                    turn_index=turn_index,
+                    plan=plan,
+                ),
+            )
+        return projection, event_seq
+
+    async def _chat(
+        self,
+        *,
+        user_ctx: UserContext,
+        task_id: str,
+        run_id: str,
+        content: str,
+        history: tuple[ProviderMessage, ...],
+        conversation_summary: str | None,
         memory_context: str | None,
         usage_ids: tuple[str, ...],
+        tool_result: PythonAstResult | None,
     ) -> ChatCall:
         answer_parts: list[str] = []
         final: ProviderStreamItem | None = None
+        delta_index = 0
         async for item in self._chat_provider.stream(
             ProviderRequest(
                 task_text=content,
@@ -778,11 +1180,21 @@ class ConversationService:
                 conversation_summary=conversation_summary,
                 memory_context=memory_context,
                 usage_ids=usage_ids,
+                tool_result=tool_result,
                 stage="chat",
             )
         ):
             if item.delta:
                 answer_parts.append(item.delta)
+                delta_index += 1
+                if self._stream_hub is not None:
+                    await self._stream_hub.publish_delta(
+                        owner_id=user_ctx.user_id,
+                        task_id=task_id,
+                        run_id=run_id,
+                        delta_index=delta_index,
+                        delta=item.delta,
+                    )
             if item.finish_reason is not None:
                 final = item
         if final is None or final.usage is None or final.prompt_hash is None:
@@ -980,6 +1392,7 @@ class ConversationService:
         ConversationMessageProjection,
         ConversationMessageProjection,
         list[TurnMemoryDecisionProjection],
+        int,
     ]:
         now = utc_now()
         effect_by_memory = {item.candidate.card.id: call for item, call in effects}
@@ -1008,6 +1421,7 @@ class ConversationService:
             run.token_source = "actual" if self._chat_provider.mode is ProviderMode.REAL else "mock"
             run.provider_response_id = final.response_id
             run.prompt_hash = final.prompt_hash
+            run.first_token_ms = final.first_token_ms
             run.total_ms = final.latency_ms
             run.completed_at = now
             assistant = MessageModel(
@@ -1102,10 +1516,10 @@ class ConversationService:
                 )
             ).scalar_one()
             task.updated_at = now
-            _append_task_event(
+            completed_event_seq = _append_task_event(
                 session,
                 task=task,
-                event_type="conversation.turn.completed",
+                event_type="turn.completed",
                 metadata={
                     "run_id": run_id,
                     "turn_index": turn_index,
@@ -1141,9 +1555,16 @@ class ConversationService:
             ]
             user_projection = _message_projection(user_message)
             assistant_projection = _message_projection(assistant)
-        return user_projection, assistant_projection, decisions
+        return user_projection, assistant_projection, decisions, completed_event_seq
 
-    def _fail_run(self, user_ctx: UserContext, *, task_id: str, run_id: str) -> None:
+    def _fail_run(
+        self,
+        user_ctx: UserContext,
+        *,
+        task_id: str,
+        run_id: str,
+        error_code: str,
+    ) -> int | None:
         with session_scope(self._session_factory) as session:
             session.execute(text("BEGIN IMMEDIATE"))
             run = session.execute(
@@ -1167,11 +1588,42 @@ class ConversationService:
                     )
                 ).scalar_one_or_none()
                 turn_index = user_message.turn_index if user_message is not None else None
+                decisions = list(
+                    session.execute(
+                        select(RetrievalDecisionModel).where(
+                            and_(
+                                RetrievalDecisionModel.owner_id == user_ctx.user_id,
+                                RetrievalDecisionModel.retrieval_trace_id.in_(
+                                    select(RetrievalTraceModel.id).where(
+                                        and_(
+                                            RetrievalTraceModel.owner_id == user_ctx.user_id,
+                                            RetrievalTraceModel.run_id == run_id,
+                                        )
+                                    )
+                                ),
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                injected_memory_ids = {
+                    decision.memory_id for decision in decisions if decision.injected
+                }
+                for decision in decisions:
+                    card = session.get(MemoryCardModel, decision.memory_id)
+                    if card is None or card.owner_id != user_ctx.user_id:
+                        continue
+                    if decision.retrieved:
+                        card.retrieved_count = max(0, card.retrieved_count - 1)
+                    if decision.injected:
+                        card.injected_count = max(0, card.injected_count - 1)
                 session.execute(
                     delete(MemoryLLMJudgeModel).where(
                         and_(
                             MemoryLLMJudgeModel.owner_id == user_ctx.user_id,
                             MemoryLLMJudgeModel.run_id == run_id,
+                            MemoryLLMJudgeModel.judge_type.in_(("applicability", "effect")),
                         )
                     )
                 )
@@ -1183,17 +1635,22 @@ class ConversationService:
                         )
                     )
                 )
-                session.execute(
-                    delete(MessageModel).where(
-                        and_(
-                            MessageModel.owner_id == user_ctx.user_id,
-                            MessageModel.run_id == run_id,
-                        )
-                    )
-                )
+                session.flush()
+                for memory_id in injected_memory_ids:
+                    card = session.get(MemoryCardModel, memory_id)
+                    if card is not None and card.owner_id == user_ctx.user_id:
+                        card.last_used_at = session.execute(
+                            select(func.max(MemoryUsageModel.created_at)).where(
+                                and_(
+                                    MemoryUsageModel.owner_id == user_ctx.user_id,
+                                    MemoryUsageModel.memory_id == memory_id,
+                                    MemoryUsageModel.injected.is_(True),
+                                )
+                            )
+                        ).scalar_one()
                 run.status = "failed"
                 run.stage = "failed"
-                run.error_code = "PROVIDER_ERROR"
+                run.error_code = error_code
                 run.completed_at = utc_now()
                 task = session.execute(
                     select(TaskModel).where(
@@ -1203,13 +1660,19 @@ class ConversationService:
                         )
                     )
                 ).scalar_one_or_none()
-                if (
-                    task is not None
-                    and turn_index is not None
-                    and task.next_turn_index == turn_index + 1
-                ):
-                    task.next_turn_index = turn_index
+                if task is not None:
                     task.updated_at = utc_now()
+                    return _append_task_event(
+                        session,
+                        task=task,
+                        event_type="turn.failed",
+                        metadata={
+                            "run_id": run_id,
+                            "turn_index": turn_index,
+                            "error_code": error_code,
+                        },
+                    )
+        return None
 
 
 def _compile_memories(
@@ -1278,7 +1741,7 @@ def _add_judgment(
     memory_id: str | None,
     judge_type: str,
     result_json: str,
-    provider: StructuredOutput,
+    provider: StructuredOutput | FunctionCallOutput,
     provider_mode: ProviderMode,
 ) -> None:
     session.add(
@@ -1374,6 +1837,65 @@ def _message_projection(message: MessageModel) -> ConversationMessageProjection:
     )
 
 
+def _tool_projection(row: ToolCallModel) -> ToolCallSnapshot:
+    args = json.loads(row.args_summary_json)
+    if not isinstance(args, dict):
+        raise ValueError("persisted tool args summary is invalid")
+    result = (
+        PythonAstResult.model_validate_json(row.result_summary_json)
+        if row.result_summary_json is not None
+        else None
+    )
+    return ToolCallSnapshot(
+        tool_call_id=row.id,
+        reason="模型选择了允许的 Python AST 静态检查",
+        args_summary=ToolArgsSummary(
+            code_source=args.get("code_source"),
+            code_bytes=args.get("code_bytes"),
+        ),
+        status=ToolCallStatus(row.status),
+        latency_ms=row.duration_ms,
+        result_ref=row.result_ref,
+        result=result,
+    )
+
+
+def _tool_event_metadata(
+    *,
+    run_id: str,
+    turn_index: int,
+    plan: ToolPlanningCall,
+) -> dict[str, object]:
+    called = plan.candidate is not None and plan.execution is not None
+    metadata: dict[str, object] = {
+        "run_id": run_id,
+        "turn_index": turn_index,
+        "action": "call" if called else "skip",
+        "reason_code": "model_selected_allowed_tool" if called else "model_skipped_tool",
+        "model": plan.provider.model,
+        "input_tokens": plan.provider.usage.prompt_tokens,
+        "output_tokens": plan.provider.usage.output_tokens,
+        "total_tokens": plan.provider.usage.total_tokens,
+        "provider_latency_ms": plan.provider.latency_ms,
+    }
+    if called and plan.candidate is not None and plan.execution is not None:
+        metadata.update(
+            {
+                "tool_name": "python_ast_check",
+                "tool_call_id": plan.tool_call_id,
+                "status": plan.execution.status,
+                "code_source": plan.candidate.source.value,
+                "code_bytes": plan.candidate.byte_count,
+                "valid": (
+                    plan.execution.result.valid if plan.execution.result is not None else None
+                ),
+                "latency_ms": plan.execution.latency_ms,
+                "result_ref": plan.result_ref,
+            }
+        )
+    return metadata
+
+
 def _stage_usage(
     stage: str,
     output: StructuredOutput,
@@ -1389,6 +1911,27 @@ def _stage_usage(
         total_tokens=output.usage.total_tokens,
         reasoning_tokens=output.usage.reasoning_tokens,
         latency_ms=output.latency_ms,
+        first_token_ms=None,
+    )
+
+
+def _stage_usage_from_function(
+    output: FunctionCallOutput,
+    provider: StreamingProvider,
+) -> StageUsageProjection:
+    if output.usage.total_tokens is None:
+        raise ValueError("tool planning usage is incomplete")
+    return StageUsageProjection(
+        stage="tool_planning",
+        provider_mode=provider.mode,
+        model=output.model,
+        prompt_hash=output.prompt_hash,
+        input_tokens=output.usage.prompt_tokens,
+        output_tokens=output.usage.output_tokens,
+        total_tokens=output.usage.total_tokens,
+        reasoning_tokens=output.usage.reasoning_tokens,
+        latency_ms=output.latency_ms,
+        first_token_ms=None,
     )
 
 
@@ -1415,6 +1958,7 @@ def _stage_usage_from_stream(
         total_tokens=usage.total_tokens,
         reasoning_tokens=usage.reasoning_tokens,
         latency_ms=item.latency_ms,
+        first_token_ms=item.first_token_ms,
     )
 
 
@@ -1437,6 +1981,9 @@ def _stage_usage_from_run(run: AgentRunModel) -> StageUsageProjection | None:
         total_tokens=run.total_tokens,
         reasoning_tokens=run.reasoning_tokens,
         latency_ms=max(0, round(run.total_ms)),
+        first_token_ms=(
+            max(0, round(run.first_token_ms)) if run.first_token_ms is not None else None
+        ),
     )
 
 
@@ -1461,6 +2008,7 @@ def _stage_usage_from_judgment(
         total_tokens=row.total_tokens,
         reasoning_tokens=None,
         latency_ms=max(0, round(row.latency_ms)),
+        first_token_ms=None,
     )
 
 

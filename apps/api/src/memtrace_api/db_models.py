@@ -44,6 +44,9 @@ class UserModel(Base):
     tasks: Mapped[list[TaskModel]] = relationship(
         "TaskModel", back_populates="owner", cascade="all, delete-orphan"
     )
+    local_account: Mapped[LocalAccountModel | None] = relationship(
+        "LocalAccountModel", back_populates="owner", uselist=False, cascade="all, delete-orphan"
+    )
 
 
 class DemoSessionModel(Base):
@@ -56,11 +59,144 @@ class DemoSessionModel(Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    csrf_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    auth_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="demo")
+    revoked_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
 
     owner: Mapped[UserModel] = relationship("UserModel", back_populates="sessions")
+
+    __table_args__ = (
+        CheckConstraint("auth_kind IN ('demo', 'public')", name="chk_session_auth_kind"),
+        CheckConstraint(
+            "revoked_reason IS NULL OR revoked_reason IN "
+            "('logout', 'logout_all', 'password_changed', 'recovered', 'account_deleted')",
+            name="chk_session_revoked_reason",
+        ),
+        CheckConstraint(
+            "(auth_kind = 'demo' AND csrf_token_hash IS NULL) OR "
+            "(auth_kind = 'public' AND csrf_token_hash IS NOT NULL)",
+            name="chk_session_public_csrf",
+        ),
+    )
+
+
+class LocalAccountModel(Base):
+    """One public credential record extending the stable G1 owner row."""
+
+    __tablename__ = "local_accounts"
+
+    owner_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    username_normalized: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    default_memory_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="on")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    owner: Mapped[UserModel] = relationship("UserModel", back_populates="local_account")
+
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'disabled')", name="chk_local_account_status"),
+        CheckConstraint(
+            "default_memory_mode IN ('on', 'off')", name="chk_local_account_memory_mode"
+        ),
+        Index("ix_local_accounts_username", "username_normalized", unique=True),
+    )
+
+
+class RegistrationInviteModel(Base):
+    __tablename__ = "registration_invites"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    max_uses: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    use_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("max_uses >= 1", name="chk_registration_invite_max_uses"),
+        CheckConstraint(
+            "use_count >= 0 AND use_count <= max_uses", name="chk_registration_invite_use_count"
+        ),
+        CheckConstraint(
+            "status IN ('active', 'exhausted', 'revoked', 'expired')",
+            name="chk_registration_invite_status",
+        ),
+        Index("ix_registration_invites_expiry", "status", "expires_at"),
+    )
+
+
+class AccountRecoveryCredentialModel(Base):
+    __tablename__ = "account_recovery_credentials"
+
+    owner_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    rotated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class AuthRateLimitBucketModel(Base):
+    __tablename__ = "auth_rate_limit_buckets"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    identity_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    blocked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("action IN ('login', 'register', 'recover')", name="chk_auth_rate_action"),
+        CheckConstraint("attempt_count >= 0", name="chk_auth_rate_attempt_count"),
+        UniqueConstraint("action", "identity_hash", name="uq_auth_rate_action_identity"),
+        Index("ix_auth_rate_blocked", "blocked_until"),
+    )
+
+
+class DailyTurnQuotaModel(Base):
+    __tablename__ = "daily_turn_quotas"
+
+    owner_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    utc_date: Mapped[str] = mapped_column(String(10), primary_key=True)
+    used_turns: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    active_turns: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("used_turns >= 0", name="chk_daily_quota_used"),
+        CheckConstraint("active_turns >= 0", name="chk_daily_quota_active"),
+        Index("ix_daily_turn_quota_date", "utc_date"),
+    )
 
 
 class TaskModel(Base):
@@ -263,12 +399,34 @@ class ToolCallModel(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     duration_ms: Mapped[float | None] = mapped_column(nullable=True)
     result_ref: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    provider_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    provider_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    prompt_hash: Mapped[str | None] = mapped_column(String(71), nullable=True)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    token_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    provider_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
 
     __table_args__ = (
         CheckConstraint("status IN ('running', 'succeeded', 'failed')", name="chk_tool_status"),
+        CheckConstraint(
+            "provider_mode IS NULL OR provider_mode IN ('mock', 'real')",
+            name="chk_tool_provider_mode",
+        ),
+        CheckConstraint(
+            "token_source IS NULL OR token_source IN ('actual', 'mock')",
+            name="chk_tool_token_source",
+        ),
+        CheckConstraint(
+            "(prompt_tokens IS NULL OR prompt_tokens >= 0) AND "
+            "(output_tokens IS NULL OR output_tokens >= 0) AND "
+            "(total_tokens IS NULL OR total_tokens >= 0)",
+            name="chk_tool_usage",
+        ),
     )
 
     task: Mapped[TaskModel] = relationship("TaskModel", back_populates="tool_calls")
@@ -622,7 +780,7 @@ class MemoryVersionModel(Base):
         CheckConstraint(
             "created_by_action IN ('accept', 'edit_accept', 'edit', "
             "'import', 'merge', 'scope_resolution', 'llm_extract', 'llm_update', "
-            "'llm_supersede', 'llm_coexist', 'user_edit')",
+            "'llm_supersede', 'llm_coexist', 'user_edit', 'user_restore')",
             name="chk_memory_version_created_by",
         ),
         CheckConstraint(
@@ -1302,7 +1460,8 @@ class MemoryLLMJudgeModel(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "judge_type IN ('summary', 'applicability', 'effect', 'consolidation')",
+            "judge_type IN "
+            "('summary', 'applicability', 'tool_planning', 'effect', 'consolidation')",
             name="chk_llm_judge_type",
         ),
         CheckConstraint("status IN ('completed', 'failed')", name="chk_llm_judge_status"),

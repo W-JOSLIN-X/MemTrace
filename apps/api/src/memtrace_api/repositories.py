@@ -72,6 +72,10 @@ class UserContext:
     demo_alias: str
     session_id: str | None = None
     session_expires_at: datetime | None = None
+    auth_kind: str = "demo"
+    username: str | None = None
+    display_name: str | None = None
+    csrf_token: str | None = None
 
 
 class UserRepository:
@@ -116,6 +120,8 @@ class SessionRepository:
         owner_id: str,
         token_hash: str,
         expires_at: datetime,
+        auth_kind: str = "demo",
+        csrf_token_hash: str | None = None,
     ) -> DemoSessionModel:
         now = utc_now()
         session_obj = DemoSessionModel(
@@ -123,6 +129,8 @@ class SessionRepository:
             owner_id=owner_id,
             token_hash=token_hash,
             expires_at=expires_at,
+            auth_kind=auth_kind,
+            csrf_token_hash=csrf_token_hash,
             created_at=now,
         )
         self.session.add(session_obj)
@@ -1280,7 +1288,8 @@ class MemoryCardG4Repository(MemoryCardRepository):
             raise ValueError("MEMORY_NOT_FOUND")
         if card.current_version_id != expected_version_id:
             raise ValueError("MEMORY_VERSION_CONFLICT")
-        if card.title != confirm_title:
+        expected_confirmation = card.content if card.schema_version == "2.0" else card.title
+        if expected_confirmation != confirm_title:
             raise ValueError("CONFIRMATION_MISMATCH")
         now = utc_now()
         linked_ids = [
@@ -1347,6 +1356,14 @@ class MemoryCardG4Repository(MemoryCardRepository):
                         MemoryRelationModel.to_memory_id == memory_id,
                         MemoryRelationModel.resolution_memory_id == memory_id,
                     ),
+                )
+            )
+        )
+        self.session.execute(
+            MemoryLLMJudgeModel.__table__.delete().where(
+                and_(
+                    MemoryLLMJudgeModel.owner_id == self.user_ctx.user_id,
+                    MemoryLLMJudgeModel.memory_id == memory_id,
                 )
             )
         )
@@ -1440,6 +1457,12 @@ class MemoryCardG4Repository(MemoryCardRepository):
             deleted_at=now,
             import_batch_id=None,
             import_source_version=None,
+            memory_kind_v2=None,
+            content=None,
+            applies_when=None,
+            review_status=None,
+            confidence=None,
+            rule_subtype=None,
             updated_at=now,
         )
         self.session.flush()
@@ -1535,6 +1558,24 @@ class MemoryCardG4Repository(MemoryCardRepository):
                 )
             ).scalars()
         )
+        reflection_job_ids = list(
+            self.session.execute(
+                select(MemoryReflectionJobModel.id).where(
+                    and_(
+                        MemoryReflectionJobModel.owner_id == self.user_ctx.user_id,
+                        MemoryReflectionJobModel.task_id == task_id,
+                    )
+                )
+            ).scalars()
+        )
+        self.session.execute(
+            MemoryLLMJudgeModel.__table__.delete().where(
+                and_(
+                    MemoryLLMJudgeModel.owner_id == self.user_ctx.user_id,
+                    MemoryLLMJudgeModel.task_id == task_id,
+                )
+            )
+        )
         if usage_ids:
             self.session.execute(
                 MemoryVerificationJobModel.__table__.delete().where(
@@ -1575,6 +1616,15 @@ class MemoryCardG4Repository(MemoryCardRepository):
                     and_(
                         MemoryEvidenceLinkModel.owner_id == self.user_ctx.user_id,
                         MemoryEvidenceLinkModel.evidence_id.in_(evidence_ids),
+                    )
+                )
+            )
+        if reflection_job_ids:
+            self.session.execute(
+                MemoryReflectionJobModel.__table__.delete().where(
+                    and_(
+                        MemoryReflectionJobModel.owner_id == self.user_ctx.user_id,
+                        MemoryReflectionJobModel.id.in_(reflection_job_ids),
                     )
                 )
             )
@@ -1653,6 +1703,7 @@ class MemoryCardG4Repository(MemoryCardRepository):
                 *evidence_ids,
                 *usage_ids,
                 *trace_ids,
+                *reflection_job_ids,
                 *affected_card_ids,
             ],
         )
@@ -1668,6 +1719,8 @@ class MemoryCardG4Repository(MemoryCardRepository):
             .values(
                 status="deleted",
                 task_text="",
+                conversation_summary=None,
+                summary_through_turn=0,
                 deleted_at=now,
                 deleted_by="owner",
                 deletion_reason="source_task_delete",
@@ -2706,19 +2759,40 @@ class MemoryCenterRepository:
     def list_memories_v2(
         self,
         *,
+        query: str | None = None,
         kind: str | None = None,
         review_status: str | None = None,
+        source_type: str | None = None,
+        sort: str = "newest",
         cursor: str | None = None,
         limit: int = 20,
     ) -> list[MemoryCardModel]:
         q = select(MemoryCardModel).where(self._card_owner_q())
+        if query:
+            escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pattern = f"%{escaped}%"
+            q = q.where(
+                or_(
+                    MemoryCardModel.content.ilike(pattern, escape="\\"),
+                    MemoryCardModel.applies_when.ilike(pattern, escape="\\"),
+                )
+            )
         if kind:
             q = q.where(MemoryCardModel.memory_kind_v2 == kind)
         if review_status:
             q = q.where(MemoryCardModel.review_status == review_status)
+        if source_type:
+            if source_type in {"user_edit", "import"}:
+                q = q.where(MemoryCardModel.source_type == source_type)
+            else:
+                q = q.where(MemoryCardModel.source_type.not_in(("user_edit", "import")))
         if cursor:
-            q = q.where(MemoryCardModel.id < cursor)
-        q = q.order_by(MemoryCardModel.id.desc()).limit(limit)
+            q = q.where(
+                MemoryCardModel.id > cursor if sort == "oldest" else MemoryCardModel.id < cursor
+            )
+        q = q.order_by(
+            MemoryCardModel.id.asc() if sort == "oldest" else MemoryCardModel.id.desc()
+        ).limit(limit)
         return list(self.session.execute(q).scalars().all())
 
     # ── 7. get_memory_detail_v2 ───────────────────────────────────────────────
@@ -2774,6 +2848,67 @@ class MemoryCenterRepository:
 
         return card, versions, evidence
 
+    def get_memory_version_v2(self, memory_id: str, version_id: str) -> MemoryVersionModel | None:
+        return self.session.execute(
+            select(MemoryVersionModel).where(
+                and_(
+                    MemoryVersionModel.id == version_id,
+                    MemoryVersionModel.memory_id == memory_id,
+                    MemoryVersionModel.owner_id == self.user_ctx.user_id,
+                    MemoryVersionModel.memory_kind_v2.is_not(None),
+                )
+            )
+        ).scalar_one_or_none()
+
+    def list_memory_usages_v2(
+        self, memory_id: str, *, cursor: str | None = None, limit: int = 51
+    ) -> list[MemoryUsageModel] | None:
+        card_id = self.session.execute(
+            select(MemoryCardModel.id).where(
+                and_(MemoryCardModel.id == memory_id, self._card_owner_q())
+            )
+        ).scalar_one_or_none()
+        if card_id is None:
+            return None
+        query = select(MemoryUsageModel).where(
+            and_(
+                MemoryUsageModel.owner_id == self.user_ctx.user_id,
+                MemoryUsageModel.memory_id == memory_id,
+            )
+        )
+        if cursor:
+            query = query.where(MemoryUsageModel.id < cursor)
+        return list(
+            self.session.execute(query.order_by(MemoryUsageModel.id.desc()).limit(limit)).scalars()
+        )
+
+    def list_memory_relations_v2(
+        self, memory_id: str, *, cursor: str | None = None, limit: int = 51
+    ) -> list[MemoryRelationModel] | None:
+        card_id = self.session.execute(
+            select(MemoryCardModel.id).where(
+                and_(MemoryCardModel.id == memory_id, self._card_owner_q())
+            )
+        ).scalar_one_or_none()
+        if card_id is None:
+            return None
+        query = select(MemoryRelationModel).where(
+            and_(
+                MemoryRelationModel.owner_id == self.user_ctx.user_id,
+                or_(
+                    MemoryRelationModel.from_memory_id == memory_id,
+                    MemoryRelationModel.to_memory_id == memory_id,
+                ),
+            )
+        )
+        if cursor:
+            query = query.where(MemoryRelationModel.id < cursor)
+        return list(
+            self.session.execute(
+                query.order_by(MemoryRelationModel.id.desc()).limit(limit)
+            ).scalars()
+        )
+
     # ── 8. update_memory_v2 ──────────────────────────────────────────────────
 
     def update_memory_v2(
@@ -2782,6 +2917,7 @@ class MemoryCenterRepository:
         memory_id: str,
         patch: dict[str, Any],
         expected_version_id: str,
+        created_by_action: str = "user_edit",
     ) -> dict[str, Any]:
         card = self.session.execute(
             select(MemoryCardModel).where(
@@ -2825,7 +2961,7 @@ class MemoryCenterRepository:
                 trigger_text=new_applies_when,
                 scope_json=card.scope_json or '{"level":"global","domain":"any"}',
                 exceptions_json=card.exceptions_json or "[]",
-                created_by_action="user_edit",
+                created_by_action=created_by_action,
                 created_at=now,
                 memory_kind_v2=new_kind,
                 content=new_content,

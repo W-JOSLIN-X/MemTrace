@@ -30,6 +30,7 @@ _WHOLE_TASK_CODE_CUE = re.compile(
 class ExtractedPython:
     code: str
     source: CodeSource
+    code_block_id: str = "code_001"
 
     @property
     def byte_count(self) -> int:
@@ -58,26 +59,49 @@ class ToolFailure(Exception):
 def extract_python(task_text: str) -> ExtractedPython | None:
     """Use the first Python fence, otherwise accept only a wholly valid Python task."""
 
-    fenced = _PYTHON_FENCE.search(task_text)
-    if fenced is not None:
+    candidates = extract_python_candidates(task_text)
+    return candidates[0] if candidates else None
+
+
+def extract_python_candidates(task_text: str) -> list[ExtractedPython]:
+    """Enumerate bounded Python candidates without making a semantic tool decision."""
+
+    candidates: list[ExtractedPython] = []
+    for index, fenced in enumerate(_PYTHON_FENCE.finditer(task_text), start=1):
+        if index > 8:
+            break
         code = fenced.group("code")
-        if not code.strip() or len(code.encode("utf-8")) > MAX_TOOL_INPUT_BYTES:
-            return None
-        return ExtractedPython(code=code, source=CodeSource.FENCED_PYTHON)
+        if not code.strip() or len(code.encode()) > MAX_TOOL_INPUT_BYTES:
+            continue
+        candidates.append(
+            ExtractedPython(
+                code=code,
+                source=CodeSource.FENCED_PYTHON,
+                code_block_id=f"code_{index:03d}",
+            )
+        )
+    if candidates:
+        return candidates
 
     candidate = task_text.strip()
     if not candidate or len(candidate.encode("utf-8")) > MAX_TOOL_INPUT_BYTES:
-        return None
+        return []
     # A plain natural-language word can be a valid Python identifier. Requiring
     # a code-shaped cue prevents such prompts from being misclassified and sent
     # to the AST tool while preserving whole-snippet support.
     if _WHOLE_TASK_CODE_CUE.search(candidate) is None:
-        return None
+        return []
     try:
         ast.parse(candidate)
     except (SyntaxError, ValueError, TypeError, MemoryError, RecursionError):
-        return None
-    return ExtractedPython(code=candidate, source=CodeSource.WHOLE_TASK_VALID_PYTHON)
+        return []
+    return [
+        ExtractedPython(
+            code=candidate,
+            source=CodeSource.WHOLE_TASK_VALID_PYTHON,
+            code_block_id="code_001",
+        )
+    ]
 
 
 def _positive(value: int | None) -> int | None:

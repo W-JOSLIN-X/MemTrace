@@ -63,6 +63,18 @@ class ErrorCode(StrEnum):
     IMPORT_BATCH_EXPIRED = "IMPORT_BATCH_EXPIRED"
     IMPORT_PREVIEW_TOKEN_INVALID = "IMPORT_PREVIEW_TOKEN_INVALID"
     IMPORT_BATCH_STATE_CONFLICT = "IMPORT_BATCH_STATE_CONFLICT"
+    # Day 7 public-account and release errors. Authentication and recovery use
+    # deliberately uniform responses so callers cannot enumerate usernames.
+    AUTHENTICATION_FAILED = "AUTHENTICATION_FAILED"
+    ACCOUNT_REQUIRED = "ACCOUNT_REQUIRED"
+    INVITATION_INVALID = "INVITATION_INVALID"
+    RECOVERY_FAILED = "RECOVERY_FAILED"
+    RATE_LIMITED = "RATE_LIMITED"
+    CSRF_INVALID = "CSRF_INVALID"
+    ORIGIN_INVALID = "ORIGIN_INVALID"
+    QUOTA_EXHAUSTED = "QUOTA_EXHAUSTED"
+    CONCURRENT_TURN_LIMIT = "CONCURRENT_TURN_LIMIT"
+    ACCOUNT_CONFIRMATION_MISMATCH = "ACCOUNT_CONFIRMATION_MISMATCH"
 
 
 class ValidationFieldError(ContractModel):
@@ -87,6 +99,8 @@ class ErrorDetails(ContractModel):
         | None
     ) = None
     http_status: int | None = Field(default=None, ge=400, le=599)
+    retry_after_seconds: int | None = Field(default=None, ge=0, le=86_400)
+    quota_remaining: int | None = Field(default=None, ge=0)
 
 
 class ErrorDetail(ContractModel):

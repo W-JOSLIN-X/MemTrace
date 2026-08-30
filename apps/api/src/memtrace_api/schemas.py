@@ -1824,17 +1824,13 @@ class MemoryV2EditRequest(ContractModel):
 
 
 class MemoryV2EditResponse(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
     request_id: RequestId
-    memory_id: MemoryId
-    kind: MemoryKindV2
-    content: Annotated[str, StringConstraints(max_length=4000)]
-    applies_when: Annotated[str, StringConstraints(max_length=500)]
-    status: ReviewStatus
-    current_version_id: MemoryVersionId
-    updated_at: datetime
+    memory: MemoryV2Projection
 
 
 class MemoryConfirmResponse(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
     request_id: RequestId
     memory_id: MemoryId
     old_status: ReviewStatus
@@ -1843,6 +1839,7 @@ class MemoryConfirmResponse(ContractModel):
 
 
 class MemoryDismissResponse(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
     request_id: RequestId
     memory_id: MemoryId
     old_status: ReviewStatus
@@ -1851,6 +1848,7 @@ class MemoryDismissResponse(ContractModel):
 
 
 class MemoryLifecycleV2Response(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
     request_id: RequestId
     memory_id: MemoryId
     old_status: ReviewStatus
@@ -1859,12 +1857,14 @@ class MemoryLifecycleV2Response(ContractModel):
 
 
 class MemoryEventListResponse(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
     request_id: RequestId
     items: Annotated[list[MemoryEventPayload], Field(max_length=100)] = Field(default_factory=list)
     next_seq: int | None = None
 
 
 class TaskMemoryUsageResponse(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
     request_id: RequestId
     task_id: TaskId
     memory_id: MemoryId
@@ -1881,6 +1881,7 @@ class MemoryFeedbackRequest(ContractModel):
 
 
 class MemoryFeedbackResponse(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
     request_id: RequestId
     task_id: TaskId
     memory_id: MemoryId
@@ -1897,7 +1898,14 @@ class MemoryV2Projection(ContractModel):
     confidence: float = Field(ge=0, le=1)
     current_version_id: MemoryVersionId
     version: int = Field(ge=1)
-    source_type: Literal["conversation_turn", "user_edit"]
+    source_type: Literal["conversation_turn", "user_edit", "import"]
+    retrieved_count: int = Field(ge=0)
+    injected_count: int = Field(ge=0)
+    verified_applied_count: int = Field(ge=0)
+    helpful_count: int = Field(ge=0)
+    harmful_count: int = Field(ge=0)
+    stale_count: int = Field(ge=0)
+    last_used_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -1911,10 +1919,18 @@ class MemoryVersionV2Projection(ContractModel):
     review_status: ReviewStatus
     confidence: float = Field(ge=0, le=1)
     created_by_action: Literal[
+        "accept",
+        "edit_accept",
+        "edit",
+        "import",
+        "merge",
+        "scope_resolution",
         "llm_extract",
         "llm_update",
         "llm_supersede",
+        "llm_coexist",
         "user_edit",
+        "user_restore",
     ]
     created_at: datetime
 
@@ -1925,6 +1941,7 @@ class MemoryEvidenceV2Projection(ContractModel):
         StringConstraints(pattern=r"^evidence_[0-9A-HJKMNP-TV-Z]{26}$"),
     ]
     message_id: MessageId
+    task_id: TaskId
     turn_index: int = Field(ge=1)
     source_type: Literal["conversation_turn", "user_edit"]
     is_primary: bool
@@ -1932,6 +1949,7 @@ class MemoryEvidenceV2Projection(ContractModel):
 
 
 class MemoryDetailV2Response(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
     request_id: RequestId
     memory: MemoryV2Projection
     versions: Annotated[list[MemoryVersionV2Projection], Field(max_length=100)]
@@ -1939,9 +1957,286 @@ class MemoryDetailV2Response(ContractModel):
 
 
 class MemoryV2ListResponse(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
     request_id: RequestId
     items: Annotated[list[MemoryV2Projection], Field(max_length=100)] = Field(default_factory=list)
     next_cursor: MemoryId | None = None
+
+
+class MemoryVersionDiffV2Response(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
+    request_id: RequestId
+    from_version: MemoryVersionV2Projection
+    to_version: MemoryVersionV2Projection
+    changed_fields: list[Literal["kind", "content", "applies_when", "review_status", "confidence"]]
+
+
+class MemoryVersionRestoreV2Request(ContractModel):
+    expected_current_version_id: MemoryVersionId
+    source_version_id: MemoryVersionId
+
+
+class MemoryUsageV2Projection(ContractModel):
+    usage_id: UsageId
+    task_id: TaskId
+    run_id: RunId
+    memory_id: MemoryId
+    memory_version_id: MemoryVersionId
+    injected: bool
+    estimated_tokens: int = Field(ge=0)
+    verification_status: VerificationStatus
+    user_effect: UserEffect | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MemoryUsageV2ListResponse(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
+    request_id: RequestId
+    items: Annotated[list[MemoryUsageV2Projection], Field(max_length=100)] = Field(
+        default_factory=list
+    )
+    next_cursor: UsageId | None = None
+
+
+class MemoryRelationV2Projection(ContractModel):
+    relation_id: RelationId
+    from_memory_id: MemoryId
+    to_memory_id: MemoryId
+    relation_type: Literal[
+        "duplicate_of",
+        "conflicts_with",
+        "supersedes",
+        "reinforces",
+        "merged_into",
+        "related_to",
+    ]
+    status: Literal["unresolved", "resolved"]
+    resolution_action: Literal["prefer", "separate_scopes", "merge", "pause_both"] | None
+    resolution_memory_id: MemoryId | None
+    created_at: datetime
+
+
+class MemoryRelationV2ListResponse(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
+    request_id: RequestId
+    items: Annotated[list[MemoryRelationV2Projection], Field(max_length=100)] = Field(
+        default_factory=list
+    )
+    next_cursor: RelationId | None = None
+
+
+class MemoryDeleteV2Request(ContractModel):
+    expected_current_version_id: MemoryVersionId
+    confirm_content: Annotated[str, StringConstraints(min_length=4, max_length=4000)]
+
+
+class MemoryDeleteV2Response(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
+    request_id: RequestId
+    memory_id: MemoryId
+    status: Literal["deleted"] = "deleted"
+    deleted_at: datetime
+
+
+class SourceTaskDeleteV2Request(ContractModel):
+    confirm_task_id: TaskId
+    memory_policy: Literal["preserve_and_mark_evidence_missing"] = (
+        "preserve_and_mark_evidence_missing"
+    )
+
+
+class SourceTaskDeleteV2Response(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
+    request_id: RequestId
+    task_id: TaskId
+    status: Literal["deleted"] = "deleted"
+    memory_policy: Literal["preserve_and_mark_evidence_missing"]
+    affected_memory_count: int = Field(ge=0)
+
+
+class MemoryConflictDetectV2Request(ContractModel):
+    left_memory_id: MemoryId
+    left_expected_current_version_id: MemoryVersionId
+    right_memory_id: MemoryId
+    right_expected_current_version_id: MemoryVersionId
+
+    @model_validator(mode="after")
+    def distinct_memories(self) -> MemoryConflictDetectV2Request:
+        if self.left_memory_id == self.right_memory_id:
+            raise ValueError("conflict memories must differ")
+        return self
+
+
+class MemoryConflictDetectV2Response(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
+    request_id: RequestId
+    relation: MemoryRelationV2Projection
+
+
+class MemoryConflictDetailV2Response(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
+    request_id: RequestId
+    relation: MemoryRelationV2Projection
+    left: MemoryV2Projection
+    right: MemoryV2Projection
+
+
+class MergedMemoryV2Input(ContractModel):
+    kind: MemoryKindV2
+    content: Annotated[str, StringConstraints(min_length=4, max_length=4000)]
+    applies_when: Annotated[str, StringConstraints(min_length=4, max_length=500)]
+
+
+class MemoryConflictResolveV2Request(ContractModel):
+    expected_relation_status: Literal["unresolved"] = "unresolved"
+    left_expected_current_version_id: MemoryVersionId
+    right_expected_current_version_id: MemoryVersionId
+    action: Literal["prefer", "separate_scopes", "merge", "pause_both"]
+    preferred_memory_id: MemoryId | None = None
+    left_applies_when: Annotated[str, StringConstraints(min_length=4, max_length=500)] | None = None
+    right_applies_when: Annotated[str, StringConstraints(min_length=4, max_length=500)] | None = (
+        None
+    )
+    merged_memory: MergedMemoryV2Input | None = None
+
+    @model_validator(mode="after")
+    def validate_action_fields(self) -> MemoryConflictResolveV2Request:
+        expected = {
+            "prefer": (True, False, False, False),
+            "separate_scopes": (False, True, True, False),
+            "merge": (False, False, False, True),
+            "pause_both": (False, False, False, False),
+        }[self.action]
+        present = (
+            self.preferred_memory_id is not None,
+            self.left_applies_when is not None,
+            self.right_applies_when is not None,
+            self.merged_memory is not None,
+        )
+        if present != expected:
+            raise ValueError(f"{self.action} action fields do not match the frozen contract")
+        return self
+
+
+class MemoryConflictResolveV2Response(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
+    request_id: RequestId
+    relation_id: RelationId
+    action: Literal["prefer", "separate_scopes", "merge", "pause_both"]
+    status: Literal["resolved"] = "resolved"
+    resolution_memory_id: MemoryId | None = None
+
+
+class MemoryPackV2Origin(ContractModel):
+    source_type: Literal["conversation_turn", "user_edit", "import"]
+    trust_level: Literal["user_confirmed", "self_asserted", "imported_unverified"]
+    created_at: datetime
+    source_version: int = Field(ge=1)
+
+
+class MemoryPackV2Card(ContractModel):
+    external_id: Annotated[str, StringConstraints(pattern=r"^card_[A-Za-z0-9_-]{1,64}$")]
+    schema_version: Literal["2.0"] = "2.0"
+    kind: MemoryKindV2
+    content: Annotated[str, StringConstraints(min_length=4, max_length=4000)]
+    applies_when: Annotated[str, StringConstraints(min_length=4, max_length=500)]
+    claimed_origin: MemoryPackV2Origin
+    version: int = Field(ge=1)
+    updated_at: datetime
+
+
+class MemoryPackV2Relation(ContractModel):
+    from_external_id: Annotated[str, StringConstraints(pattern=r"^card_[A-Za-z0-9_-]{1,64}$")]
+    to_external_id: Annotated[str, StringConstraints(pattern=r"^card_[A-Za-z0-9_-]{1,64}$")]
+    relation_type: Literal[
+        "duplicate_of", "reinforces", "conflicts_with", "supersedes", "merged_into", "related_to"
+    ]
+
+
+class MemoryPackV2Document(ContractModel):
+    schema_ref: Literal["memtrace-memory-pack@2.0.0"]
+    format: Literal["memtrace-memory-pack"]
+    format_version: Literal["2.0.0"]
+    pack_id: PackId
+    name: Annotated[str, StringConstraints(min_length=1, max_length=80)]
+    description: Annotated[str, StringConstraints(max_length=500)]
+    created_at: datetime
+    producer: PackProducer
+    source: PackSource
+    privacy: PackPrivacy
+    cards: Annotated[list[MemoryPackV2Card], Field(min_length=1, max_length=200)]
+    relations: Annotated[list[MemoryPackV2Relation], Field(max_length=400)]
+    integrity: PackIntegrity
+
+    @model_validator(mode="after")
+    def validate_external_graph(self) -> MemoryPackV2Document:
+        ids = [card.external_id for card in self.cards]
+        if len(ids) != len(set(ids)):
+            raise ValueError("pack card external_id values must be unique")
+        known = set(ids)
+        seen: set[tuple[str, str, str]] = set()
+        for relation in self.relations:
+            if relation.from_external_id not in known or relation.to_external_id not in known:
+                raise ValueError("pack relation contains a dangling reference")
+            if relation.from_external_id == relation.to_external_id:
+                raise ValueError("pack relation cannot be self-referential")
+            key = (
+                relation.from_external_id,
+                relation.to_external_id,
+                relation.relation_type,
+            )
+            if key in seen:
+                raise ValueError("pack relation is duplicated")
+            seen.add(key)
+        return self
+
+
+class PackExportV2Request(ContractModel):
+    memory_ids: Annotated[list[MemoryId], Field(min_length=1, max_length=200)] | None = None
+    name: Annotated[str, StringConstraints(min_length=1, max_length=80)] = "MemTrace export"
+    description: Annotated[str, StringConstraints(max_length=500)] = ""
+
+    @field_validator("memory_ids")
+    @classmethod
+    def unique_memory_ids(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None and len(value) != len(set(value)):
+            raise ValueError("memory_ids must be unique")
+        return value
+
+
+class PackPreviewV2Item(ContractModel):
+    external_id: Annotated[str, StringConstraints(pattern=r"^card_[A-Za-z0-9_-]{1,64}$")]
+    kind: MemoryKindV2
+    content: Annotated[str, StringConstraints(min_length=4, max_length=4000)]
+    applies_when: Annotated[str, StringConstraints(min_length=4, max_length=500)]
+    classification: Literal["legal_new", "duplicate", "potential_conflict", "suspicious"]
+    reason: Literal["exact_duplicate", "declared_conflict", "suspicious_text"] | None = None
+
+
+class PackPreviewV2Response(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
+    request_id: RequestId
+    batch_id: ImportBatchId
+    name: str
+    description: str
+    format_version: Literal["2.0.0"] = "2.0.0"
+    legal_new_count: int = Field(ge=0)
+    duplicate_count: int = Field(ge=0)
+    potential_conflict_count: int = Field(ge=0)
+    suspicious_count: int = Field(ge=0)
+    items: Annotated[list[PackPreviewV2Item], Field(min_length=1, max_length=200)]
+    preview_token: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{43}$")]
+    expires_at: datetime
+
+
+class ImportCommitV2Response(ContractModel):
+    schema_version: Literal["2.1.0"] = "2.1.0"
+    request_id: RequestId
+    batch_id: ImportBatchId
+    inserted_count: int = Field(ge=0)
+    skipped_count: int = Field(ge=0)
+    warning_count: int = Field(ge=0)
 
 
 class ConversationTaskCreateRequest(ContractModel):
@@ -1949,7 +2244,7 @@ class ConversationTaskCreateRequest(ContractModel):
 
 
 class ConversationTaskCreateResponse(ContractModel):
-    schema_version: Literal["2.0.0"] = "2.0.0"
+    schema_version: Literal["2.1.0"] = "2.1.0"
     request_id: RequestId
     task_id: TaskId
     provider_mode: ProviderMode
@@ -1988,6 +2283,7 @@ class StageUsageProjection(ContractModel):
     stage: Literal[
         "summary",
         "applicability",
+        "tool_planning",
         "chat",
         "reflection",
         "consolidation",
@@ -2001,6 +2297,7 @@ class StageUsageProjection(ContractModel):
     total_tokens: int = Field(ge=0)
     reasoning_tokens: int | None = Field(default=None, ge=0)
     latency_ms: int = Field(ge=0)
+    first_token_ms: int | None = Field(default=None, ge=0)
 
 
 class TurnMemoryDecisionProjection(ContractModel):
@@ -2014,7 +2311,7 @@ class TurnMemoryDecisionProjection(ContractModel):
 
 
 class ConversationTurnResponse(ContractModel):
-    schema_version: Literal["2.0.0"] = "2.0.0"
+    schema_version: Literal["2.1.0"] = "2.1.0"
     request_id: RequestId
     task_id: TaskId
     run_id: RunId
@@ -2024,6 +2321,7 @@ class ConversationTurnResponse(ContractModel):
     reflection_job_id: MemoryReflectionJobId | None
     memory_mode: EffectiveMemoryMode
     memory_decisions: Annotated[list[TurnMemoryDecisionProjection], Field(max_length=50)]
+    tool_calls: Annotated[list[ToolCallSnapshot], Field(max_length=1)] = Field(default_factory=list)
     usage: Annotated[list[StageUsageProjection], Field(min_length=1, max_length=102)]
 
 
@@ -2032,11 +2330,12 @@ class ConversationTurnStateProjection(ContractModel):
     turn_index: int = Field(ge=1)
     reflection_job_id: MemoryReflectionJobId | None
     memory_decisions: Annotated[list[TurnMemoryDecisionProjection], Field(max_length=50)]
+    tool_calls: Annotated[list[ToolCallSnapshot], Field(max_length=1)] = Field(default_factory=list)
     usage: Annotated[list[StageUsageProjection], Field(min_length=1, max_length=102)]
 
 
 class ConversationTaskSnapshotResponse(ContractModel):
-    schema_version: Literal["2.0.0"] = "2.0.0"
+    schema_version: Literal["2.1.0"] = "2.1.0"
     request_id: RequestId
     task_id: TaskId
     memory_mode: EffectiveMemoryMode
