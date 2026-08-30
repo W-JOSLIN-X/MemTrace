@@ -11,7 +11,7 @@ type NavigationItem = {
 
 const navigation: NavigationItem[] = [
   {
-    label: '对话任务',
+    label: '普通对话',
     shortLabel: '对话',
     to: '/',
     end: true,
@@ -65,7 +65,7 @@ export function AppShell() {
             className="flex items-center gap-2 rounded-full border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm"
           >
             <span className="size-2 rounded-full bg-emerald-500" />
-            Day 5 · G4
+            Day 6 · G5 · 真实模型
           </div>
         </div>
       </header>

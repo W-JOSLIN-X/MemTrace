@@ -14,18 +14,17 @@ function renderApp(initialEntry = '/') {
 }
 
 describe('MemTrace application shell', () => {
-  it('renders the Day 5 G4 shell without pretending the Agent is connected', () => {
+  it('renders the Day 6 conversation-first shell without pretending a task type is required', () => {
     renderApp()
 
     expect(
       screen.getByRole('heading', {
-        name: '把编程问题交给 Agent，观察它如何完成任务',
+        name: '与 MemTrace 对话',
       }),
     ).toBeInTheDocument()
-    expect(screen.getByLabelText('Provider 模式：未连接')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '运行 Agent' })).toBeDisabled()
-    expect(screen.getByText('G3 检索与注入流程')).toBeInTheDocument()
-    expect(screen.getByText('Day 5 · G4')).toBeInTheDocument()
+    expect(screen.getByLabelText('对话内容')).toBeDisabled()
+    expect(screen.queryByText('任务类型')).not.toBeInTheDocument()
+    expect(screen.getByText('Day 6 · G5 · 真实模型')).toBeInTheDocument()
   })
 
   it('opens the Day 5 Memory Center', async () => {
@@ -52,7 +51,7 @@ describe('MemTrace application shell', () => {
 
     expect(
       screen.getByRole('heading', {
-        name: '把编程问题交给 Agent，观察它如何完成任务',
+        name: '与 MemTrace 对话',
       }),
     ).toBeInTheDocument()
   })

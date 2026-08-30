@@ -1,31 +1,28 @@
 # MemTrace（忆迹）
 
-MemTrace 是一个面向黑客松第四赛道的轻量 Agent 原型。当前代码达到 Day 5 G4：
-在 G1 自动分类、G2 反馈学习与候选确认的基础上，增加 owner 隔离的 active 记忆检索、
-确定性 `char_tfidf_v1` 排序、受预算约束的 Prompt 注入、usage receipt、效果验证、
-pause/resume、版本历史以及刷新/重启恢复。G4 进一步提供 owner-scoped Memory Center、
-版本 Diff、archive/restore、冲突四种裁决、用户填写的 manual merge、匿名 Memory Pack
-预览/暂停导入，以及单卡和来源任务删除。
+MemTrace 是一个面向黑客松第四赛道的对话 Agent 原型。当前 Day 6 G5 主体验与普通
+对话 Agent 一致：用户直接进行多轮对话，真实大模型在后台提取并分类
+`preference | rule | experience`，右侧记忆栏实时展示 pending/active 状态，并允许用户
+修改类型、内容和适用范围。后续轮次由真实大模型分别完成适用性、冲突/合并和效果判断，
+当前明确指令始终优先于长期记忆。
 
-任务类别由服务端 `auto_rule_v1` 自动识别。客户端不提交 `scenario`，继续发送旧字段
-会收到 422。只有 active 卡能参与 G3 检索；candidate、retrieved、selected、injected、
-applied 和 helpful 在 API 与界面中保持不同语义。Mock 模式不需要 Provider Key，且
-`provider_prompt_tokens_actual` 明确保持 `null`。
+G1–G4 的 owner 隔离、幂等、事务、持久事件、恢复、Memory Center、版本 Diff、冲突裁决、
+匿名 Memory Pack 和安全删除仍保留。旧 `/api/v1` 自动分类与 TF-IDF 能力只作为兼容路径；
+G5 `/api/v2` 产品主链不使用关键词、正则、TF-IDF 或 substring verifier 作语义最终判定。
+Fake/Mock 只用于事务、错误映射和前端 reducer 等工程测试，不能作为 G5 语义验收证据。
 
 ## 当前验收状态
 
-Day 1–Day 4 历史证据分别保留在对应文档目录；Day 5 的实际命令、退出码、测试数量、
-容器与双浏览器结果以 `docs/day5/OWNER_INTEGRATION_REPORT.md` 为准。第二台电脑启动
-仍未验证，不能表述为“已完成多人环境复现”。
+Day 1–Day 5 历史证据分别保留在对应文档目录；Day 6 的工程测试、真实 DeepSeek 语义
+评测、容器与双浏览器结果以 `docs/day6/OWNER_INTEGRATION_REPORT.md` 为准。只有该报告
+记录的本轮实际命令可作为验收证据。
 
 | 项目 | 当前状态 |
 |---|---|
 | 前后端入口和 lock 文件 | 已存在 |
-| Fixture、Schema 与 live Mock smoke | 包含 G1–G4、会话 Cookie、owner 隔离、幂等写入和 metadata-only Eval |
-| Docker/Compose 静态配置 | 本机通过；这与实际镜像构建分别验证 |
-| Docker image build | 本机已实际构建 |
-| 单容器 API/SSE/React | 本机已验证；包含 SPA fallback 和 API 404 隔离 |
-| Docker cold start/migration/restart/persistence | 以 Day 5 所有者整合报告的本轮证据为准 |
+| Fixture、Schema 与工程测试 | 包含 G1–G5、会话 Cookie、owner 隔离、幂等写入和 metadata-only Eval |
+| G5 真实模型语义门禁 | 必须 `MOCK_MODE=false`、固定实际模型、非零供应商 usage 且无 Mock fallback |
+| Docker/Compose 与双浏览器 | 以 Day 6 所有者报告的本轮 cold start、恢复和真实 Provider 证据为准 |
 | 第二台电脑启动 | 未验证 |
 
 ## 目录
@@ -33,14 +30,16 @@ Day 1–Day 4 历史证据分别保留在对应文档目录；Day 5 的实际命
 ```text
 apps/api/        FastAPI 后端，入口 memtrace_api.main:app
 apps/web/        React/Vite 前端，生产构建输出 apps/web/dist
-contracts/       G1–G4 REST、事件、Pack、自动分类和检索规范
+contracts/       G1–G5 REST、事件、Pack、对话与 LLM 记忆规范
 fixtures/day1/   Day 1 确定性 QA 输入
 fixtures/day2/   24 条自动分类、反馈能力和持久事件标注
 fixtures/day4/   Day 4 draft 审阅源与 30 条 G3 可执行 fixture
 fixtures/day5/   Day 5 draft 审阅源、8 条冲突与 12 条 Pack/security fixture
+fixtures/day6/   16 条真实语义 case 与 8 条 memory-off/on A/B case
 scripts/day1/    Fixture 校验和全链路 smoke
 scripts/day4/    REST-only G3 EvalRunner
 scripts/day5/    REST-only G4 EvalRunner 与契约投影工具
+scripts/day6/    真实 Provider 预检、组件检查和 REST-only G5 EvalRunner
 Dockerfile       Node 构建 + Alembic migration + Python 单进程运行
 compose.yaml     单容器、SQLite 持久卷和必填 SESSION_SECRET
 ```
@@ -80,7 +79,7 @@ git check-ignore -q .env
 if ($LASTEXITCODE -ne 0) { throw '.env 没有被 Git 忽略，请停止操作' }
 ```
 
-首次联调保持：
+纯工程开发可以保持安全默认值：
 
 ```dotenv
 MOCK_MODE=true
@@ -89,7 +88,9 @@ LLM_API_KEY=
 
 同时必须在本地 `.env` 写入一个随机、至少 32 bytes 的 `SESSION_SECRET`。该值只能
 来自环境或本地被忽略的 `.env`，不得使用 README 示例值、提交到 Git 或出现在日志和
-截图中。`MOCK_MODE=true` 不需要模型平台登录，但 Demo 会话仍需要该本地签名密钥。
+截图中。`MOCK_MODE=true` 不需要模型平台登录，但只能生成工程证据；G5 语义、Docker 和
+双浏览器验收必须显式改为 `MOCK_MODE=false` 并使用真实 Provider。Demo 会话仍需要该
+本地签名密钥。
 
 真实模式只能把新生成的 Key 写入本地 `.env`，不能写进 README、源代码、fixture、
 命令参数、日志、截图或 Git。先前在聊天中出现过的 Key 已经暴露，应撤销后再生成，
@@ -180,10 +181,33 @@ failure、未知任务 404，以及 `after_event_seq + after_offset` 双游标�
 必须非零退出。Day 1 的原始规则仍见 `docs/day1/SMOKE_SPEC.md`，Day 2 增量证据见
 `docs/day2/VERIFICATION_REPORT.md`。
 
-### 真实 Provider 门禁（不属于 Day 2 MOCK 验收）
+### 真实 Provider 门禁（Day 6 G5 必需）
 
-真实测试不能复用 Mock fixture 的通过结果。用户在被 Git 忽略的 `.env` 中手工设为
-`MOCK_MODE=false` 并填入临时 `LLM_API_KEY`，重启 API 后连续执行两次：
+真实测试不能复用 Mock fixture 的通过结果。用户在被 Git 忽略的 `.env` 中手工配置：
+
+```dotenv
+MOCK_MODE=false
+LLM_API_KEY=<用户本人填写>
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=<先经官方模型列表和最小调用确认的模型 ID>
+```
+
+随后先运行真实预检和五阶段组件检查：
+
+```powershell
+.\apps\api\.venv\Scripts\python.exe .\scripts\day6\provider_preflight.py
+.\apps\api\.venv\Scripts\python.exe .\scripts\day6\component_probe.py
+```
+
+API 以真实模式启动后，再通过公开 REST API 运行 16×2 语义评测与 8 组 A/B：
+
+```powershell
+.\apps\api\.venv\Scripts\python.exe .\scripts\day6\eval_runner.py `
+  --base-url http://127.0.0.1:8000 --mode all `
+  --output .\output\day6\real-g5-report.json
+```
+
+旧 G1 Provider 兼容 smoke 仍可单独运行：
 
 ```powershell
 .\apps\api\.venv\Scripts\python.exe .\scripts\day1\real_provider_smoke.py `
@@ -192,7 +216,8 @@ failure、未知任务 404，以及 `after_event_seq + after_offset` 双游标�
   --timeout-seconds 180
 ```
 
-该脚本不读取 Key，也不打印任务正文、回答正文、请求头或上游错误体；成功时只输出
+上述 runner 只保存资源 ID、受控枚举、token、延迟、判定和失败码；不保存对话、记忆、
+回答或 Key。旧脚本同样不读取 Key，也不打印任务正文、回答正文、请求头或上游错误体；成功时只输出
 task/run ID、Provider 模式、模型、token 来源与数量、首字和总耗时。它会实际验证
 AST 工具事件、连续 UTF-8 chunk、metrics、`run.completed`、`stream.done` 和终态
 快照。完成后撤销聊天中暴露过的临时 Key，并重新生成正式开发 Key。
