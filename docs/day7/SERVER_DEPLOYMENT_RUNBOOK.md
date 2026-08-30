@@ -183,11 +183,12 @@ Recommended initial policy: daily backup, retain 7 daily and 4 weekly copies, th
 Never overwrite the active database. Stop or isolate the target and restore into a new empty volume/file:
 
 1. create a new Compose project/override that mounts a new data volume;
-2. run `/app/ops/restore_sqlite.py` with the recorded hash and a non-existing destination;
-3. start the isolated instance on a different loopback port;
-4. verify `quick_check`, migration, health/ready, login and one complete synthetic golden path;
-5. compare owner/task/memory/quota metadata counts without printing body data;
-6. destroy only the isolated drill project after evidence is saved.
+2. initialize that empty volume for UID/GID `10001:10001` with mode `0700`; do not make it world-writable;
+3. run `/app/ops/restore_sqlite.py` as the non-root `memtrace` user with the recorded hash and a non-existing destination; the script opens the completed static backup with SQLite `immutable=1`, so its source volume may remain read-only;
+4. start the isolated instance on a different loopback port;
+5. verify `quick_check`, migration, health/ready, login and one complete synthetic golden path;
+6. compare owner/task/memory/quota metadata counts without printing body data;
+7. destroy only the isolated drill project after evidence is saved.
 
 If the hash, quick check, migration or golden path fails, do not replace production. Preserve the failed drill logs without secrets and investigate.
 
