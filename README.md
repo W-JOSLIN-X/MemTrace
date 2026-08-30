@@ -166,7 +166,13 @@ apps\api\.venv\Scripts\python.exe scripts/day7/baseline_runner.py --base-url htt
 
 `Dockerfile` 只安装 `apps/api/requirements.runtime.lock`，不安装 pytest、Ruff 或前端构建依赖。镜像以 UID/GID 10001 非 root 运行，并带 OCI version/revision/source labels。
 
-为两个 secret 各创建一个只读本地文件，然后只通过路径传给 Compose：
+本地门禁可从忽略的 `.env` 排他创建两个 secret 文件；脚本只输出布尔状态并拒绝覆盖：
+
+```powershell
+apps\api\.venv\Scripts\python.exe scripts/day7/prepare_release_secrets.py --env-file .env --output-dir output/day7/release-secrets
+```
+
+生产环境应由秘密管理系统提供等价的只读文件。只通过路径传给 Compose：
 
 ```powershell
 $env:APP_REVISION=(git rev-parse HEAD)

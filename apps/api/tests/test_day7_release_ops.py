@@ -17,6 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 BACKUP_SCRIPT = PROJECT_ROOT / "scripts/day7/backup_sqlite.py"
 RESTORE_SCRIPT = PROJECT_ROOT / "scripts/day7/restore_sqlite.py"
 CALIBRATION_SCRIPT = PROJECT_ROOT / "scripts/day7/calibrate_config.py"
+PREPARE_SECRETS_SCRIPT = PROJECT_ROOT / "scripts/day7/prepare_release_secrets.py"
 
 
 def _load_calibrate():
@@ -127,6 +128,40 @@ def test_restore_rejects_hash_mismatch_without_creating_destination(tmp_path: Pa
     assert report["error"] == "RuntimeError"
     assert "SHA-256" in str(report["message"])
     assert not destination.exists()
+
+
+def test_release_secret_preparation_is_quiet_and_refuses_overwrite(tmp_path: Path) -> None:
+    synthetic_key = "synthetic-release-credential-never-valid"
+    env_file = tmp_path / ".env"
+    secret_dir = tmp_path / "secrets"
+    env_file.write_text(f"LLM_API_KEY={synthetic_key}\n", encoding="utf-8")
+    code, report = _run_json(
+        PREPARE_SECRETS_SCRIPT,
+        "--env-file",
+        str(env_file),
+        "--output-dir",
+        str(secret_dir),
+    )
+    assert code == 0
+    assert report == {
+        "file_count": 2,
+        "has_llm_api_key": True,
+        "secret_values_printed": False,
+        "session_secret_generated": True,
+        "status": "passed",
+    }
+    assert synthetic_key not in json.dumps(report)
+    assert (secret_dir / "llm_api_key").read_text("utf-8").strip() == synthetic_key
+    assert len((secret_dir / "session_secret").read_text("utf-8").strip()) >= 43
+    retry_code, retry_report = _run_json(
+        PREPARE_SECRETS_SCRIPT,
+        "--env-file",
+        str(env_file),
+        "--output-dir",
+        str(secret_dir),
+    )
+    assert retry_code == 2
+    assert retry_report["failure_code"] == "SECRET_TARGET_ALREADY_EXISTS"
 
 
 def test_release_runtime_lock_excludes_test_and_lint_dependencies() -> None:
