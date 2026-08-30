@@ -1,6 +1,6 @@
 # Day 6 所有者整合与验收报告
 
-> 状态：本地、真实 Provider、Docker 与双浏览器门禁已通过，等待最终远端竞态复核和普通 push。本文先保存成员 A 分支的独立失败基线；修复后的证据只追加，不删除或覆盖本节。
+> 状态：Day 6 已通过本地、真实 Provider、Docker、双浏览器和远端发布门禁。本文先保存成员 A 分支的独立失败基线；修复后的证据只追加，不删除或覆盖本节。
 >
 > 所有者 / 最终发布者：`W-JOSLIN-X`
 >
@@ -277,6 +277,17 @@ API 或 Day 7 能力。真实模型有统计波动，因此 16×2、A/B 和安�
 - A 的实际 head `9ef1c6f8b276e7a267517e4ce5d811b66a4ae5ef` 仍是当前候选祖先；最后已验证的产品代码
   SHA 仍为 `d0d2658b47d5b1c06898fddffa7e5d7cd0fb8b46`，本节仅追加文档证据。
 
-剩余动作只有再次 `git fetch --prune origin`、确认 `origin/main` 仍是已测试 base、普通执行
-`git push origin HEAD:main`，并读取远端 SHA。若 main 已移动或 push 失败，本报告只能保持“等待
-发布”，不能写 Day 6 完成。
+发布时最后一次 fetch 确认 `origin/main` 仍精确为已测试 base
+`bb69aa90a9ddb3c0a84f02b5a58dd92b7094f922`，然后由已登录的 `W-JOSLIN-X` 执行普通命令
+`git push origin HEAD:main`：
+
+- 没有 force/force-with-lease、rebase、squash、PR、协作者审批或远端分支删除；推送是从已测试
+  base 到本地 HEAD 的 fast-forward。
+- 第一次发布后远端 `refs/heads/main` 为
+  `be2950920d4bbac0bb6f28eca478a67131ad75fa`，与当时本地 HEAD 完全相等。
+- GitHub 服务端同时输出 `Bypassed rule violations for refs/heads/main` / protected ref。该 owner
+  身份对普通 direct push 自动具有 ruleset bypass；本轮没有请求管理员参数或修改保护规则，也没有
+  用它掩盖非快进或未通过门禁。此平台事实保留在报告中。
+- 本发布收尾提交仅把上述远端事实写回本报告，不含产品代码；产品代码 SHA 仍为第 3、8、9 节记录
+  的 `d0d2658b47d5b1c06898fddffa7e5d7cd0fb8b46`。收尾提交推送后的最终远端 HEAD 由发布命令再次
+  读取并在所有者最终交付消息中记录，因为 Git commit 无法在自身内容中自指其最终 SHA。
