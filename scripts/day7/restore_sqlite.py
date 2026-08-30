@@ -58,7 +58,7 @@ def restore_backup(
     temporary = Path(temporary_name)
     try:
         with closing(
-            sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True)
+            sqlite3.connect(backup.as_uri() + "?mode=ro&immutable=1", uri=True)
         ) as source_db:
             revision = _quick_check(source_db)
             with closing(sqlite3.connect(temporary)) as destination_db:

@@ -141,6 +141,11 @@ def test_restore_rejects_hash_mismatch_without_creating_destination(tmp_path: Pa
     assert not destination.exists()
 
 
+def test_restore_opens_verified_static_backup_as_immutable() -> None:
+    restore_source = RESTORE_SCRIPT.read_text("utf-8")
+    assert "?mode=ro&immutable=1" in restore_source
+
+
 def test_release_secret_preparation_is_quiet_and_refuses_overwrite(tmp_path: Path) -> None:
     synthetic_key = "synthetic-release-credential-never-valid"
     env_file = tmp_path / ".env"
