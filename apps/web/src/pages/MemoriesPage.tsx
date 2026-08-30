@@ -478,7 +478,14 @@ export function MemoriesPage() {
             <h3>使用与效果</h3>{usages.length ? <ol>{usages.map((usage) => <li key={usage.usage_id}>{usage.verification_status} · {usage.user_effect ?? '未反馈'} · {usage.estimated_tokens} token</li>)}</ol> : <p>暂无使用记录。</p>}
             <h3>关系</h3>{relations.length ? <ol>{relations.map((relation) => <li key={relation.relation_id}>{relation.relation_type} · {relation.status}</li>)}</ol> : <p>暂无关系。</p>}
           </section>
-        ) : null}
+        ) : (
+          <section className="memory-detail memory-empty" aria-label="记忆详情">
+            <div>
+              <h2>选择一条记忆查看详情</h2>
+              <p>这里会显示内容、适用条件、不可变版本、使用效果、关系和安全生命周期操作。</p>
+            </div>
+          </section>
+        )}
       </div>
 
       <section className="memory-detail" aria-label="冲突裁决">

@@ -284,6 +284,26 @@ textarea {
   line-height: 1.55;
 }
 
+.memory-detail .memory-actions {
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  margin-top: 1rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.memory-empty {
+  display: grid;
+  min-height: 22rem;
+  place-content: center;
+  text-align: center;
+}
+
+.memory-empty p {
+  max-width: 30rem;
+}
+
 .memory-detail > button,
 .memory-detail > label + button,
 .memory-detail > div + button {
@@ -367,6 +387,10 @@ textarea {
 
   .memory-list {
     max-height: 30rem;
+  }
+
+  .memory-empty {
+    min-height: 12rem;
   }
 }
 
