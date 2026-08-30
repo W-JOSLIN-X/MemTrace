@@ -309,6 +309,7 @@ def test_validation_grid_selects_frozen_default_after_real_metadata_replay() -> 
 def test_release_compose_and_dockerfile_keep_secrets_and_dev_tools_out() -> None:
     compose = (PROJECT_ROOT / "compose.release.yaml").read_text("utf-8")
     dockerfile = (PROJECT_ROOT / "Dockerfile").read_text("utf-8")
+    dockerignore = (PROJECT_ROOT / ".dockerignore").read_text("utf-8")
     assert 'MOCK_MODE: "false"' in compose
     assert 'ALLOW_DEMO_SESSIONS: "false"' in compose
     assert 'COOKIE_SECURE: "${COOKIE_SECURE:-true}"' in compose
@@ -317,6 +318,12 @@ def test_release_compose_and_dockerfile_keep_secrets_and_dev_tools_out() -> None
     assert "LLM_API_KEY:" not in compose
     assert "requirements.runtime.lock" in dockerfile
     assert "COPY apps/api/requirements.lock" not in dockerfile
+    for required_context_path in (
+        "!contracts/schemas/memory-pack-v2.schema.json",
+        "!scripts/day7/backup_sqlite.py",
+        "!scripts/day7/restore_sqlite.py",
+    ):
+        assert required_context_path in dockerignore
 
 
 def test_production_security_headers_and_request_body_limit(client_factory) -> None:

@@ -32,11 +32,16 @@ eval-results
 tmp
 docs
 fixtures
-scripts
+scripts/*
+!scripts/day7/
+scripts/day7/*
+!scripts/day7/backup_sqlite.py
+!scripts/day7/restore_sqlite.py
 contracts/*
 !contracts/schemas/
 contracts/schemas/*
 !contracts/schemas/memory-pack.schema.json
+!contracts/schemas/memory-pack-v2.schema.json
 *.pdf
 Adaptive_MemAgent_Project_Plan.md
 Harness_MemAgent_Project_Plan.md
