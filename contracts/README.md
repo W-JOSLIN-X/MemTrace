@@ -21,3 +21,15 @@ spelling in application code.
 
 Contract changes require a dedicated `docs` or `chore` commit before backend
 and frontend implementation changes.
+
+Day 6 freezes the conversation-first G5 contract at `2.0.0`:
+
+- `day6-g5.json` is the audit manifest for the public v2 conversation and memory
+  surfaces, strict LLM judgments, and the real-provider acceptance boundary.
+- `schemas/g5-llm.schema.json` is the normative strict JSON Schema for extraction,
+  applicability, consolidation, effect, and rolling-summary provider outputs.
+- `examples/day6-g5.json` contains synthetic REST and provider-wire examples. It
+  proves contract shape only; it is never evidence that semantic behavior passed.
+- `fixtures/day6/semantic_cases.json` and `fixtures/day6/ab_cases.json` require a
+  real provider. Fake or Mock results may exercise engineering failure paths but
+  cannot satisfy these semantic gates.

@@ -97,9 +97,13 @@ class Settings(BaseSettings):
     memory_max_candidates: int = Field(
         default=50, ge=1, le=500, validation_alias="MEMORY_MAX_CANDIDATES"
     )
-    memory_top_k: int = Field(
-        default=5, ge=1, le=50, validation_alias="MEMORY_TOP_K"
+    conversation_context_token_budget: int = Field(
+        default=24_000,
+        ge=200,
+        le=200_000,
+        validation_alias="CONVERSATION_CONTEXT_TOKEN_BUDGET",
     )
+    memory_top_k: int = Field(default=5, ge=1, le=50, validation_alias="MEMORY_TOP_K")
     memory_similarity_threshold: float = Field(
         default=0.55, ge=0.0, le=1.0, validation_alias="MEMORY_SIMILARITY_THRESHOLD"
     )

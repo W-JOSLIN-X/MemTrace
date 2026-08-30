@@ -1,0 +1,52 @@
+{
+  "contract_version": "2.0.0",
+  "status": "owner_frozen_2026-08-30",
+  "product_mode": "conversation_first_memory_agent",
+  "public_api_prefix": "/api/v2",
+  "normative_projections": {
+    "rest": "contracts/schemas/g0-api.schema.json",
+    "events": "contracts/schemas/events.schema.json",
+    "provider_outputs": "contracts/schemas/g5-llm.schema.json",
+    "openapi": "contracts/openapi.json",
+    "typescript_runtime": "apps/web/src/g5/runtime.ts",
+    "examples": "contracts/examples/day6-g5.json"
+  },
+  "semantic_authority": {
+    "provider_mode": "real",
+    "model_must_match_configured_model": true,
+    "actual_usage_required": true,
+    "keyword_fallback_forbidden": true,
+    "mock_semantic_acceptance_forbidden": true
+  },
+  "deterministic_code_boundary": [
+    "authentication",
+    "owner_isolation",
+    "strict_schema_validation",
+    "evidence_binding",
+    "transactions",
+    "idempotency",
+    "state_machine",
+    "prompt_budget",
+    "tool_allowlist",
+    "metadata_only_logging"
+  ],
+  "memory_kinds": ["preference", "rule", "experience"],
+  "llm_stages": [
+    "chat",
+    "reflection",
+    "applicability",
+    "consolidation",
+    "effect",
+    "summary"
+  ],
+  "real_eval": {
+    "semantic_fixture": "fixtures/day6/semantic_cases.json",
+    "semantic_cases": 16,
+    "repeats": 2,
+    "ab_fixture": "fixtures/day6/ab_cases.json",
+    "ab_cases": 8,
+    "minimum_activation_precision": 0.95,
+    "minimum_ab_memory_on_wins": 6,
+    "security_failures_allowed": 0
+  }
+}

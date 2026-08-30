@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from memtrace_api.db_models import (
@@ -68,7 +68,15 @@ def execute_and_persist_retrieval(
             session.execute(
                 select(MemoryCardModel)
                 .options(selectinload(MemoryCardModel.versions))
-                .where(MemoryCardModel.owner_id == user_ctx.user_id)
+                .where(
+                    and_(
+                        MemoryCardModel.owner_id == user_ctx.user_id,
+                        or_(
+                            MemoryCardModel.schema_version.is_(None),
+                            MemoryCardModel.schema_version != "2.0",
+                        ),
+                    )
+                )
                 .order_by(MemoryCardModel.id.asc())
             )
             .scalars()

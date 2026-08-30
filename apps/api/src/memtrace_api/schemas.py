@@ -1425,6 +1425,7 @@ LLMJudgeId = Annotated[str, StringConstraints(pattern=r"^judge_[0-9A-HJKMNP-TV-Z
 
 class MemoryKindV2(StrEnum):
     """User-visible memory kinds in v2. Only three categories."""
+
     PREFERENCE = "preference"
     RULE = "rule"
     EXPERIENCE = "experience"
@@ -1432,14 +1433,16 @@ class MemoryKindV2(StrEnum):
 
 class RuleSubtype(StrEnum):
     """Internal sub-classification for rule kind. Not user-visible."""
+
     CONSTRAINT = "constraint"
     PROCEDURE = "procedure"
 
 
 class ReviewStatus(StrEnum):
     """User-visible memory lifecycle in v2."""
+
     ACTIVE = "active"
-    REVIEW = "review"
+    PENDING = "pending"
     PAUSED = "paused"
     ARCHIVED = "archived"
     SUPERSEDED = "superseded"
@@ -1447,6 +1450,7 @@ class ReviewStatus(StrEnum):
 
 class LegacyKindStatus(StrEnum):
     """Internal status for v1 cards migrated but not yet verified by real LLM."""
+
     LEGACY_UNVERIFIED = "legacy_unverified"
 
 
@@ -1458,8 +1462,6 @@ class MutationDecision(StrEnum):
 
 class MutationOperation(StrEnum):
     ADD = "add"
-    UPDATE = "update"
-    SUPERSEDE = "supersede"
 
 
 class MemoryDurability(StrEnum):
@@ -1488,9 +1490,12 @@ class ApplicabilityResult(StrEnum):
 
 class ApplicabilityReasonCode(StrEnum):
     SEMANTIC_MATCH = "semantic_match"
-    CURRENT_OVERRIDE = "current_override"
-    SCOPE_CONFLICT = "scope_conflict"
-    NO_SEMANTIC_LINK = "no_semantic_link"
+    CURRENT_INSTRUCTION_OVERRIDE = "current_instruction_override"
+    MEMORY_CONFLICT = "memory_conflict"
+    SCOPE_MISMATCH = "scope_mismatch"
+    OUTDATED = "outdated"
+    IRRELEVANT = "irrelevant"
+    AMBIGUOUS = "ambiguous"
 
 
 class EffectJudgment(StrEnum):
@@ -1501,18 +1506,26 @@ class EffectJudgment(StrEnum):
 
 
 class EffectReasonCode(StrEnum):
-    MEMORY_DIRECTLY_INFLUENCED = "memory_directly_influenced"
-    MEMORY_CONTRADICTED = "memory_contradicted"
-    NO_OBSERVABLE_EFFECT = "no_observable_effect"
-    JUDGE_FAILED = "judge_failed"
+    FOLLOWED = "followed"
+    CONTRADICTED = "contradicted"
+    NOT_VISIBLE_IN_OUTPUT = "not_visible_in_output"
+    AMBIGUOUS = "ambiguous"
 
 
 class ConsolidationDecision(StrEnum):
-    DUPLICATE = "duplicate"
+    ADD = "add"
     UPDATE = "update"
     SUPERSEDE = "supersede"
     COEXIST = "coexist"
-    REVIEW = "review"
+    NOOP = "noop"
+
+
+class ConsolidationReasonCode(StrEnum):
+    UNRELATED_DURABLE_MEMORY = "unrelated_durable_memory"
+    SAME_MEMORY_REFINEMENT = "same_memory_refinement"
+    EXPLICIT_DURABLE_REPLACEMENT = "explicit_durable_replacement"
+    RELATED_DISTINCT_SCOPE = "related_distinct_scope"
+    DUPLICATE_OR_NO_CHANGE = "duplicate_or_no_change"
 
 
 class MemoryReflectionJobStatus(StrEnum):
@@ -1526,6 +1539,7 @@ class LLMJudgeType(StrEnum):
     APPLICABILITY = "applicability"
     EFFECT = "effect"
     CONSOLIDATION = "consolidation"
+    SUMMARY = "summary"
 
 
 class LLMJudgeStatus(StrEnum):
@@ -1536,6 +1550,7 @@ class LLMJudgeStatus(StrEnum):
 
 # ---- MemoryMutationBatch (LLM structured output) ----
 
+
 class MemoryMutationEvidence(ContractModel):
     """Reference to user message that triggered this memory.
 
@@ -1543,31 +1558,32 @@ class MemoryMutationEvidence(ContractModel):
     or if the provided ID does not match any known user message.
     """
 
-    message_id: str | None = None
+    message_id: MessageId
     quote: Annotated[str, StringConstraints(min_length=1, max_length=500)]
 
 
 class MemoryMutationOperation(ContractModel):
     """Single operation in a mutation batch."""
+
     operation: MutationOperation
-    target_memory_id: MemoryId | None = None
     kind: MemoryKindV2
     content: Annotated[str, StringConstraints(min_length=4, max_length=4000)]
     applies_when: Annotated[str, StringConstraints(min_length=4, max_length=500)]
     exceptions: Annotated[list[str], Field(max_length=8)] = Field(default_factory=list)
     confidence: Annotated[float, Field(ge=0.0, le=1.0)]
     reason_code: Annotated[str, StringConstraints(min_length=1, max_length=64)]
-    evidence: Annotated[list[MemoryMutationEvidence], Field(max_length=5)] = (
-        Field(default_factory=list)
+    evidence: Annotated[list[MemoryMutationEvidence], Field(max_length=5)] = Field(
+        default_factory=list
     )
 
 
 class MemoryMutationBatch(ContractModel):
     """Structured output from the background Memory Manager LLM."""
+
     schema_version: Literal["2.0"] = "2.0"
     decision: MutationDecision
-    operations: Annotated[list[MemoryMutationOperation], Field(max_length=5)] = (
-        Field(default_factory=list)
+    operations: Annotated[list[MemoryMutationOperation], Field(max_length=5)] = Field(
+        default_factory=list
     )
 
     @model_validator(mode="after")
@@ -1583,6 +1599,7 @@ class MemoryMutationBatch(ContractModel):
 
 # ---- MemoryDurability Judgment (LLM output) ----
 
+
 class MemoryDurabilityResult(ContractModel):
     durability: MemoryDurability
     reason_code: DurabilityReasonCode
@@ -1590,6 +1607,7 @@ class MemoryDurabilityResult(ContractModel):
 
 
 # ---- Applicability Judge (LLM output) ----
+
 
 class ApplicabilityJudgeResult(ContractModel):
     applicability: ApplicabilityResult
@@ -1599,7 +1617,21 @@ class ApplicabilityJudgeResult(ContractModel):
     conflict_with: MemoryId | None = None
 
 
+class ApplicabilityJudgeWireResult(ContractModel):
+    """Provider wire shape without nullable/anyOf constructs."""
+
+    applicability: ApplicabilityResult
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)]
+    reason_code: ApplicabilityReasonCode
+    overridden_by: Annotated[str, StringConstraints(max_length=500)]
+    conflict_with: Annotated[
+        str,
+        StringConstraints(pattern=r"^(?:|mem_[0-9A-HJKMNP-TV-Z]{26})$"),
+    ]
+
+
 # ---- Effect Judge (LLM output) ----
+
 
 class EffectJudgeResult(ContractModel):
     judgment: EffectJudgment
@@ -1608,17 +1640,97 @@ class EffectJudgeResult(ContractModel):
     reason_code: EffectReasonCode
 
 
+class EffectJudgeWireResult(ContractModel):
+    """Provider wire shape grounded to an exact server-supplied answer segment."""
+
+    judgment: EffectJudgment
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)]
+    evidence_segment_id: Annotated[
+        str,
+        StringConstraints(pattern=r"^(?:|seg_[0-9]{3})$", max_length=7),
+    ]
+    reason_code: EffectReasonCode
+
+
 # ---- Conflict/Consolidation (LLM output) ----
+
 
 class ConflictConsolidationResult(ContractModel):
     decision: ConsolidationDecision
-    primary_memory_id: MemoryId | None = None
-    superseded_memory_id: MemoryId | None = None
-    reason: Annotated[str, StringConstraints(min_length=1, max_length=500)]
+    target_memory_id: MemoryId | None = None
+    merged_kind: MemoryKindV2 | None = None
+    merged_content: Annotated[str, StringConstraints(min_length=4, max_length=4000)] | None = None
+    merged_applies_when: Annotated[str, StringConstraints(min_length=4, max_length=500)] | None = (
+        None
+    )
+    reason_code: ConsolidationReasonCode
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)]
+
+    @model_validator(mode="after")
+    def validate_consolidation_shape(self) -> ConflictConsolidationResult:
+        needs_target = self.decision in {
+            ConsolidationDecision.UPDATE,
+            ConsolidationDecision.SUPERSEDE,
+            ConsolidationDecision.COEXIST,
+        }
+        if needs_target and self.target_memory_id is None:
+            raise ValueError("update, supersede and coexist require target_memory_id")
+        if (
+            self.decision
+            in {
+                ConsolidationDecision.ADD,
+                ConsolidationDecision.NOOP,
+            }
+            and self.target_memory_id is not None
+        ):
+            raise ValueError("add and noop cannot target an existing memory")
+        merged = (self.merged_kind, self.merged_content, self.merged_applies_when)
+        if self.decision in {
+            ConsolidationDecision.ADD,
+            ConsolidationDecision.UPDATE,
+            ConsolidationDecision.SUPERSEDE,
+            ConsolidationDecision.COEXIST,
+        } and any(value is None for value in merged):
+            raise ValueError("a write decision requires all merged memory fields")
+        if self.decision is ConsolidationDecision.NOOP and any(
+            value is not None for value in merged
+        ):
+            raise ValueError("noop cannot include merged memory fields")
+        expected_reason = {
+            ConsolidationDecision.ADD: ConsolidationReasonCode.UNRELATED_DURABLE_MEMORY,
+            ConsolidationDecision.UPDATE: ConsolidationReasonCode.SAME_MEMORY_REFINEMENT,
+            ConsolidationDecision.SUPERSEDE: (ConsolidationReasonCode.EXPLICIT_DURABLE_REPLACEMENT),
+            ConsolidationDecision.COEXIST: ConsolidationReasonCode.RELATED_DISTINCT_SCOPE,
+            ConsolidationDecision.NOOP: ConsolidationReasonCode.DUPLICATE_OR_NO_CHANGE,
+        }[self.decision]
+        if self.reason_code is not expected_reason:
+            raise ValueError("consolidation decision and reason_code disagree")
+        return self
+
+
+class ConflictConsolidationWireResult(ContractModel):
+    """Strict provider wire shape using explicit non-null sentinels."""
+
+    decision: ConsolidationDecision
+    target_memory_id: Annotated[
+        str,
+        StringConstraints(pattern=r"^(?:|mem_[0-9A-HJKMNP-TV-Z]{26})$"),
+    ]
+    merged_kind: Literal["preference", "rule", "experience", "none"]
+    merged_content: Annotated[str, StringConstraints(max_length=4000)]
+    merged_applies_when: Annotated[str, StringConstraints(max_length=500)]
+    reason_code: ConsolidationReasonCode
     confidence: Annotated[float, Field(ge=0.0, le=1.0)]
 
 
+class RollingSummaryWireResult(ContractModel):
+    """Strict output used only when conversation context exceeds its budget."""
+
+    summary: Annotated[str, StringConstraints(min_length=1, max_length=12_000)]
+
+
 # ---- Memory Reflection Job (v2) ----
+
 
 class MemoryReflectionJobResponse(ContractModel):
     request_id: RequestId
@@ -1636,7 +1748,19 @@ class MemoryReflectionJobResponse(ContractModel):
     updated_at: datetime
 
 
+class ConsolidationJudgmentProjection(ContractModel):
+    request_id: RequestId
+    judge_id: LLMJudgeId
+    job_id: MemoryReflectionJobId
+    memory_id: MemoryId | None = None
+    decision: ConsolidationDecision
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)]
+    reason_code: ConsolidationReasonCode
+    created_at: datetime
+
+
 # ---- LLM Judge Record (v2) ----
+
 
 class LLMJudgeRecordResponse(ContractModel):
     request_id: RequestId
@@ -1645,18 +1769,14 @@ class LLMJudgeRecordResponse(ContractModel):
     memory_id: MemoryId
     judge_type: LLMJudgeType
     status: LLMJudgeStatus
-    result: (
-        ApplicabilityJudgeResult
-        | EffectJudgeResult
-        | ConflictConsolidationResult
-        | None
-    ) = None
+    result: ApplicabilityJudgeResult | EffectJudgeResult | ConflictConsolidationResult | None = None
     error_code: Annotated[str, StringConstraints(max_length=64)] | None = None
     created_at: datetime
     updated_at: datetime
 
 
 # ---- Memory List Filter (v2) ----
+
 
 class MemoryV2ListFilter(ContractModel):
     kind: MemoryKindV2 | None = None
@@ -1667,9 +1787,12 @@ class MemoryV2ListFilter(ContractModel):
 
 # ---- Memory Event projections (v2) ----
 
+
 class MemoryEventPayload(ContractModel):
     """Base for memory events. Never contains user content, reasoning, or keys."""
+
     event_id: str
+    event_seq: int = Field(ge=1)
     event_type: str
     memory_id: MemoryId | None = None
     version_id: MemoryVersionId | None = None
@@ -1687,9 +1810,11 @@ class MemoryEventPayload(ContractModel):
 
 class MemoryV2EditRequest(ContractModel):
     """PATCH /api/v2/memories/{memory_id} body."""
+
     kind: MemoryKindV2 | None = None
     content: Annotated[str, StringConstraints(min_length=4, max_length=4000)] | None = None
     applies_when: Annotated[str, StringConstraints(min_length=4, max_length=500)] | None = None
+    expected_current_version_id: MemoryVersionId
 
     @model_validator(mode="after")
     def at_least_one_field(self) -> MemoryV2EditRequest:
@@ -1725,10 +1850,12 @@ class MemoryDismissResponse(ContractModel):
     updated_at: datetime
 
 
-class MemoryV2ListResponse(ContractModel):
+class MemoryLifecycleV2Response(ContractModel):
     request_id: RequestId
-    items: Annotated[list[MemoryCard], Field(max_length=100)] = Field(default_factory=list)
-    next_cursor: str | None = None
+    memory_id: MemoryId
+    old_status: ReviewStatus
+    new_status: ReviewStatus
+    updated_at: datetime
 
 
 class MemoryEventListResponse(ContractModel):
@@ -1758,4 +1885,165 @@ class MemoryFeedbackResponse(ContractModel):
     task_id: TaskId
     memory_id: MemoryId
     effect: UserEffect
+    updated_at: datetime
+
+
+class MemoryV2Projection(ContractModel):
+    memory_id: MemoryId
+    kind: MemoryKindV2
+    content: Annotated[str, StringConstraints(min_length=4, max_length=4000)]
+    applies_when: Annotated[str, StringConstraints(min_length=4, max_length=500)]
+    review_status: ReviewStatus
+    confidence: float = Field(ge=0, le=1)
+    current_version_id: MemoryVersionId
+    version: int = Field(ge=1)
+    source_type: Literal["conversation_turn", "user_edit"]
+    created_at: datetime
+    updated_at: datetime
+
+
+class MemoryVersionV2Projection(ContractModel):
+    version_id: MemoryVersionId
+    version: int = Field(ge=1)
+    kind: MemoryKindV2
+    content: Annotated[str, StringConstraints(min_length=4, max_length=4000)]
+    applies_when: Annotated[str, StringConstraints(min_length=4, max_length=500)]
+    review_status: ReviewStatus
+    confidence: float = Field(ge=0, le=1)
+    created_by_action: Literal[
+        "llm_extract",
+        "llm_update",
+        "llm_supersede",
+        "user_edit",
+    ]
+    created_at: datetime
+
+
+class MemoryEvidenceV2Projection(ContractModel):
+    evidence_id: Annotated[
+        str,
+        StringConstraints(pattern=r"^evidence_[0-9A-HJKMNP-TV-Z]{26}$"),
+    ]
+    message_id: MessageId
+    turn_index: int = Field(ge=1)
+    source_type: Literal["conversation_turn", "user_edit"]
+    is_primary: bool
+    created_at: datetime
+
+
+class MemoryDetailV2Response(ContractModel):
+    request_id: RequestId
+    memory: MemoryV2Projection
+    versions: Annotated[list[MemoryVersionV2Projection], Field(max_length=100)]
+    evidence: Annotated[list[MemoryEvidenceV2Projection], Field(max_length=20)]
+
+
+class MemoryV2ListResponse(ContractModel):
+    request_id: RequestId
+    items: Annotated[list[MemoryV2Projection], Field(max_length=100)] = Field(default_factory=list)
+    next_cursor: MemoryId | None = None
+
+
+class ConversationTaskCreateRequest(ContractModel):
+    memory_mode: EffectiveMemoryMode = EffectiveMemoryMode.ON
+
+
+class ConversationTaskCreateResponse(ContractModel):
+    schema_version: Literal["2.0.0"] = "2.0.0"
+    request_id: RequestId
+    task_id: TaskId
+    provider_mode: ProviderMode
+    model: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    memory_mode: EffectiveMemoryMode
+    created_at: datetime
+
+
+class ConversationTurnRequest(ContractModel):
+    content: TrimmedTaskText
+    memory_mode: EffectiveMemoryMode | None = None
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def trim_content(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        trimmed = value.strip()
+        try:
+            trimmed.encode("utf-8", errors="strict")
+        except UnicodeEncodeError as exc:
+            raise ValueError("content must be valid UTF-8") from exc
+        return trimmed
+
+
+class ConversationMessageProjection(ContractModel):
+    message_id: MessageId
+    run_id: RunId | None
+    role: MessageRole
+    content: Annotated[str, StringConstraints(max_length=262_144)]
+    turn_index: int = Field(ge=1)
+    created_at: datetime
+
+
+class StageUsageProjection(ContractModel):
+    stage: Literal[
+        "summary",
+        "applicability",
+        "chat",
+        "reflection",
+        "consolidation",
+        "effect",
+    ]
+    provider_mode: ProviderMode
+    model: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    prompt_hash: Annotated[str, StringConstraints(pattern=r"^sha256:[0-9a-f]{64}$")]
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    total_tokens: int = Field(ge=0)
+    reasoning_tokens: int | None = Field(default=None, ge=0)
+    latency_ms: int = Field(ge=0)
+
+
+class TurnMemoryDecisionProjection(ContractModel):
+    memory_id: MemoryId
+    applicability: ApplicabilityResult
+    reason_code: ApplicabilityReasonCode
+    confidence: float = Field(ge=0, le=1)
+    injected: bool
+    estimated_tokens: int = Field(ge=0, le=100)
+    effect: EffectJudgment | None = None
+
+
+class ConversationTurnResponse(ContractModel):
+    schema_version: Literal["2.0.0"] = "2.0.0"
+    request_id: RequestId
+    task_id: TaskId
+    run_id: RunId
+    turn_index: int = Field(ge=1)
+    user_message: ConversationMessageProjection
+    assistant_message: ConversationMessageProjection
+    reflection_job_id: MemoryReflectionJobId | None
+    memory_mode: EffectiveMemoryMode
+    memory_decisions: Annotated[list[TurnMemoryDecisionProjection], Field(max_length=50)]
+    usage: Annotated[list[StageUsageProjection], Field(min_length=1, max_length=102)]
+
+
+class ConversationTurnStateProjection(ContractModel):
+    run_id: RunId
+    turn_index: int = Field(ge=1)
+    reflection_job_id: MemoryReflectionJobId | None
+    memory_decisions: Annotated[list[TurnMemoryDecisionProjection], Field(max_length=50)]
+    usage: Annotated[list[StageUsageProjection], Field(min_length=1, max_length=102)]
+
+
+class ConversationTaskSnapshotResponse(ContractModel):
+    schema_version: Literal["2.0.0"] = "2.0.0"
+    request_id: RequestId
+    task_id: TaskId
+    memory_mode: EffectiveMemoryMode
+    provider_mode: ProviderMode
+    model: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    messages: Annotated[list[ConversationMessageProjection], Field(max_length=500)]
+    last_turn: ConversationTurnStateProjection | None
+    last_event_seq: int = Field(ge=0)
+    created_at: datetime
     updated_at: datetime

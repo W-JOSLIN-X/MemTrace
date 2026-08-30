@@ -2278,7 +2278,7 @@ class PackRepository:
 # ===========================================================================
 
 
-class _NotFoundError(Exception):
+class _NotFoundError(LookupError):
     """Raised when an owner-scoped resource is not found."""
 
 
@@ -2291,9 +2291,7 @@ class MemoryCenterRepository:
 
     # ── helpers ──────────────────────────────────────────────────────────────
 
-    def _raise_if_not_found(
-        self, row: Any, resource: str = "resource"
-    ) -> Any:
+    def _raise_if_not_found(self, row: Any, resource: str = "resource") -> Any:
         if row is None:
             raise _NotFoundError(f"{resource} not found for owner {self.user_ctx.user_id}")
         return row
@@ -2305,6 +2303,7 @@ class MemoryCenterRepository:
         return and_(
             MemoryCardModel.owner_id == self.user_ctx.user_id,
             MemoryCardModel.status != "deleted",
+            MemoryCardModel.schema_version == "2.0",
         )
 
     # ── 1. create_reflection_job ──────────────────────────────────────────────
@@ -2447,11 +2446,7 @@ class MemoryCenterRepository:
                 ).scalar_one_or_none()
                 self._raise_if_not_found(existing_card, resource="memory card")
 
-            memory_id = (
-                existing_card.id
-                if existing_card
-                else new_prefixed_ulid("mem")
-            )
+            memory_id = existing_card.id if existing_card else new_prefixed_ulid("mem")
 
             # Build scope_json from dict
             s = scope_dict or {}
@@ -2718,9 +2713,9 @@ class MemoryCenterRepository:
     ) -> list[MemoryCardModel]:
         q = select(MemoryCardModel).where(self._card_owner_q())
         if kind:
-            q = q.where(MemoryCardModel.kind == kind)
+            q = q.where(MemoryCardModel.memory_kind_v2 == kind)
         if review_status:
-            q = q.where(MemoryCardModel.status == review_status)
+            q = q.where(MemoryCardModel.review_status == review_status)
         if cursor:
             q = q.where(MemoryCardModel.id < cursor)
         q = q.order_by(MemoryCardModel.id.desc()).limit(limit)
@@ -2801,46 +2796,22 @@ class MemoryCenterRepository:
         if card.current_version_id != expected_version_id:
             raise ValueError("MEMORY_VERSION_CONFLICT")
 
-        allowed = {"active", "paused", "archived", "review"}
-        if card.status not in allowed:
-            raise ValueError(f"MEMORY_STATE_CONFLICT: cannot edit {card.status}")
+        allowed = {"active", "pending", "paused", "archived"}
+        if card.review_status not in allowed:
+            raise ValueError(f"MEMORY_STATE_CONFLICT: cannot edit {card.review_status}")
 
         next_ver = card.version + 1
         version_id = new_prefixed_ulid("memver")
         now = utc_now()
 
-        scope_obj = patch.get("scope")
-        scope_json = card.scope_json
-        if scope_obj is not None:
-            scope_json = json.dumps(
-                {
-                    "level": scope_obj.get("level", (card.scope_json and json.loads(card.scope_json).get("level", "global")) or "global"),
-                    "domain": scope_obj.get("domain", (card.scope_json and json.loads(card.scope_json).get("domain", "other")) or "other"),
-                    "task_type": scope_obj.get("task_type"),
-                    "artifact_type": scope_obj.get("artifact_type"),
-                    "audience": scope_obj.get("audience"),
-                    "project_key": scope_obj.get("project_key"),
-                    "language": scope_obj.get("language"),
-                    "framework": scope_obj.get("framework"),
-                    "concepts": scope_obj.get("concepts", []),
-                },
-                separators=(",", ":"),
-                ensure_ascii=False,
-            )
-
-        exceptions_list = patch.get("exceptions")
-        exceptions_json = card.exceptions_json
-        if exceptions_list is not None:
-            exceptions_json = json.dumps(
-                [e for e in exceptions_list],
-                separators=(",", ":"),
-                ensure_ascii=False,
-            )
-
-        new_title = patch.get("title", card.title)
-        new_rule = patch.get("rule", card.rule)
-        new_avoid = patch.get("avoid", card.avoid or "")
-        new_trigger = patch.get("trigger_text", card.trigger_text or "")
+        new_kind = patch.get("kind", card.memory_kind_v2)
+        if isinstance(new_kind, MemoryKindV2):
+            new_kind = new_kind.value
+        legacy_kind = "constraint" if new_kind == "rule" else new_kind
+        new_content = patch.get("content", card.content)
+        new_applies_when = patch.get("applies_when", card.applies_when)
+        if not new_kind or not new_content or not new_applies_when:
+            raise ValueError("MEMORY_STATE_CONFLICT: incomplete v2 memory")
 
         self.session.add(
             MemoryVersionModel(
@@ -2848,14 +2819,20 @@ class MemoryCenterRepository:
                 owner_id=self.user_ctx.user_id,
                 memory_id=memory_id,
                 version=next_ver,
-                title=new_title,
-                rule=new_rule,
-                avoid=new_avoid,
-                trigger_text=new_trigger,
-                scope_json=scope_json,
-                exceptions_json=exceptions_json,
-                created_by_action=CreatedByAction.EDIT.value,
+                title=new_content[:80],
+                rule=new_content,
+                avoid="",
+                trigger_text=new_applies_when,
+                scope_json=card.scope_json or '{"level":"global","domain":"any"}',
+                exceptions_json=card.exceptions_json or "[]",
+                created_by_action="user_edit",
                 created_at=now,
+                memory_kind_v2=new_kind,
+                content=new_content,
+                applies_when=new_applies_when,
+                confidence=card.confidence,
+                review_status=card.review_status,
+                rule_subtype=(card.rule_subtype if new_kind == "rule" else None),
             )
         )
 
@@ -2868,12 +2845,14 @@ class MemoryCenterRepository:
                 )
             )
             .values(
-                title=new_title,
-                rule=new_rule,
-                avoid=new_avoid,
-                trigger_text=new_trigger,
-                scope_json=scope_json,
-                exceptions_json=exceptions_json,
+                kind=legacy_kind,
+                title=new_content[:80],
+                rule=new_content,
+                trigger_text=new_applies_when,
+                memory_kind_v2=new_kind,
+                content=new_content,
+                applies_when=new_applies_when,
+                source_type="user_edit",
                 current_version_id=version_id,
                 version=next_ver,
                 updated_at=now,
@@ -2900,7 +2879,7 @@ class MemoryCenterRepository:
                 and_(
                     MemoryCardModel.id == memory_id,
                     self._card_owner_q(),
-                    MemoryCardModel.status == "review",
+                    MemoryCardModel.review_status == "pending",
                 )
             )
         ).scalar_one_or_none()
@@ -2914,7 +2893,7 @@ class MemoryCenterRepository:
                     MemoryCardModel.owner_id == self.user_ctx.user_id,
                 )
             )
-            .values(status="active", updated_at=utc_now())
+            .values(status="active", review_status="active", updated_at=utc_now())
         )
         self.session.flush()
         updated = self.session.execute(
@@ -2935,7 +2914,7 @@ class MemoryCenterRepository:
                 and_(
                     MemoryCardModel.id == memory_id,
                     self._card_owner_q(),
-                    MemoryCardModel.status == "review",
+                    MemoryCardModel.review_status == "pending",
                 )
             )
         ).scalar_one_or_none()
@@ -2949,7 +2928,7 @@ class MemoryCenterRepository:
                     MemoryCardModel.owner_id == self.user_ctx.user_id,
                 )
             )
-            .values(status="archived", updated_at=utc_now())
+            .values(status="archived", review_status="archived", updated_at=utc_now())
         )
         self.session.flush()
         updated = self.session.execute(
@@ -2994,7 +2973,10 @@ class MemoryCenterRepository:
     # ── 12. get_memory_events ────────────────────────────────────────────────
 
     def get_memory_events(
-        self, after_seq: int = 0
+        self,
+        after_seq: int = 0,
+        *,
+        limit: int = 100,
     ) -> list[EventLogModel]:
         return list(
             self.session.execute(
@@ -3002,11 +2984,13 @@ class MemoryCenterRepository:
                 .where(
                     and_(
                         EventLogModel.owner_id == self.user_ctx.user_id,
-                        EventLogModel.stream_type == "memory",
+                        EventLogModel.stream_type == "owner_memory",
+                        EventLogModel.stream_id == self.user_ctx.user_id,
                         EventLogModel.seq > after_seq,
                     )
                 )
                 .order_by(EventLogModel.seq.asc())
+                .limit(limit)
             )
             .scalars()
             .all()

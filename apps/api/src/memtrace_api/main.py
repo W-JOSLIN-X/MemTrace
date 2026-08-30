@@ -24,20 +24,26 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from memtrace_api.compiler import StructuredProvider
+from memtrace_api.compiler import StructuredProvider as LegacyStructuredProvider
 from memtrace_api.config import Settings, get_settings
+from memtrace_api.conversation import ConversationBusyError, ConversationService
 from memtrace_api.database import create_db_engine, create_session_factory, session_scope
 from memtrace_api.db_models import (
     EventLogModel,
     FeedbackEventModel,
+    IdempotencyKeyModel,
     ImportBatchModel,
     MemoryCardModel,
+    MemoryEventCursorModel,
     MemoryEvidenceModel,
     MemoryJobModel,
+    MemoryLLMJudgeModel,
+    MemoryReflectionJobModel,
     MemoryRelationModel,
     MemoryVersionModel,
     MessageModel,
     TaskFingerprintModel,
+    TaskModel,
 )
 from memtrace_api.errors import (
     ApiError,
@@ -62,10 +68,20 @@ from memtrace_api.idempotency import compute_request_hash, validate_idempotency_
 from memtrace_api.ids import new_prefixed_ulid
 from memtrace_api.logging_config import configure_logging
 from memtrace_api.logic import analyze_task
+from memtrace_api.memory_worker import MemoryReflectionWorker
 from memtrace_api.middleware import RequestIdMiddleware
 from memtrace_api.orchestrator import AgentOrchestrator
 from memtrace_api.pack_service import PackValidationError, analyze_pack
-from memtrace_api.providers import DeepSeekProvider, MockProvider, StreamingProvider
+from memtrace_api.providers import (
+    DeepSeekProvider,
+    MockProvider,
+    ProviderFailure,
+    StreamingProvider,
+    build_structured_provider,
+)
+from memtrace_api.providers import (
+    StructuredProvider as SemanticStructuredProvider,
+)
 from memtrace_api.readiness import (
     DatabaseRevisionError,
     ensure_database_current,
@@ -90,6 +106,13 @@ from memtrace_api.repositories import (
 )
 from memtrace_api.schemas import (
     ActiveMemoryEditRequest,
+    ConflictConsolidationResult,
+    ConsolidationJudgmentProjection,
+    ConversationTaskCreateRequest,
+    ConversationTaskCreateResponse,
+    ConversationTaskSnapshotResponse,
+    ConversationTurnRequest,
+    ConversationTurnResponse,
     DemoAlias,
     DemoSessionCreateRequest,
     DemoSessionResponse,
@@ -102,31 +125,36 @@ from memtrace_api.schemas import (
     ImportCommitResponse,
     MemoryCard,
     MemoryCardStatus,
+    MemoryConfirmResponse,
     MemoryConflictDetailResponse,
     MemoryConflictDetectRequest,
     MemoryConflictDetectResponse,
     MemoryConflictResolveRequest,
     MemoryConflictResolveResponse,
-    MemoryConfirmResponse,
-    MemoryDismissResponse,
-    MemoryEventListResponse,
     MemoryDeleteRequest,
     MemoryDeleteResponse,
     MemoryDetailResponse,
+    MemoryDetailV2Response,
+    MemoryDismissResponse,
+    MemoryEventListResponse,
+    MemoryEventPayload,
     MemoryEvidenceProjection,
+    MemoryEvidenceV2Projection,
     MemoryFeedbackRequest,
     MemoryFeedbackResponse,
     MemoryJobResponse,
     MemoryKind,
     MemoryKindV2,
+    MemoryLifecycleV2Response,
     MemoryListFilter,
     MemoryListResponse,
     MemoryMergeRequest,
     MemoryMergeResponse,
     MemoryPackDocument,
+    MemoryReflectionJobResponse,
+    MemoryReflectionJobStatus,
     MemoryRelationListResponse,
     MemoryRelationProjection,
-    MemoryReflectionJobResponse,
     MemoryScope,
     MemoryStateRequest,
     MemoryUsageFeedbackRequest,
@@ -134,11 +162,12 @@ from memtrace_api.schemas import (
     MemoryUsageResponse,
     MemoryV2EditRequest,
     MemoryV2EditResponse,
-    MemoryV2ListFilter,
     MemoryV2ListResponse,
+    MemoryV2Projection,
     MemoryVersionDiffResponse,
     MemoryVersionListResponse,
     MemoryVersionProjection,
+    MemoryVersionV2Projection,
     MessageRole,
     PackExportRequest,
     PackPreviewItem,
@@ -153,6 +182,7 @@ from memtrace_api.schemas import (
     ReviewStatus,
     RunStatus,
     SourceType,
+    StageUsageProjection,
     TaskCreateAccepted,
     TaskCreateRequest,
     TaskDeleteRequest,
@@ -161,7 +191,6 @@ from memtrace_api.schemas import (
     TaskMemoryUsageResponse,
     TaskSnapshot,
     TaskType,
-    UserEffect,
     derive_feedback_type,
     utc_now,
 )
@@ -185,8 +214,6 @@ from memtrace_api.store import (
     TaskStore,
 )
 from memtrace_api.worker import MemoryJobWorker, recover_stale_jobs
-from memtrace_api.memory_worker import MemoryReflectionWorker, get_worker_sync
-from memtrace_api.providers import build_structured_provider
 
 API_PREFIX = "/api/v1"
 TASK_ID_PATTERN = r"^task_[0-9A-HJKMNP-TV-Z]{26}$"
@@ -203,7 +230,8 @@ def create_app(
     settings: Settings | None = None,
     *,
     provider: StreamingProvider | None = None,
-    memory_provider: StructuredProvider | None = None,
+    memory_provider: LegacyStructuredProvider | None = None,
+    semantic_provider: SemanticStructuredProvider | None = None,
     store: TaskStore | None = None,
     db_session_factory: sessionmaker[Session] | None = None,
 ) -> FastAPI:
@@ -225,22 +253,44 @@ def create_app(
 
     # Memory Reflection Worker (Day 6 v2.0.0)
     # Only create when we have a real or mock provider available.
-    _memory_provider = None
+    resolved_semantic_provider: SemanticStructuredProvider | None = None
     reflection_worker = None
-    if resolved_provider is not None:
-        _memory_provider = memory_provider or build_structured_provider(resolved_settings)
+    # G5 reflection is a semantic pipeline. It is enabled for the real
+    # provider, or when a test explicitly injects a structured fake. Merely
+    # running legacy G1-G4 in MOCK_MODE must not synthesize learned memories.
+    if resolved_provider is not None and (
+        not resolved_settings.mock_mode or semantic_provider is not None
+    ):
+        resolved_semantic_provider = semantic_provider or build_structured_provider(
+            resolved_settings
+        )
         reflection_worker = (
-            MemoryReflectionWorker(factory, resolved_settings, provider=_memory_provider)
+            MemoryReflectionWorker(
+                factory,
+                resolved_settings,
+                provider=resolved_semantic_provider,
+            )
             if factory is not None
             else None
         )
+
+    conversation_service = (
+        ConversationService(
+            session_factory=factory,
+            settings=resolved_settings,
+            chat_provider=resolved_provider,
+            semantic_provider=resolved_semantic_provider,
+            reflection_worker=reflection_worker,
+        )
+        if resolved_provider is not None and resolved_semantic_provider is not None
+        else None
+    )
 
     orchestrator = (
         AgentOrchestrator(
             store=resolved_store,
             provider=resolved_provider,
             db_session_factory=factory,
-            memory_reflection_worker=reflection_worker,
         )
         if resolved_provider is not None
         else None
@@ -252,7 +302,7 @@ def create_app(
             resolved_store,
             provider=memory_provider,
         )
-        if resolved_settings.mock_mode
+        if resolved_provider is not None
         else None
     )
 
@@ -285,9 +335,20 @@ def create_app(
         finally:
             if memory_worker is not None:
                 await memory_worker.stop()
+            if reflection_worker is not None:
+                await reflection_worker.stop()
             await resolved_store.cancel_workers()
             if resolved_provider is not None:
                 close = getattr(resolved_provider, "aclose", None)
+                if close is not None:
+                    result = close()
+                    if inspect.isawaitable(result):
+                        await result
+            if (
+                resolved_semantic_provider is not None
+                and resolved_semantic_provider is not resolved_provider
+            ):
+                close = getattr(resolved_semantic_provider, "aclose", None)
                 if close is not None:
                     result = close()
                     if inspect.isawaitable(result):
@@ -304,6 +365,8 @@ def create_app(
     application.state.orchestrator = orchestrator
     application.state.memory_worker = memory_worker
     application.state.reflection_worker = reflection_worker
+    application.state.semantic_provider = resolved_semantic_provider
+    application.state.conversation_service = conversation_service
     application.state.db_session_factory = factory
     application.add_middleware(RequestIdMiddleware)
     install_exception_handlers(application)
@@ -3204,6 +3267,269 @@ def create_app(
     # ════════════════════════════════════════════════════════════════════════════
     API_PREFIX_V2 = "/api/v2"
 
+    @application.post(
+        f"{API_PREFIX_V2}/tasks",
+        response_model=ConversationTaskCreateResponse,
+        status_code=status.HTTP_201_CREATED,
+        responses={
+            401: {"model": ErrorEnvelope},
+            409: {"model": ErrorEnvelope},
+            503: {"model": ErrorEnvelope},
+        },
+    )
+    async def v2_create_conversation_task(
+        request: Request,
+        body: ConversationTaskCreateRequest,
+        idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        service: ConversationService | None = request.app.state.conversation_service
+        if service is None:
+            raise _g5_provider_unavailable()
+        idem_key = validate_idempotency_key(idempotency_key_raw)
+        path = f"{API_PREFIX_V2}/tasks"
+        route = f"POST:{path}"
+        req_hash = compute_request_hash(
+            method="POST",
+            path=path,
+            body=body.model_dump(mode="json"),
+        )
+        factory = request.app.state.db_session_factory
+        replay = _reserve_v2_idempotency(
+            factory,
+            user_ctx,
+            route=route,
+            idem_key=idem_key,
+            req_hash=req_hash,
+        )
+        if replay is not None:
+            return replay
+        try:
+            task = service.create_task(user_ctx, memory_mode=body.memory_mode)
+            active_provider: StreamingProvider = request.app.state.provider
+            payload = ConversationTaskCreateResponse(
+                request_id=request.state.request_id,
+                task_id=task.id,
+                provider_mode=active_provider.mode,
+                model=active_provider.model,
+                memory_mode=body.memory_mode,
+                created_at=task.created_at,
+            )
+            _complete_v2_idempotency(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+                response_status=status.HTTP_201_CREATED,
+                response_json=payload.model_dump_json(),
+            )
+        except Exception:
+            _release_v2_idempotency(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+            raise
+        return JSONResponse(
+            status_code=status.HTTP_201_CREATED,
+            content=payload.model_dump(mode="json"),
+        )
+
+    @application.post(
+        f"{API_PREFIX_V2}/tasks/{{task_id}}/turns",
+        response_model=ConversationTurnResponse,
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            409: {"model": ErrorEnvelope},
+            502: {"model": ErrorEnvelope},
+            504: {"model": ErrorEnvelope},
+            503: {"model": ErrorEnvelope},
+        },
+    )
+    async def v2_create_conversation_turn(
+        request: Request,
+        body: ConversationTurnRequest,
+        task_id: str = Path(pattern=TASK_ID_PATTERN),
+        idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        service: ConversationService | None = request.app.state.conversation_service
+        if service is None:
+            raise _g5_provider_unavailable()
+        idem_key = validate_idempotency_key(idempotency_key_raw)
+        path = f"{API_PREFIX_V2}/tasks/{task_id}/turns"
+        route = f"POST:{path}"
+        req_hash = compute_request_hash(
+            method="POST",
+            path=path,
+            body=body.model_dump(mode="json"),
+        )
+        factory = request.app.state.db_session_factory
+        replay = _reserve_v2_idempotency(
+            factory,
+            user_ctx,
+            route=route,
+            idem_key=idem_key,
+            req_hash=req_hash,
+        )
+        if replay is not None:
+            return replay
+        try:
+            payload = await service.run_turn(
+                user_ctx,
+                request_id=request.state.request_id,
+                task_id=task_id,
+                content=body.content,
+                memory_mode=body.memory_mode,
+            )
+        except LookupError:
+            _release_v2_idempotency(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+            raise _task_not_found(task_id) from None
+        except ProviderFailure as exc:
+            _release_v2_idempotency(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+            raise _provider_api_error(exc) from None
+        except ConversationBusyError:
+            _release_v2_idempotency(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+            raise ApiError(
+                status_code=409,
+                code=ErrorCode.IDEMPOTENCY_CONFLICT,
+                message="该对话已有一轮请求正在处理中，请等待完成后重试。",
+                retryable=True,
+            ) from None
+        except Exception:
+            _release_v2_idempotency(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+            raise
+        try:
+            _complete_v2_idempotency(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+                response_status=200,
+                response_json=payload.model_dump_json(),
+            )
+        except Exception:
+            _release_v2_idempotency(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+            raise
+        return JSONResponse(content=payload.model_dump(mode="json"))
+
+    @application.get(
+        f"{API_PREFIX_V2}/tasks/{{task_id}}",
+        response_model=ConversationTaskSnapshotResponse,
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            503: {"model": ErrorEnvelope},
+        },
+    )
+    async def v2_get_conversation_task(
+        request: Request,
+        task_id: str = Path(pattern=TASK_ID_PATTERN),
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> ConversationTaskSnapshotResponse:
+        service: ConversationService | None = request.app.state.conversation_service
+        if service is None:
+            raise _g5_provider_unavailable()
+        snapshot = service.snapshot(
+            user_ctx,
+            request_id=request.state.request_id,
+            task_id=task_id,
+        )
+        if snapshot is None:
+            raise _task_not_found(task_id)
+        return snapshot
+
+    @application.get(
+        f"{API_PREFIX_V2}/tasks/{{task_id}}/events",
+        response_model=MemoryEventListResponse,
+        responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}},
+    )
+    async def v2_get_conversation_events(
+        request: Request,
+        task_id: str = Path(pattern=TASK_ID_PATTERN),
+        after_event_seq: Annotated[int, Query(ge=0)] = 0,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> MemoryEventListResponse:
+        factory = request.app.state.db_session_factory
+        with session_scope(factory) as session:
+            task = session.execute(
+                select(TaskModel).where(
+                    and_(
+                        TaskModel.id == task_id,
+                        TaskModel.owner_id == user_ctx.user_id,
+                        TaskModel.status != "deleted",
+                    )
+                )
+            ).scalar_one_or_none()
+            if task is None:
+                raise _task_not_found(task_id)
+            events = list(
+                session.execute(
+                    select(EventLogModel)
+                    .where(
+                        and_(
+                            EventLogModel.owner_id == user_ctx.user_id,
+                            EventLogModel.stream_type == "task",
+                            EventLogModel.stream_id == task_id,
+                            EventLogModel.seq > after_event_seq,
+                        )
+                    )
+                    .order_by(EventLogModel.seq.asc())
+                    .limit(100)
+                )
+                .scalars()
+                .all()
+            )
+            return MemoryEventListResponse(
+                request_id=request.state.request_id,
+                items=[
+                    MemoryEventPayload(
+                        event_id=event.id,
+                        event_seq=event.seq,
+                        event_type=event.event_type,
+                        job_id=(json.loads(event.metadata_json or "{}")).get("job_id"),
+                        created_at=event.created_at,
+                    )
+                    for event in events
+                ],
+                next_seq=events[-1].seq if events else after_event_seq,
+            )
+
     # ── 1. GET /api/v2/memories — list with kind/review_status/cursor/limit ─────
 
     @application.get(
@@ -3232,7 +3558,7 @@ def create_app(
             next_cursor = page[-1].id if len(cards) > limit else None
             return MemoryV2ListResponse(
                 request_id=request.state.request_id,
-                items=[_card_projection(card) for card in page],
+                items=[_v2_card_projection(card) for card in page],
                 next_cursor=next_cursor,
             )
 
@@ -3240,14 +3566,14 @@ def create_app(
 
     @application.get(
         f"{API_PREFIX_V2}/memories/{{memory_id}}",
-        response_model=MemoryDetailResponse,
+        response_model=MemoryDetailV2Response,
         responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}},
     )
     async def v2_get_memory_detail(
         request: Request,
         memory_id: str = Path(pattern=MEMORY_ID_PATTERN),
         user_ctx: UserContext = Depends(get_current_user),
-    ) -> MemoryDetailResponse:
+    ) -> MemoryDetailV2Response:
         session_factory = request.app.state.db_session_factory
         with session_scope(session_factory) as session:
             center_repo = MemoryCenterRepository(user_ctx, session)
@@ -3255,28 +3581,11 @@ def create_app(
             if result is None:
                 raise _memory_not_found()
             card, versions, evidence = result
-            relations = MemoryRelationRepository(user_ctx, session).list_relations(
-                memory_id=memory_id,
-            )
-            return MemoryDetailResponse(
+            return MemoryDetailV2Response(
                 request_id=request.state.request_id,
-                card=_card_projection(card),
-                evidence=[_evidence_projection(item) for item in evidence],
-                versions=[_version_projection(item) for item in versions],
-                relations=[
-                    MemoryRelationProjection(
-                        relation_id=rel.id,
-                        from_memory_id=rel.from_memory_id,
-                        to_memory_id=rel.to_memory_id,
-                        relation_type=rel.relation_type,
-                        status=rel.status,
-                        resolution_action=rel.resolution_action,
-                        resolution_memory_id=rel.resolution_memory_id,
-                        created_at=rel.created_at,
-                        resolved_at=rel.resolved_at,
-                    )
-                    for rel in relations
-                ],
+                memory=_v2_card_projection(card),
+                evidence=[_v2_evidence_projection(item) for item in evidence],
+                versions=[_v2_version_projection(item) for item in versions],
             )
 
     # ── 3. PATCH /api/v2/memories/{memory_id} — edit kind/content/applies_when ───
@@ -3329,18 +3638,28 @@ def create_app(
                     if msg.startswith("MEMORY_VERSION_CONFLICT"):
                         raise _memory_version_conflict() from exc
                     raise _memory_state_conflict(msg) from exc
-                except _NotFoundError:
+                except LookupError:
                     raise _memory_not_found() from None
                 updated_card = result["card"]
                 response_payload = MemoryV2EditResponse(
                     request_id=request.state.request_id,
                     memory_id=memory_id,
-                    kind=MemoryKindV2(updated_card.kind),
-                    content=updated_card.rule,
-                    applies_when=updated_card.trigger_text or updated_card.rule[:500],
-                    status=ReviewStatus(updated_card.status),
+                    kind=MemoryKindV2(updated_card.memory_kind_v2),
+                    content=updated_card.content,
+                    applies_when=updated_card.applies_when,
+                    status=ReviewStatus(updated_card.review_status),
                     current_version_id=updated_card.current_version_id,
                     updated_at=updated_card.updated_at,
+                )
+                _append_owner_memory_event(
+                    session,
+                    owner_id=user_ctx.user_id,
+                    event_type="memory.updated",
+                    metadata={
+                        "memory_id": memory_id,
+                        "version_id": updated_card.current_version_id,
+                        "reason_code": "user_edit",
+                    },
                 )
                 idem_repo.save_record(
                     route=route,
@@ -3402,9 +3721,19 @@ def create_app(
                 response_payload = MemoryConfirmResponse(
                     request_id=request.state.request_id,
                     memory_id=memory_id,
-                    old_status=ReviewStatus.REVIEW,
+                    old_status=ReviewStatus.PENDING,
                     new_status=ReviewStatus.ACTIVE,
                     updated_at=now,
+                )
+                _append_owner_memory_event(
+                    session,
+                    owner_id=user_ctx.user_id,
+                    event_type="memory.confirmed",
+                    metadata={
+                        "memory_id": memory_id,
+                        "old_status": "pending",
+                        "new_status": "active",
+                    },
                 )
                 idem_repo.save_record(
                     route=route,
@@ -3466,9 +3795,19 @@ def create_app(
                 response_payload = MemoryDismissResponse(
                     request_id=request.state.request_id,
                     memory_id=memory_id,
-                    old_status=ReviewStatus.REVIEW,
+                    old_status=ReviewStatus.PENDING,
                     new_status=ReviewStatus.ARCHIVED,
                     updated_at=now,
+                )
+                _append_owner_memory_event(
+                    session,
+                    owner_id=user_ctx.user_id,
+                    event_type="memory.dismissed",
+                    metadata={
+                        "memory_id": memory_id,
+                        "old_status": "pending",
+                        "new_status": "archived",
+                    },
                 )
                 idem_repo.save_record(
                     route=route,
@@ -3488,7 +3827,133 @@ def create_app(
             )
         return JSONResponse(content=response_payload.model_dump(mode="json"))
 
-    # ── 6. GET /api/v2/memory-events — owner/session catch-up after_seq ──────────
+    async def _v2_change_memory_lifecycle(
+        *,
+        request: Request,
+        memory_id: str,
+        idempotency_key_raw: str | None,
+        user_ctx: UserContext,
+        action: Literal["pause", "resume"],
+    ) -> Response:
+        idem_key = validate_idempotency_key(idempotency_key_raw)
+        path = f"{API_PREFIX_V2}/memories/{memory_id}/{action}"
+        route = f"POST:{path}"
+        req_hash = compute_request_hash(method="POST", path=path, body="")
+        old_status = "active" if action == "pause" else "paused"
+        new_status = "paused" if action == "pause" else "active"
+        factory = request.app.state.db_session_factory
+        try:
+            with session_scope(factory) as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                idem_repo = IdempotencyRepository(user_ctx, session)
+                existing = idem_repo.get_record(route, idem_key)
+                if existing is not None:
+                    if existing.request_hash != req_hash:
+                        raise _idempotency_conflict()
+                    return JSONResponse(
+                        status_code=existing.response_status,
+                        content=json.loads(existing.response_json),
+                    )
+                card = session.execute(
+                    select(MemoryCardModel).where(
+                        and_(
+                            MemoryCardModel.id == memory_id,
+                            MemoryCardModel.owner_id == user_ctx.user_id,
+                            MemoryCardModel.schema_version == "2.0",
+                            MemoryCardModel.status != "deleted",
+                        )
+                    )
+                ).scalar_one_or_none()
+                if card is None:
+                    raise _memory_not_found()
+                if card.review_status != old_status:
+                    raise _memory_state_conflict(f"只有 {old_status} 记忆可以执行 {action}。")
+                now = utc_now()
+                card.review_status = new_status
+                card.status = new_status
+                card.updated_at = now
+                payload = MemoryLifecycleV2Response(
+                    request_id=request.state.request_id,
+                    memory_id=memory_id,
+                    old_status=ReviewStatus(old_status),
+                    new_status=ReviewStatus(new_status),
+                    updated_at=now,
+                )
+                _append_owner_memory_event(
+                    session,
+                    owner_id=user_ctx.user_id,
+                    event_type=f"memory.{action}d",
+                    metadata={
+                        "memory_id": memory_id,
+                        "old_status": old_status,
+                        "new_status": new_status,
+                    },
+                )
+                idem_repo.save_record(
+                    route=route,
+                    key=idem_key,
+                    request_hash=req_hash,
+                    response_status=200,
+                    response_json=payload.model_dump_json(),
+                    expires_at=utc_now() + SESSION_DURATION * 2,
+                )
+        except IntegrityError:
+            return _replay_idempotent_response(
+                factory,
+                user_ctx,
+                route=route,
+                idem_key=idem_key,
+                req_hash=req_hash,
+            )
+        return JSONResponse(content=payload.model_dump(mode="json"))
+
+    @application.post(
+        f"{API_PREFIX_V2}/memories/{{memory_id}}/pause",
+        response_model=MemoryLifecycleV2Response,
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            409: {"model": ErrorEnvelope},
+        },
+    )
+    async def v2_pause_memory(
+        request: Request,
+        memory_id: str = Path(pattern=MEMORY_ID_PATTERN),
+        idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        return await _v2_change_memory_lifecycle(
+            request=request,
+            memory_id=memory_id,
+            idempotency_key_raw=idempotency_key_raw,
+            user_ctx=user_ctx,
+            action="pause",
+        )
+
+    @application.post(
+        f"{API_PREFIX_V2}/memories/{{memory_id}}/resume",
+        response_model=MemoryLifecycleV2Response,
+        responses={
+            401: {"model": ErrorEnvelope},
+            404: {"model": ErrorEnvelope},
+            409: {"model": ErrorEnvelope},
+        },
+    )
+    async def v2_resume_memory(
+        request: Request,
+        memory_id: str = Path(pattern=MEMORY_ID_PATTERN),
+        idempotency_key_raw: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> Response:
+        return await _v2_change_memory_lifecycle(
+            request=request,
+            memory_id=memory_id,
+            idempotency_key_raw=idempotency_key_raw,
+            user_ctx=user_ctx,
+            action="resume",
+        )
+
+    # ── GET /api/v2/memory-events — owner/session catch-up after_seq ──────────
 
     @application.get(
         f"{API_PREFIX_V2}/memory-events",
@@ -3503,7 +3968,7 @@ def create_app(
         session_factory = request.app.state.db_session_factory
         with session_scope(session_factory) as session:
             center_repo = MemoryCenterRepository(user_ctx, session)
-            events = center_repo.get_memory_events(after_seq=after_seq)
+            events = center_repo.get_memory_events(after_seq=after_seq, limit=100)
             items: list[MemoryEventPayload] = []
             next_seq: int | None = None
             for ev in events:
@@ -3511,6 +3976,7 @@ def create_app(
                 items.append(
                     MemoryEventPayload(
                         event_id=ev.id,
+                        event_seq=ev.seq,
                         event_type=ev.event_type,
                         memory_id=metadata.get("memory_id"),
                         version_id=metadata.get("version_id"),
@@ -3526,6 +3992,73 @@ def create_app(
                 request_id=request.state.request_id,
                 items=items,
                 next_seq=next_seq,
+            )
+
+    @application.get(
+        f"{API_PREFIX_V2}/memories/{{memory_id}}/events",
+        response_model=MemoryEventListResponse,
+        responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}},
+    )
+    async def v2_list_events_for_memory(
+        request: Request,
+        memory_id: str = Path(pattern=MEMORY_ID_PATTERN),
+        after_seq: Annotated[int, Query(ge=0)] = 0,
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> MemoryEventListResponse:
+        factory = request.app.state.db_session_factory
+        with session_scope(factory) as session:
+            card = session.execute(
+                select(MemoryCardModel.id).where(
+                    and_(
+                        MemoryCardModel.id == memory_id,
+                        MemoryCardModel.owner_id == user_ctx.user_id,
+                        MemoryCardModel.schema_version == "2.0",
+                        MemoryCardModel.status != "deleted",
+                    )
+                )
+            ).scalar_one_or_none()
+            if card is None:
+                raise _memory_not_found()
+            events = list(
+                session.execute(
+                    select(EventLogModel)
+                    .where(
+                        and_(
+                            EventLogModel.owner_id == user_ctx.user_id,
+                            EventLogModel.stream_type == "owner_memory",
+                            EventLogModel.stream_id == user_ctx.user_id,
+                            EventLogModel.seq > after_seq,
+                        )
+                    )
+                    .order_by(EventLogModel.seq.asc())
+                    .limit(100)
+                )
+                .scalars()
+                .all()
+            )
+            matching: list[MemoryEventPayload] = []
+            for event in events:
+                metadata = json.loads(event.metadata_json or "{}")
+                if metadata.get("memory_id") != memory_id:
+                    continue
+                matching.append(
+                    MemoryEventPayload(
+                        event_id=event.id,
+                        event_seq=event.seq,
+                        event_type=event.event_type,
+                        memory_id=memory_id,
+                        version_id=metadata.get("version_id"),
+                        old_status=metadata.get("old_status"),
+                        new_status=metadata.get("new_status"),
+                        reason_code=metadata.get("reason_code"),
+                        job_id=metadata.get("job_id"),
+                        created_at=event.created_at,
+                    )
+                )
+            return MemoryEventListResponse(
+                request_id=request.state.request_id,
+                items=matching,
+                next_seq=events[-1].seq if events else after_seq,
             )
 
     # ── 7. GET /api/v2/reflection-jobs/{job_id} — job status ────────────────────
@@ -3561,10 +4094,169 @@ def create_app(
                 mutation_decision=job.mutation_decision,
                 provider_model=job.provider_model or "",
                 schema_version=job.schema_version,
-                error_code=job.last_error_code,
+                error_code=job.error_code,
                 created_at=job.created_at,
                 updated_at=job.updated_at,
             )
+
+    @application.get(
+        f"{API_PREFIX_V2}/reflection-jobs/{{job_id}}/usage",
+        response_model=list[StageUsageProjection],
+        responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}},
+    )
+    async def v2_get_reflection_job_usage(
+        request: Request,
+        job_id: str = Path(pattern=JOB_ID_PATTERN),
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> list[StageUsageProjection]:
+        factory = request.app.state.db_session_factory
+        with session_scope(factory) as session:
+            job = session.execute(
+                select(MemoryReflectionJobModel).where(
+                    and_(
+                        MemoryReflectionJobModel.id == job_id,
+                        MemoryReflectionJobModel.owner_id == user_ctx.user_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if job is None:
+                raise ApiError(
+                    status_code=404,
+                    code=ErrorCode.MEMORY_NOT_FOUND,
+                    message="指定的 Reflection Job 不存在或无权访问。",
+                )
+            rows: list[StageUsageProjection] = []
+            if (
+                job.prompt_hash is not None
+                and bool(job.provider_model)
+                and job.input_tokens is not None
+                and job.output_tokens is not None
+                and job.total_tokens is not None
+                and job.latency_ms is not None
+            ):
+                rows.append(
+                    StageUsageProjection(
+                        stage="reflection",
+                        provider_mode=(
+                            ProviderMode.REAL if job.token_source == "actual" else ProviderMode.MOCK
+                        ),
+                        model=job.provider_model,
+                        prompt_hash=job.prompt_hash,
+                        input_tokens=job.input_tokens,
+                        output_tokens=job.output_tokens,
+                        total_tokens=job.total_tokens,
+                        reasoning_tokens=None,
+                        latency_ms=job.latency_ms,
+                    )
+                )
+            judgments = list(
+                session.execute(
+                    select(MemoryLLMJudgeModel)
+                    .where(
+                        and_(
+                            MemoryLLMJudgeModel.owner_id == user_ctx.user_id,
+                            MemoryLLMJudgeModel.job_id == job_id,
+                            MemoryLLMJudgeModel.judge_type == "consolidation",
+                            MemoryLLMJudgeModel.status == "completed",
+                        )
+                    )
+                    .order_by(MemoryLLMJudgeModel.created_at.asc(), MemoryLLMJudgeModel.id.asc())
+                )
+                .scalars()
+                .all()
+            )
+            for judgment in judgments:
+                if (
+                    judgment.provider_model is None
+                    or judgment.prompt_hash is None
+                    or judgment.input_tokens is None
+                    or judgment.output_tokens is None
+                    or judgment.total_tokens is None
+                    or judgment.latency_ms is None
+                ):
+                    raise ApiError(
+                        status_code=503,
+                        code=ErrorCode.PROVIDER_ERROR,
+                        message="该语义阶段没有完整的实际 usage 证据。",
+                        retryable=False,
+                    )
+                rows.append(
+                    StageUsageProjection(
+                        stage="consolidation",
+                        provider_mode=(
+                            ProviderMode.REAL
+                            if judgment.token_source == "actual"
+                            else ProviderMode.MOCK
+                        ),
+                        model=judgment.provider_model,
+                        prompt_hash=judgment.prompt_hash,
+                        input_tokens=judgment.input_tokens,
+                        output_tokens=judgment.output_tokens,
+                        total_tokens=judgment.total_tokens,
+                        reasoning_tokens=None,
+                        latency_ms=judgment.latency_ms,
+                    )
+                )
+            return rows
+
+    @application.get(
+        f"{API_PREFIX_V2}/reflection-jobs/{{job_id}}/judgments",
+        response_model=list[ConsolidationJudgmentProjection],
+        responses={401: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}},
+    )
+    async def v2_get_reflection_job_judgments(
+        request: Request,
+        job_id: str = Path(pattern=JOB_ID_PATTERN),
+        user_ctx: UserContext = Depends(get_current_user),
+    ) -> list[ConsolidationJudgmentProjection]:
+        factory = request.app.state.db_session_factory
+        with session_scope(factory) as session:
+            job = session.execute(
+                select(MemoryReflectionJobModel.id).where(
+                    and_(
+                        MemoryReflectionJobModel.id == job_id,
+                        MemoryReflectionJobModel.owner_id == user_ctx.user_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if job is None:
+                raise ApiError(
+                    status_code=404,
+                    code=ErrorCode.MEMORY_NOT_FOUND,
+                    message="指定的 Reflection Job 不存在或无权访问。",
+                )
+            judgments = list(
+                session.execute(
+                    select(MemoryLLMJudgeModel)
+                    .where(
+                        and_(
+                            MemoryLLMJudgeModel.owner_id == user_ctx.user_id,
+                            MemoryLLMJudgeModel.job_id == job_id,
+                            MemoryLLMJudgeModel.judge_type == "consolidation",
+                            MemoryLLMJudgeModel.status == "completed",
+                        )
+                    )
+                    .order_by(MemoryLLMJudgeModel.created_at.asc(), MemoryLLMJudgeModel.id.asc())
+                )
+                .scalars()
+                .all()
+            )
+            items: list[ConsolidationJudgmentProjection] = []
+            for row in judgments:
+                result = ConflictConsolidationResult.model_validate_json(row.result_json or "{}")
+                items.append(
+                    ConsolidationJudgmentProjection(
+                        request_id=request.state.request_id,
+                        judge_id=row.id,
+                        job_id=job_id,
+                        memory_id=row.memory_id,
+                        decision=result.decision,
+                        confidence=result.confidence,
+                        reason_code=result.reason_code,
+                        created_at=row.created_at,
+                    )
+                )
+            return items
 
     # ── 8. GET /api/v2/tasks/{task_id}/memory-usage — task memory usage ──────────
 
@@ -3596,15 +4288,9 @@ def create_app(
                     memory_id=usage.memory_id,
                     injected=usage.injected,
                     verified_applied=usage.verification_status == "applied",
-                    helpful_count=(
-                        _get_card_helpful_count(user_ctx, session, usage.memory_id)
-                    ),
-                    harmful_count=(
-                        _get_card_harmful_count(user_ctx, session, usage.memory_id)
-                    ),
-                    stale_count=(
-                        _get_card_stale_count(user_ctx, session, usage.memory_id)
-                    ),
+                    helpful_count=(_get_card_helpful_count(user_ctx, session, usage.memory_id)),
+                    harmful_count=(_get_card_harmful_count(user_ctx, session, usage.memory_id)),
+                    stale_count=(_get_card_stale_count(user_ctx, session, usage.memory_id)),
                     last_used_at=usage.updated_at,
                 )
                 for usage in usages
@@ -3630,10 +4316,7 @@ def create_app(
         user_ctx: UserContext = Depends(get_current_user),
     ) -> Response:
         idem_key = validate_idempotency_key(idempotency_key_raw)
-        path = (
-            f"{API_PREFIX_V2}/tasks/{task_id}"
-            f"/memory-effect/{memory_id}/feedback"
-        )
+        path = f"{API_PREFIX_V2}/tasks/{task_id}/memory-effect/{memory_id}/feedback"
         route = f"POST:{path}"
         normalized = body.model_dump(mode="json")
         req_hash = compute_request_hash(method="POST", path=path, body=normalized)
@@ -3816,6 +4499,68 @@ def _version_projection(version: MemoryVersionModel) -> MemoryVersionProjection:
     )
 
 
+def _v2_card_projection(card: MemoryCardModel) -> MemoryV2Projection:
+    if (
+        card.schema_version != "2.0"
+        or card.memory_kind_v2 is None
+        or card.content is None
+        or card.applies_when is None
+        or card.review_status is None
+        or card.confidence is None
+        or card.current_version_id is None
+    ):
+        raise RuntimeError("incomplete v2 memory card")
+    source_type = "user_edit" if card.source_type == "user_edit" else "conversation_turn"
+    return MemoryV2Projection(
+        memory_id=card.id,
+        kind=MemoryKindV2(card.memory_kind_v2),
+        content=card.content,
+        applies_when=card.applies_when,
+        review_status=ReviewStatus(card.review_status),
+        confidence=card.confidence,
+        current_version_id=card.current_version_id,
+        version=card.version,
+        source_type=source_type,
+        created_at=card.created_at,
+        updated_at=card.updated_at,
+    )
+
+
+def _v2_version_projection(version: MemoryVersionModel) -> MemoryVersionV2Projection:
+    if (
+        version.memory_kind_v2 is None
+        or version.content is None
+        or version.applies_when is None
+        or version.review_status is None
+        or version.confidence is None
+    ):
+        raise RuntimeError("incomplete v2 memory version")
+    return MemoryVersionV2Projection(
+        version_id=version.id,
+        version=version.version,
+        kind=MemoryKindV2(version.memory_kind_v2),
+        content=version.content,
+        applies_when=version.applies_when,
+        review_status=ReviewStatus(version.review_status),
+        confidence=version.confidence,
+        created_by_action=version.created_by_action,
+        created_at=version.created_at,
+    )
+
+
+def _v2_evidence_projection(evidence: MemoryEvidenceModel) -> MemoryEvidenceV2Projection:
+    if evidence.message_id is None or evidence.turn_index is None:
+        raise RuntimeError("incomplete v2 memory evidence")
+    return MemoryEvidenceV2Projection(
+        evidence_id=evidence.id,
+        message_id=evidence.message_id,
+        turn_index=evidence.turn_index,
+        source_type=("user_edit" if evidence.source_type == "user_edit" else "conversation_turn"),
+        is_primary=evidence.is_primary,
+        created_at=evidence.created_at,
+    )
+
+
 def _relation_projection(relation: MemoryRelationModel) -> MemoryRelationProjection:
     return MemoryRelationProjection(
         relation_id=relation.id,
@@ -3952,8 +4697,69 @@ def _memory_not_found() -> ApiError:
     )
 
 
+def _g5_provider_unavailable() -> ApiError:
+    return ApiError(
+        status_code=503,
+        code=ErrorCode.PROVIDER_CONFIG_MISSING,
+        message="真实模型尚未配置，G5 对话与记忆语义链路不可用。",
+        retryable=False,
+        details=ErrorDetails(check="provider_configuration"),
+    )
+
+
+def _provider_api_error(exc: ProviderFailure) -> ApiError:
+    logger.warning(
+        "provider.call_failed failure_kind=%s retryable=%s provider_status=%s",
+        exc.failure_kind,
+        exc.retryable,
+        exc.provider_status,
+    )
+    timeout = exc.code.value == ErrorCode.PROVIDER_TIMEOUT.value
+    return ApiError(
+        status_code=504 if timeout else 502,
+        code=ErrorCode.PROVIDER_TIMEOUT if timeout else ErrorCode.PROVIDER_ERROR,
+        message="模型服务超时。" if timeout else "模型服务调用失败。",
+        retryable=exc.retryable,
+        details=(
+            ErrorDetails(provider_status=exc.provider_status)
+            if exc.provider_status is not None
+            else ErrorDetails()
+        ),
+    )
+
+
 def _allocate_memory_event_seq(session: Session, owner_id: str, stream_id: str) -> int:
     return _next_metadata_event_seq(session, owner_id, "memory", stream_id)
+
+
+def _append_owner_memory_event(
+    session: Session,
+    *,
+    owner_id: str,
+    event_type: str,
+    metadata: dict[str, object],
+) -> int:
+    cursor = session.get(MemoryEventCursorModel, owner_id)
+    if cursor is None:
+        cursor = MemoryEventCursorModel(owner_id=owner_id, next_seq=1, updated_at=utc_now())
+        session.add(cursor)
+        session.flush([cursor])
+    seq = cursor.next_seq
+    cursor.next_seq += 1
+    cursor.updated_at = utc_now()
+    session.add(
+        EventLogModel(
+            id=new_prefixed_ulid("evt"),
+            owner_id=owner_id,
+            stream_type="owner_memory",
+            stream_id=owner_id,
+            seq=seq,
+            event_type=event_type,
+            metadata_json=json.dumps(metadata, separators=(",", ":")),
+            created_at=utc_now(),
+        )
+    )
+    return seq
 
 
 def _next_metadata_event_seq(
@@ -4073,6 +4879,98 @@ def _idempotency_conflict() -> ApiError:
         code=ErrorCode.IDEMPOTENCY_CONFLICT,
         message="Idempotency-Key 已用于不同的请求载荷。",
     )
+
+
+_V2_IDEMPOTENCY_PENDING_STATUS = 102
+_V2_IDEMPOTENCY_RESERVATION_TTL = timedelta(minutes=5)
+
+
+def _reserve_v2_idempotency(
+    factory: sessionmaker[Session],
+    user_ctx: UserContext,
+    *,
+    route: str,
+    idem_key: str,
+    req_hash: str,
+) -> JSONResponse | None:
+    """Atomically reserve a G5 write before any provider or persistence work."""
+
+    with session_scope(factory) as session:
+        session.execute(text("BEGIN IMMEDIATE"))
+        repo = IdempotencyRepository(user_ctx, session)
+        existing = repo.get_record(route, idem_key)
+        if existing is not None:
+            if existing.request_hash != req_hash:
+                raise _idempotency_conflict()
+            if existing.response_status == _V2_IDEMPOTENCY_PENDING_STATUS:
+                raise ApiError(
+                    status_code=409,
+                    code=ErrorCode.IDEMPOTENCY_CONFLICT,
+                    message="相同的 Idempotency-Key 请求仍在处理中，请稍后使用原 Key 重试。",
+                    retryable=True,
+                )
+            return JSONResponse(
+                status_code=existing.response_status,
+                content=json.loads(existing.response_json),
+            )
+        repo.save_record(
+            route=route,
+            key=idem_key,
+            request_hash=req_hash,
+            response_status=_V2_IDEMPOTENCY_PENDING_STATUS,
+            response_json="{}",
+            expires_at=utc_now() + _V2_IDEMPOTENCY_RESERVATION_TTL,
+        )
+    return None
+
+
+def _complete_v2_idempotency(
+    factory: sessionmaker[Session],
+    user_ctx: UserContext,
+    *,
+    route: str,
+    idem_key: str,
+    req_hash: str,
+    response_status: int,
+    response_json: str,
+) -> None:
+    with session_scope(factory) as session:
+        session.execute(text("BEGIN IMMEDIATE"))
+        record = IdempotencyRepository(user_ctx, session).get_record(route, idem_key)
+        if (
+            record is None
+            or record.request_hash != req_hash
+            or record.response_status != _V2_IDEMPOTENCY_PENDING_STATUS
+        ):
+            raise RuntimeError("G5 idempotency reservation was lost")
+        record.response_status = response_status
+        record.response_json = response_json
+        record.expires_at = utc_now() + SESSION_DURATION * 2
+
+
+def _release_v2_idempotency(
+    factory: sessionmaker[Session],
+    user_ctx: UserContext,
+    *,
+    route: str,
+    idem_key: str,
+    req_hash: str,
+) -> None:
+    with session_scope(factory) as session:
+        session.execute(text("BEGIN IMMEDIATE"))
+        record = session.execute(
+            select(IdempotencyKeyModel).where(
+                and_(
+                    IdempotencyKeyModel.owner_id == user_ctx.user_id,
+                    IdempotencyKeyModel.route == route,
+                    IdempotencyKeyModel.key == idem_key,
+                    IdempotencyKeyModel.request_hash == req_hash,
+                    IdempotencyKeyModel.response_status == _V2_IDEMPOTENCY_PENDING_STATUS,
+                )
+            )
+        ).scalar_one_or_none()
+        if record is not None:
+            session.delete(record)
 
 
 def _memory_cursor_filter_hash(filters: MemoryListFilter) -> str:
@@ -4401,9 +5299,7 @@ async def _subscription_body(
 app = create_app()
 
 
-def _get_card_helpful_count(
-    user_ctx: UserContext, session: Session, memory_id: str
-) -> int:
+def _get_card_helpful_count(user_ctx: UserContext, session: Session, memory_id: str) -> int:
     row = session.execute(
         select(MemoryCardModel.helpful_count).where(
             and_(
@@ -4415,9 +5311,7 @@ def _get_card_helpful_count(
     return int(row) if row is not None else 0
 
 
-def _get_card_harmful_count(
-    user_ctx: UserContext, session: Session, memory_id: str
-) -> int:
+def _get_card_harmful_count(user_ctx: UserContext, session: Session, memory_id: str) -> int:
     row = session.execute(
         select(MemoryCardModel.harmful_count).where(
             and_(
@@ -4429,9 +5323,7 @@ def _get_card_harmful_count(
     return int(row) if row is not None else 0
 
 
-def _get_card_stale_count(
-    user_ctx: UserContext, session: Session, memory_id: str
-) -> int:
+def _get_card_stale_count(user_ctx: UserContext, session: Session, memory_id: str) -> int:
     row = session.execute(
         select(MemoryCardModel.stale_count).where(
             and_(

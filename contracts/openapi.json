@@ -3444,6 +3444,1746 @@
           }
         }
       }
+    },
+    "/api/v2/tasks": {
+      "post": {
+        "summary": "V2 Create Conversation Task",
+        "operationId": "v2_create_conversation_task_api_v2_tasks_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationTaskCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationTaskCreateResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/tasks/{task_id}/turns": {
+      "post": {
+        "summary": "V2 Create Conversation Turn",
+        "operationId": "v2_create_conversation_turn_api_v2_tasks__task_id__turns_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationTurnRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationTurnResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Gateway Timeout"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/tasks/{task_id}": {
+      "get": {
+        "summary": "V2 Get Conversation Task",
+        "operationId": "v2_get_conversation_task_api_v2_tasks__task_id__get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationTaskSnapshotResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/tasks/{task_id}/events": {
+      "get": {
+        "summary": "V2 Get Conversation Events",
+        "operationId": "v2_get_conversation_events_api_v2_tasks__task_id__events_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "after_event_seq",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "After Event Seq"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryEventListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memories": {
+      "get": {
+        "summary": "V2 List Memories",
+        "operationId": "v2_list_memories_api_v2_memories_get",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/MemoryKindV2"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "review_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ReviewStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Review Status"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryV2ListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memories/{memory_id}": {
+      "get": {
+        "summary": "V2 Get Memory Detail",
+        "operationId": "v2_get_memory_detail_api_v2_memories__memory_id__get",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryDetailV2Response"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "V2 Edit Memory",
+        "operationId": "v2_edit_memory_api_v2_memories__memory_id__patch",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryV2EditRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryV2EditResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v2/memories/{memory_id}/confirm": {
+      "post": {
+        "summary": "V2 Confirm Memory",
+        "operationId": "v2_confirm_memory_api_v2_memories__memory_id__confirm_post",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryConfirmResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memories/{memory_id}/dismiss": {
+      "post": {
+        "summary": "V2 Dismiss Memory",
+        "operationId": "v2_dismiss_memory_api_v2_memories__memory_id__dismiss_post",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryDismissResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memories/{memory_id}/pause": {
+      "post": {
+        "summary": "V2 Pause Memory",
+        "operationId": "v2_pause_memory_api_v2_memories__memory_id__pause_post",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryLifecycleV2Response"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memories/{memory_id}/resume": {
+      "post": {
+        "summary": "V2 Resume Memory",
+        "operationId": "v2_resume_memory_api_v2_memories__memory_id__resume_post",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryLifecycleV2Response"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memory-events": {
+      "get": {
+        "summary": "V2 List Memory Events",
+        "operationId": "v2_list_memory_events_api_v2_memory_events_get",
+        "parameters": [
+          {
+            "name": "after_seq",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "After Seq"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryEventListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memories/{memory_id}/events": {
+      "get": {
+        "summary": "V2 List Events For Memory",
+        "operationId": "v2_list_events_for_memory_api_v2_memories__memory_id__events_get",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "after_seq",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "After Seq"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryEventListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/reflection-jobs/{job_id}": {
+      "get": {
+        "summary": "V2 Get Reflection Job",
+        "operationId": "v2_get_reflection_job_api_v2_reflection_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryReflectionJobResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/reflection-jobs/{job_id}/usage": {
+      "get": {
+        "summary": "V2 Get Reflection Job Usage",
+        "operationId": "v2_get_reflection_job_usage_api_v2_reflection_jobs__job_id__usage_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StageUsageProjection"
+                  },
+                  "title": "Response V2 Get Reflection Job Usage Api V2 Reflection Jobs  Job Id  Usage Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/reflection-jobs/{job_id}/judgments": {
+      "get": {
+        "summary": "V2 Get Reflection Job Judgments",
+        "operationId": "v2_get_reflection_job_judgments_api_v2_reflection_jobs__job_id__judgments_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ConsolidationJudgmentProjection"
+                  },
+                  "title": "Response V2 Get Reflection Job Judgments Api V2 Reflection Jobs  Job Id  Judgments Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/tasks/{task_id}/memory-usage": {
+      "get": {
+        "summary": "V2 Get Task Memory Usage",
+        "operationId": "v2_get_task_memory_usage_api_v2_tasks__task_id__memory_usage_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskMemoryUsageResponse"
+                  },
+                  "title": "Response V2 Get Task Memory Usage Api V2 Tasks  Task Id  Memory Usage Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/tasks/{task_id}/memory-effect/{memory_id}/feedback": {
+      "post": {
+        "summary": "V2 Record Memory Effect Feedback",
+        "operationId": "v2_record_memory_effect_feedback_api_v2_tasks__task_id__memory_effect__memory_id__feedback_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "memtrace_demo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memtrace Demo Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryFeedbackRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryFeedbackResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3475,6 +5215,29 @@
         ],
         "title": "AllowedException",
         "description": "Controlled, non-executable scope exceptions a card may reference."
+      },
+      "ApplicabilityReasonCode": {
+        "type": "string",
+        "enum": [
+          "semantic_match",
+          "current_instruction_override",
+          "memory_conflict",
+          "scope_mismatch",
+          "outdated",
+          "irrelevant",
+          "ambiguous"
+        ],
+        "title": "ApplicabilityReasonCode"
+      },
+      "ApplicabilityResult": {
+        "type": "string",
+        "enum": [
+          "applicable",
+          "current_instruction_override",
+          "conflict",
+          "irrelevant"
+        ],
+        "title": "ApplicabilityResult"
       },
       "ArtifactType": {
         "type": "string",
@@ -3606,6 +5369,439 @@
         ],
         "title": "CodeSource"
       },
+      "ConsolidationDecision": {
+        "type": "string",
+        "enum": [
+          "add",
+          "update",
+          "supersede",
+          "coexist",
+          "noop"
+        ],
+        "title": "ConsolidationDecision"
+      },
+      "ConsolidationJudgmentProjection": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "judge_id": {
+            "type": "string",
+            "pattern": "^judge_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Judge Id"
+          },
+          "job_id": {
+            "type": "string",
+            "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Job Id"
+          },
+          "memory_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Id"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/ConsolidationDecision"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "reason_code": {
+            "$ref": "#/components/schemas/ConsolidationReasonCode"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "judge_id",
+          "job_id",
+          "decision",
+          "confidence",
+          "reason_code",
+          "created_at"
+        ],
+        "title": "ConsolidationJudgmentProjection"
+      },
+      "ConsolidationReasonCode": {
+        "type": "string",
+        "enum": [
+          "unrelated_durable_memory",
+          "same_memory_refinement",
+          "explicit_durable_replacement",
+          "related_distinct_scope",
+          "duplicate_or_no_change"
+        ],
+        "title": "ConsolidationReasonCode"
+      },
+      "ConversationMessageProjection": {
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Message Id"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "role": {
+            "$ref": "#/components/schemas/MessageRole"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 262144,
+            "title": "Content"
+          },
+          "turn_index": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Turn Index"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "message_id",
+          "run_id",
+          "role",
+          "content",
+          "turn_index",
+          "created_at"
+        ],
+        "title": "ConversationMessageProjection"
+      },
+      "ConversationTaskCreateRequest": {
+        "properties": {
+          "memory_mode": {
+            "$ref": "#/components/schemas/EffectiveMemoryMode",
+            "default": "on"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ConversationTaskCreateRequest"
+      },
+      "ConversationTaskCreateResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.0.0",
+            "title": "Schema Version",
+            "default": "2.0.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "task_id": {
+            "type": "string",
+            "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Task Id"
+          },
+          "provider_mode": {
+            "$ref": "#/components/schemas/ProviderMode"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Model"
+          },
+          "memory_mode": {
+            "$ref": "#/components/schemas/EffectiveMemoryMode"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "task_id",
+          "provider_mode",
+          "model",
+          "memory_mode",
+          "created_at"
+        ],
+        "title": "ConversationTaskCreateResponse"
+      },
+      "ConversationTaskSnapshotResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.0.0",
+            "title": "Schema Version",
+            "default": "2.0.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "task_id": {
+            "type": "string",
+            "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Task Id"
+          },
+          "memory_mode": {
+            "$ref": "#/components/schemas/EffectiveMemoryMode"
+          },
+          "provider_mode": {
+            "$ref": "#/components/schemas/ProviderMode"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Model"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationMessageProjection"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Messages"
+          },
+          "last_turn": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConversationTurnStateProjection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_event_seq": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Last Event Seq"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "task_id",
+          "memory_mode",
+          "provider_mode",
+          "model",
+          "messages",
+          "last_turn",
+          "last_event_seq",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ConversationTaskSnapshotResponse"
+      },
+      "ConversationTurnRequest": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Content"
+          },
+          "memory_mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EffectiveMemoryMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "ConversationTurnRequest"
+      },
+      "ConversationTurnResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.0.0",
+            "title": "Schema Version",
+            "default": "2.0.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "task_id": {
+            "type": "string",
+            "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Task Id"
+          },
+          "run_id": {
+            "type": "string",
+            "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Run Id"
+          },
+          "turn_index": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Turn Index"
+          },
+          "user_message": {
+            "$ref": "#/components/schemas/ConversationMessageProjection"
+          },
+          "assistant_message": {
+            "$ref": "#/components/schemas/ConversationMessageProjection"
+          },
+          "reflection_job_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reflection Job Id"
+          },
+          "memory_mode": {
+            "$ref": "#/components/schemas/EffectiveMemoryMode"
+          },
+          "memory_decisions": {
+            "items": {
+              "$ref": "#/components/schemas/TurnMemoryDecisionProjection"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Memory Decisions"
+          },
+          "usage": {
+            "items": {
+              "$ref": "#/components/schemas/StageUsageProjection"
+            },
+            "type": "array",
+            "maxItems": 102,
+            "minItems": 1,
+            "title": "Usage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "task_id",
+          "run_id",
+          "turn_index",
+          "user_message",
+          "assistant_message",
+          "reflection_job_id",
+          "memory_mode",
+          "memory_decisions",
+          "usage"
+        ],
+        "title": "ConversationTurnResponse"
+      },
+      "ConversationTurnStateProjection": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Run Id"
+          },
+          "turn_index": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Turn Index"
+          },
+          "reflection_job_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reflection Job Id"
+          },
+          "memory_decisions": {
+            "items": {
+              "$ref": "#/components/schemas/TurnMemoryDecisionProjection"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Memory Decisions"
+          },
+          "usage": {
+            "items": {
+              "$ref": "#/components/schemas/StageUsageProjection"
+            },
+            "type": "array",
+            "maxItems": 102,
+            "minItems": 1,
+            "title": "Usage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "run_id",
+          "turn_index",
+          "reflection_job_id",
+          "memory_decisions",
+          "usage"
+        ],
+        "title": "ConversationTurnStateProjection"
+      },
       "CurrentConstraints": {
         "properties": {
           "response_policy": {
@@ -3700,6 +5896,16 @@
           "other"
         ],
         "title": "Domain"
+      },
+      "EffectJudgment": {
+        "type": "string",
+        "enum": [
+          "applied",
+          "violated",
+          "not_observable",
+          "unknown"
+        ],
+        "title": "EffectJudgment"
       },
       "EffectiveMemoryMode": {
         "type": "string",
@@ -4633,6 +6839,43 @@
         ],
         "title": "MemoryCardStatus"
       },
+      "MemoryConfirmResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Id"
+          },
+          "old_status": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "new_status": {
+            "type": "string",
+            "const": "active",
+            "title": "New Status",
+            "default": "active"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "memory_id",
+          "old_status",
+          "updated_at"
+        ],
+        "title": "MemoryConfirmResponse"
+      },
       "MemoryConflictDetailResponse": {
         "properties": {
           "request_id": {
@@ -4957,6 +7200,220 @@
         ],
         "title": "MemoryDetailResponse"
       },
+      "MemoryDetailV2Response": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "memory": {
+            "$ref": "#/components/schemas/MemoryV2Projection"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryVersionV2Projection"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Versions"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryEvidenceV2Projection"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Evidence"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "memory",
+          "versions",
+          "evidence"
+        ],
+        "title": "MemoryDetailV2Response"
+      },
+      "MemoryDismissResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Id"
+          },
+          "old_status": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "new_status": {
+            "type": "string",
+            "const": "archived",
+            "title": "New Status",
+            "default": "archived"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "memory_id",
+          "old_status",
+          "updated_at"
+        ],
+        "title": "MemoryDismissResponse"
+      },
+      "MemoryEventListResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryEventPayload"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Items"
+          },
+          "next_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Seq"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id"
+        ],
+        "title": "MemoryEventListResponse"
+      },
+      "MemoryEventPayload": {
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "title": "Event Id"
+          },
+          "event_seq": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Event Seq"
+          },
+          "event_type": {
+            "type": "string",
+            "title": "Event Type"
+          },
+          "memory_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Id"
+          },
+          "version_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Id"
+          },
+          "old_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "new_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "event_id",
+          "event_seq",
+          "event_type"
+        ],
+        "title": "MemoryEventPayload",
+        "description": "Base for memory events. Never contains user content, reasoning, or keys."
+      },
       "MemoryEvidenceProjection": {
         "properties": {
           "evidence_id": {
@@ -5050,6 +7507,103 @@
           "created_at"
         ],
         "title": "MemoryEvidenceProjection"
+      },
+      "MemoryEvidenceV2Projection": {
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "pattern": "^evidence_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Evidence Id"
+          },
+          "message_id": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Message Id"
+          },
+          "turn_index": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Turn Index"
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "conversation_turn",
+              "user_edit"
+            ],
+            "title": "Source Type"
+          },
+          "is_primary": {
+            "type": "boolean",
+            "title": "Is Primary"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "evidence_id",
+          "message_id",
+          "turn_index",
+          "source_type",
+          "is_primary",
+          "created_at"
+        ],
+        "title": "MemoryEvidenceV2Projection"
+      },
+      "MemoryFeedbackRequest": {
+        "properties": {
+          "effect": {
+            "$ref": "#/components/schemas/UserEffect"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "effect"
+        ],
+        "title": "MemoryFeedbackRequest"
+      },
+      "MemoryFeedbackResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "task_id": {
+            "type": "string",
+            "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Task Id"
+          },
+          "memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Id"
+          },
+          "effect": {
+            "$ref": "#/components/schemas/UserEffect"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "task_id",
+          "memory_id",
+          "effect",
+          "updated_at"
+        ],
+        "title": "MemoryFeedbackResponse"
       },
       "MemoryJobErrorCode": {
         "type": "string",
@@ -5194,6 +7748,51 @@
           "learning_checkpoint"
         ],
         "title": "MemoryKind"
+      },
+      "MemoryKindV2": {
+        "type": "string",
+        "enum": [
+          "preference",
+          "rule",
+          "experience"
+        ],
+        "title": "MemoryKindV2",
+        "description": "User-visible memory kinds in v2. Only three categories."
+      },
+      "MemoryLifecycleV2Response": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Id"
+          },
+          "old_status": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "new_status": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "memory_id",
+          "old_status",
+          "new_status",
+          "updated_at"
+        ],
+        "title": "MemoryLifecycleV2Response"
       },
       "MemoryListResponse": {
         "properties": {
@@ -5498,6 +8097,110 @@
           "relation_type"
         ],
         "title": "MemoryPackRelation"
+      },
+      "MemoryReflectionJobResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "job_id": {
+            "type": "string",
+            "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Job Id"
+          },
+          "task_id": {
+            "type": "string",
+            "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Task Id"
+          },
+          "run_id": {
+            "type": "string",
+            "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Run Id"
+          },
+          "turn_index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Turn Index"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MemoryReflectionJobStatus"
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Attempt"
+          },
+          "mutation_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MutationDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider_model": {
+            "type": "string",
+            "title": "Provider Model"
+          },
+          "schema_version": {
+            "type": "string",
+            "const": "2.0",
+            "title": "Schema Version",
+            "default": "2.0"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "job_id",
+          "task_id",
+          "run_id",
+          "turn_index",
+          "status",
+          "attempt",
+          "provider_model",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MemoryReflectionJobResponse"
+      },
+      "MemoryReflectionJobStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "running",
+          "completed",
+          "failed"
+        ],
+        "title": "MemoryReflectionJobStatus"
       },
       "MemoryRelationListResponse": {
         "properties": {
@@ -5935,6 +8638,223 @@
         ],
         "title": "MemoryUsageResponse"
       },
+      "MemoryV2EditRequest": {
+        "properties": {
+          "kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryKindV2"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000,
+                "minLength": 4
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "applies_when": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500,
+                "minLength": 4
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applies When"
+          },
+          "expected_current_version_id": {
+            "type": "string",
+            "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Expected Current Version Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_current_version_id"
+        ],
+        "title": "MemoryV2EditRequest",
+        "description": "PATCH /api/v2/memories/{memory_id} body."
+      },
+      "MemoryV2EditResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/MemoryKindV2"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Content"
+          },
+          "applies_when": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Applies When"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "current_version_id": {
+            "type": "string",
+            "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Current Version Id"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "memory_id",
+          "kind",
+          "content",
+          "applies_when",
+          "status",
+          "current_version_id",
+          "updated_at"
+        ],
+        "title": "MemoryV2EditResponse"
+      },
+      "MemoryV2ListResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryV2Projection"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id"
+        ],
+        "title": "MemoryV2ListResponse"
+      },
+      "MemoryV2Projection": {
+        "properties": {
+          "memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/MemoryKindV2"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 4,
+            "title": "Content"
+          },
+          "applies_when": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 4,
+            "title": "Applies When"
+          },
+          "review_status": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "current_version_id": {
+            "type": "string",
+            "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Current Version Id"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "conversation_turn",
+              "user_edit"
+            ],
+            "title": "Source Type"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "memory_id",
+          "kind",
+          "content",
+          "applies_when",
+          "review_status",
+          "confidence",
+          "current_version_id",
+          "version",
+          "source_type",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MemoryV2Projection"
+      },
       "MemoryVersionDiffResponse": {
         "properties": {
           "request_id": {
@@ -6086,6 +9006,73 @@
         ],
         "title": "MemoryVersionProjection"
       },
+      "MemoryVersionV2Projection": {
+        "properties": {
+          "version_id": {
+            "type": "string",
+            "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Version Id"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/MemoryKindV2"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 4,
+            "title": "Content"
+          },
+          "applies_when": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 4,
+            "title": "Applies When"
+          },
+          "review_status": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "created_by_action": {
+            "type": "string",
+            "enum": [
+              "llm_extract",
+              "llm_update",
+              "llm_supersede",
+              "user_edit"
+            ],
+            "title": "Created By Action"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version_id",
+          "version",
+          "kind",
+          "content",
+          "applies_when",
+          "review_status",
+          "confidence",
+          "created_by_action",
+          "created_at"
+        ],
+        "title": "MemoryVersionV2Projection"
+      },
       "MergedMemoryCardInput": {
         "properties": {
           "kind": {
@@ -6177,6 +9164,15 @@
           "created_at"
         ],
         "title": "MessageSnapshot"
+      },
+      "MutationDecision": {
+        "type": "string",
+        "enum": [
+          "mutate",
+          "noop",
+          "needs_review"
+        ],
+        "title": "MutationDecision"
       },
       "PackClaimedOrigin": {
         "properties": {
@@ -7131,6 +10127,18 @@
         ],
         "title": "RetrievalTraceResponse"
       },
+      "ReviewStatus": {
+        "type": "string",
+        "enum": [
+          "active",
+          "pending",
+          "paused",
+          "archived",
+          "superseded"
+        ],
+        "title": "ReviewStatus",
+        "description": "User-visible memory lifecycle in v2."
+      },
       "RunErrorSnapshot": {
         "properties": {
           "error_id": {
@@ -7221,6 +10229,81 @@
           "import"
         ],
         "title": "SourceType"
+      },
+      "StageUsageProjection": {
+        "properties": {
+          "stage": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "applicability",
+              "chat",
+              "reflection",
+              "consolidation",
+              "effect"
+            ],
+            "title": "Stage"
+          },
+          "provider_mode": {
+            "$ref": "#/components/schemas/ProviderMode"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Model"
+          },
+          "prompt_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Prompt Hash"
+          },
+          "input_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Output Tokens"
+          },
+          "total_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Tokens"
+          },
+          "reasoning_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Tokens"
+          },
+          "latency_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Latency Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "stage",
+          "provider_mode",
+          "model",
+          "prompt_hash",
+          "input_tokens",
+          "output_tokens",
+          "total_tokens",
+          "latency_ms"
+        ],
+        "title": "StageUsageProjection"
       },
       "TaskCreateAccepted": {
         "properties": {
@@ -7468,6 +10551,73 @@
           "semantic_query"
         ],
         "title": "TaskFingerprint"
+      },
+      "TaskMemoryUsageResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "task_id": {
+            "type": "string",
+            "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Task Id"
+          },
+          "memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Id"
+          },
+          "injected": {
+            "type": "boolean",
+            "title": "Injected"
+          },
+          "verified_applied": {
+            "type": "boolean",
+            "title": "Verified Applied"
+          },
+          "helpful_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Helpful Count"
+          },
+          "harmful_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Harmful Count"
+          },
+          "stale_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Stale Count"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "task_id",
+          "memory_id",
+          "injected",
+          "verified_applied",
+          "helpful_count",
+          "harmful_count",
+          "stale_count"
+        ],
+        "title": "TaskMemoryUsageResponse"
       },
       "TaskMessageRecord": {
         "properties": {
@@ -7866,6 +11016,58 @@
           "unsupported_artifact"
         ],
         "title": "ToolReasonCode"
+      },
+      "TurnMemoryDecisionProjection": {
+        "properties": {
+          "memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Id"
+          },
+          "applicability": {
+            "$ref": "#/components/schemas/ApplicabilityResult"
+          },
+          "reason_code": {
+            "$ref": "#/components/schemas/ApplicabilityReasonCode"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "injected": {
+            "type": "boolean",
+            "title": "Injected"
+          },
+          "estimated_tokens": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Estimated Tokens"
+          },
+          "effect": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EffectJudgment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "memory_id",
+          "applicability",
+          "reason_code",
+          "confidence",
+          "injected",
+          "estimated_tokens"
+        ],
+        "title": "TurnMemoryDecisionProjection"
       },
       "Urgency": {
         "type": "string",

@@ -1,0 +1,90 @@
+{
+  "schema_version": "2.0.0",
+  "evidence_label": "synthetic_contract_examples_not_semantic_evidence",
+  "provider_requirement": "real_only",
+  "rest_requests": [
+    {
+      "definition": "ConversationTaskCreateRequest",
+      "value": {"memory_mode": "on"}
+    },
+    {
+      "definition": "ConversationTurnRequest",
+      "value": {
+        "content": "请正常回答这个合成测试问题。",
+        "memory_mode": "on"
+      }
+    },
+    {
+      "definition": "MemoryV2EditRequest",
+      "value": {
+        "kind": "preference",
+        "content": "以后在合成示例中先给简短结论。",
+        "applies_when": "当用户请求技术解释时",
+        "expected_current_version_id": "memver_01J00000000000000000000001"
+      }
+    }
+  ],
+  "llm_outputs": [
+    {
+      "definition": "MemoryMutationBatch",
+      "value": {
+        "schema_version": "2.0",
+        "decision": "mutate",
+        "operations": [
+          {
+            "operation": "add",
+            "kind": "preference",
+            "content": "以后优先给出简短结论。",
+            "applies_when": "用户请求技术解释时",
+            "exceptions": [],
+            "confidence": 0.97,
+            "reason_code": "explicit_durable_preference",
+            "evidence": [
+              {
+                "message_id": "msg_01J00000000000000000000001",
+                "quote": "以后优先给出简短结论。"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "definition": "ApplicabilityJudgeWireResult",
+      "value": {
+        "applicability": "irrelevant",
+        "confidence": 0.99,
+        "reason_code": "scope_mismatch",
+        "overridden_by": "",
+        "conflict_with": ""
+      }
+    },
+    {
+      "definition": "ConflictConsolidationWireResult",
+      "value": {
+        "decision": "coexist",
+        "target_memory_id": "mem_01J00000000000000000000001",
+        "merged_kind": "preference",
+        "merged_content": "以后在产品文案中使用详细叙述。",
+        "merged_applies_when": "仅当用户请求产品文案时",
+        "reason_code": "related_distinct_scope",
+        "confidence": 0.95
+      }
+    },
+    {
+      "definition": "EffectJudgeWireResult",
+      "value": {
+        "judgment": "applied",
+        "confidence": 0.96,
+        "evidence_segment_id": "seg_001",
+        "reason_code": "followed"
+      }
+    },
+    {
+      "definition": "RollingSummaryWireResult",
+      "value": {
+        "summary": "这是仅用于契约校验的合成会话摘要，不是长期记忆。"
+      }
+    }
+  ]
+}

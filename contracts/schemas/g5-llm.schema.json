@@ -1,0 +1,369 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://memtrace.local/contracts/schemas/g5-llm.schema.json",
+  "title": "MemTrace G5 strict structured LLM outputs",
+  "description": "Normative provider wire schemas. Unknown fields are rejected and semantic failures never fall back to keywords or Mock output.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/MemoryMutationBatch"
+    },
+    {
+      "$ref": "#/$defs/ApplicabilityJudgeWireResult"
+    },
+    {
+      "$ref": "#/$defs/ConflictConsolidationWireResult"
+    },
+    {
+      "$ref": "#/$defs/EffectJudgeWireResult"
+    },
+    {
+      "$ref": "#/$defs/RollingSummaryWireResult"
+    }
+  ],
+  "$defs": {
+    "MemoryKindV2": {
+      "description": "User-visible memory kinds in v2. Only three categories.",
+      "enum": [
+        "preference",
+        "rule",
+        "experience"
+      ],
+      "title": "MemoryKindV2",
+      "type": "string"
+    },
+    "MemoryMutationEvidence": {
+      "additionalProperties": false,
+      "description": "Reference to user message that triggered this memory.\n\nThe server resolves ``message_id`` from the ``quote`` if not provided\nor if the provided ID does not match any known user message.",
+      "properties": {
+        "message_id": {
+          "pattern": "^msg_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Message Id",
+          "type": "string"
+        },
+        "quote": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id",
+        "quote"
+      ],
+      "title": "MemoryMutationEvidence",
+      "type": "object"
+    },
+    "MemoryMutationOperation": {
+      "additionalProperties": false,
+      "description": "Single operation in a mutation batch.",
+      "properties": {
+        "operation": {
+          "$ref": "#/$defs/MutationOperation"
+        },
+        "kind": {
+          "$ref": "#/$defs/MemoryKindV2"
+        },
+        "content": {
+          "maxLength": 4000,
+          "minLength": 4,
+          "title": "Content",
+          "type": "string"
+        },
+        "applies_when": {
+          "maxLength": 500,
+          "minLength": 4,
+          "title": "Applies When",
+          "type": "string"
+        },
+        "exceptions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Exceptions",
+          "type": "array"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "reason_code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/MemoryMutationEvidence"
+          },
+          "maxItems": 5,
+          "title": "Evidence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "operation",
+        "kind",
+        "content",
+        "applies_when",
+        "confidence",
+        "reason_code"
+      ],
+      "title": "MemoryMutationOperation",
+      "type": "object"
+    },
+    "MutationDecision": {
+      "enum": [
+        "mutate",
+        "noop",
+        "needs_review"
+      ],
+      "title": "MutationDecision",
+      "type": "string"
+    },
+    "MutationOperation": {
+      "enum": [
+        "add"
+      ],
+      "title": "MutationOperation",
+      "type": "string"
+    },
+    "MemoryMutationBatch": {
+      "additionalProperties": false,
+      "description": "Structured output from the background Memory Manager LLM.",
+      "properties": {
+        "schema_version": {
+          "const": "2.0",
+          "default": "2.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "decision": {
+          "$ref": "#/$defs/MutationDecision"
+        },
+        "operations": {
+          "items": {
+            "$ref": "#/$defs/MemoryMutationOperation"
+          },
+          "maxItems": 5,
+          "title": "Operations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "decision"
+      ],
+      "title": "MemoryMutationBatch",
+      "type": "object"
+    },
+    "ApplicabilityReasonCode": {
+      "enum": [
+        "semantic_match",
+        "current_instruction_override",
+        "memory_conflict",
+        "scope_mismatch",
+        "outdated",
+        "irrelevant",
+        "ambiguous"
+      ],
+      "title": "ApplicabilityReasonCode",
+      "type": "string"
+    },
+    "ApplicabilityResult": {
+      "enum": [
+        "applicable",
+        "current_instruction_override",
+        "conflict",
+        "irrelevant"
+      ],
+      "title": "ApplicabilityResult",
+      "type": "string"
+    },
+    "ApplicabilityJudgeWireResult": {
+      "additionalProperties": false,
+      "description": "Provider wire shape without nullable/anyOf constructs.",
+      "properties": {
+        "applicability": {
+          "$ref": "#/$defs/ApplicabilityResult"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "reason_code": {
+          "$ref": "#/$defs/ApplicabilityReasonCode"
+        },
+        "overridden_by": {
+          "maxLength": 500,
+          "title": "Overridden By",
+          "type": "string"
+        },
+        "conflict_with": {
+          "pattern": "^(?:|mem_[0-9A-HJKMNP-TV-Z]{26})$",
+          "title": "Conflict With",
+          "type": "string"
+        }
+      },
+      "required": [
+        "applicability",
+        "confidence",
+        "reason_code",
+        "overridden_by",
+        "conflict_with"
+      ],
+      "title": "ApplicabilityJudgeWireResult",
+      "type": "object"
+    },
+    "ConsolidationDecision": {
+      "enum": [
+        "add",
+        "update",
+        "supersede",
+        "coexist",
+        "noop"
+      ],
+      "title": "ConsolidationDecision",
+      "type": "string"
+    },
+    "ConsolidationReasonCode": {
+      "enum": [
+        "unrelated_durable_memory",
+        "same_memory_refinement",
+        "explicit_durable_replacement",
+        "related_distinct_scope",
+        "duplicate_or_no_change"
+      ],
+      "title": "ConsolidationReasonCode",
+      "type": "string"
+    },
+    "ConflictConsolidationWireResult": {
+      "additionalProperties": false,
+      "description": "Strict provider wire shape using explicit non-null sentinels.",
+      "properties": {
+        "decision": {
+          "$ref": "#/$defs/ConsolidationDecision"
+        },
+        "target_memory_id": {
+          "pattern": "^(?:|mem_[0-9A-HJKMNP-TV-Z]{26})$",
+          "title": "Target Memory Id",
+          "type": "string"
+        },
+        "merged_kind": {
+          "enum": [
+            "preference",
+            "rule",
+            "experience",
+            "none"
+          ],
+          "title": "Merged Kind",
+          "type": "string"
+        },
+        "merged_content": {
+          "maxLength": 4000,
+          "title": "Merged Content",
+          "type": "string"
+        },
+        "merged_applies_when": {
+          "maxLength": 500,
+          "title": "Merged Applies When",
+          "type": "string"
+        },
+        "reason_code": {
+          "$ref": "#/$defs/ConsolidationReasonCode"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        }
+      },
+      "required": [
+        "decision",
+        "target_memory_id",
+        "merged_kind",
+        "merged_content",
+        "merged_applies_when",
+        "reason_code",
+        "confidence"
+      ],
+      "title": "ConflictConsolidationWireResult",
+      "type": "object"
+    },
+    "EffectJudgment": {
+      "enum": [
+        "applied",
+        "violated",
+        "not_observable",
+        "unknown"
+      ],
+      "title": "EffectJudgment",
+      "type": "string"
+    },
+    "EffectReasonCode": {
+      "enum": [
+        "followed",
+        "contradicted",
+        "not_visible_in_output",
+        "ambiguous"
+      ],
+      "title": "EffectReasonCode",
+      "type": "string"
+    },
+    "EffectJudgeWireResult": {
+      "additionalProperties": false,
+      "description": "Provider wire shape grounded to an exact server-supplied answer segment.",
+      "properties": {
+        "judgment": {
+          "$ref": "#/$defs/EffectJudgment"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_segment_id": {
+          "maxLength": 7,
+          "pattern": "^(?:|seg_[0-9]{3})$",
+          "title": "Evidence Segment Id",
+          "type": "string"
+        },
+        "reason_code": {
+          "$ref": "#/$defs/EffectReasonCode"
+        }
+      },
+      "required": [
+        "judgment",
+        "confidence",
+        "evidence_segment_id",
+        "reason_code"
+      ],
+      "title": "EffectJudgeWireResult",
+      "type": "object"
+    },
+    "RollingSummaryWireResult": {
+      "additionalProperties": false,
+      "description": "Strict output used only when conversation context exceeds its budget.",
+      "properties": {
+        "summary": {
+          "maxLength": 12000,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary"
+      ],
+      "title": "RollingSummaryWireResult",
+      "type": "object"
+    }
+  }
+}

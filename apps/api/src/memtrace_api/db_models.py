@@ -75,6 +75,9 @@ class TaskModel(Base):
     effective_memory_mode: Mapped[str] = mapped_column(String(16), nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
     next_event_seq: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    conversation_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary_through_turn: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    next_turn_index: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     # G4 task tombstone fields
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -102,6 +105,11 @@ class TaskModel(Base):
             "AND deletion_reason IS NULL)",
             name="chk_task_deleted_tombstone",
         ),
+        CheckConstraint(
+            "summary_through_turn >= 0 AND next_turn_index >= 1",
+            name="chk_task_conversation_cursors",
+        ),
+        UniqueConstraint("owner_id", "id", name="uq_tasks_owner_id"),
     )
 
     owner: Mapped[UserModel] = relationship("UserModel", back_populates="tasks")
@@ -160,10 +168,15 @@ class AgentRunModel(Base):
     stage: Mapped[str] = mapped_column(String(32), nullable=False)
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reasoning_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     token_source: Mapped[str] = mapped_column(String(32), nullable=False)
     first_token_ms: Mapped[float | None] = mapped_column(nullable=True)
     total_ms: Mapped[float | None] = mapped_column(nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    provider_response_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    prompt_hash: Mapped[str | None] = mapped_column(String(71), nullable=True)
+    schema_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -179,6 +192,12 @@ class AgentRunModel(Base):
             "'tool_running', 'generating', 'succeeded', 'failed')",
             name="chk_run_status",
         ),
+        CheckConstraint(
+            "(total_tokens IS NULL OR total_tokens >= 0) AND "
+            "(reasoning_tokens IS NULL OR reasoning_tokens >= 0)",
+            name="chk_run_extended_usage",
+        ),
+        UniqueConstraint("owner_id", "task_id", "id", name="uq_agent_runs_owner_task_id"),
     )
 
     task: Mapped[TaskModel] = relationship("TaskModel", back_populates="runs")
@@ -208,11 +227,17 @@ class MessageModel(Base):
     )
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    turn_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
 
-    __table_args__ = (CheckConstraint("role IN ('user', 'assistant')", name="chk_message_role"),)
+    __table_args__ = (
+        CheckConstraint("role IN ('user', 'assistant')", name="chk_message_role"),
+        CheckConstraint("turn_index IS NULL OR turn_index >= 1", name="chk_message_turn_index"),
+        UniqueConstraint("owner_id", "id", name="uq_messages_owner_id"),
+        Index("ix_messages_owner_task_turn", "owner_id", "task_id", "turn_index", "role"),
+    )
 
     task: Mapped[TaskModel] = relationship("TaskModel", back_populates="messages")
     run: Mapped[AgentRunModel | None] = relationship("AgentRunModel", back_populates="messages")
@@ -370,20 +395,13 @@ class MemoryCardModel(Base):
     save_preselected: Mapped[bool] = mapped_column(nullable=False, default=False)
     rejection_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # v2 fields (added by 006 migration)
+    memory_kind_v2: Mapped[str | None] = mapped_column(String(32), nullable=True)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     applies_when: Mapped[str | None] = mapped_column(Text, nullable=True)
     review_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     rule_subtype: Mapped[str | None] = mapped_column(String(32), nullable=True)
     schema_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    # Legacy scope columns (read-only compatibility copies)
-    scope_level_legacy: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    task_type_legacy: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    artifact_type_legacy: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    audience_legacy: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    project_key_legacy: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    language_legacy: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    framework_legacy: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # v1 fields (legacy, kept for compatibility)
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     rule: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -428,18 +446,19 @@ class MemoryCardModel(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('candidate', 'active', 'rejected', 'conflicted', 'paused', "
+            "status IN ('candidate', 'pending', 'active', 'rejected', 'conflicted', 'paused', "
             "'superseded', 'merged', 'archived', 'deleted')",
             name="chk_memory_card_status",
         ),
         CheckConstraint(
             "kind IN ('preference', 'constraint', 'procedure', 'experience', "
-            "'environment', 'learning_checkpoint', 'rule')",
+            "'environment', 'learning_checkpoint')",
             name="chk_memory_card_kind",
         ),
         CheckConstraint(
-            "source_type IN ('explicit_feedback', 'explicit_correction', 'edit_diff', "
-            "'accept', 'reject', 'rating', 'outcome', 'import')",
+            "source_type IS NULL OR source_type IN ('explicit_feedback', "
+            "'explicit_correction', 'edit_diff', 'accept', 'reject', 'rating', "
+            "'outcome', 'import', 'conversation_turn', 'user_edit')",
             name="chk_memory_card_source_type",
         ),
         CheckConstraint(
@@ -514,6 +533,31 @@ class MemoryCardModel(Base):
             "import_source_version IS NULL OR import_source_version >= 1",
             name="chk_memory_card_import_source_version",
         ),
+        CheckConstraint(
+            "memory_kind_v2 IS NULL OR memory_kind_v2 IN ('preference', 'rule', 'experience')",
+            name="chk_memory_card_v2_kind",
+        ),
+        CheckConstraint(
+            "review_status IS NULL OR review_status IN "
+            "('active', 'pending', 'paused', 'archived', 'superseded', "
+            "'legacy_unverified')",
+            name="chk_memory_card_review_status",
+        ),
+        CheckConstraint(
+            "confidence IS NULL OR (confidence >= 0 AND confidence <= 1)",
+            name="chk_memory_card_v2_confidence",
+        ),
+        CheckConstraint(
+            "rule_subtype IS NULL OR rule_subtype IN ('constraint', 'procedure')",
+            name="chk_memory_card_rule_subtype",
+        ),
+        CheckConstraint(
+            "schema_version IS NULL OR schema_version != '2.0' OR status = 'deleted' OR "
+            "(memory_kind_v2 IS NOT NULL AND content IS NOT NULL AND content != '' "
+            "AND applies_when IS NOT NULL AND applies_when != '' "
+            "AND review_status IS NOT NULL AND confidence IS NOT NULL)",
+            name="chk_memory_card_v2_required",
+        ),
         Index("ix_memory_cards_owner_status", "owner_id", "status"),
         Index(
             "ix_memory_cards_owner_status_scope",
@@ -527,6 +571,8 @@ class MemoryCardModel(Base):
         Index("ix_memory_cards_current_version", "current_version_id"),
         Index("ix_memory_cards_deleted_at", "deleted_at"),
         Index("ix_memory_cards_import_batch", "import_batch_id"),
+        Index("ix_memory_cards_owner_review_updated", "owner_id", "review_status", "updated_at"),
+        Index("ix_memory_cards_owner_v2_kind", "owner_id", "memory_kind_v2"),
         UniqueConstraint("owner_id", "id", name="uq_memory_cards_owner_id"),
     )
 
@@ -564,6 +610,7 @@ class MemoryVersionModel(Base):
         DateTime(timezone=True), default=utc_now, nullable=False
     )
     # v2 fields (added by 006 migration)
+    memory_kind_v2: Mapped[str | None] = mapped_column(String(32), nullable=True)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     applies_when: Mapped[str | None] = mapped_column(Text, nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -574,10 +621,16 @@ class MemoryVersionModel(Base):
         CheckConstraint("version >= 1", name="chk_memory_version_number"),
         CheckConstraint(
             "created_by_action IN ('accept', 'edit_accept', 'edit', "
-            "'import', 'merge', 'scope_resolution')",
+            "'import', 'merge', 'scope_resolution', 'llm_extract', 'llm_update', "
+            "'llm_supersede', 'llm_coexist', 'user_edit')",
             name="chk_memory_version_created_by",
         ),
+        CheckConstraint(
+            "memory_kind_v2 IS NULL OR memory_kind_v2 IN ('preference', 'rule', 'experience')",
+            name="chk_memory_version_v2_kind",
+        ),
         UniqueConstraint("memory_id", "version", name="uq_memory_version_number"),
+        UniqueConstraint("owner_id", "id", name="uq_memory_versions_owner_id"),
         Index("ix_memory_versions_memory", "memory_id"),
         Index("ix_memory_versions_owner", "owner_id"),
     )
@@ -592,8 +645,8 @@ class MemoryEvidenceModel(Base):
     owner_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    feedback_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("feedback_events.id", ondelete="CASCADE"), nullable=False
+    feedback_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("feedback_events.id", ondelete="CASCADE"), nullable=True
     )
     task_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False
@@ -604,11 +657,13 @@ class MemoryEvidenceModel(Base):
     memory_job_id: Mapped[str | None] = mapped_column(
         String(64), ForeignKey("memory_jobs.id", ondelete="CASCADE"), nullable=True
     )
+    reflection_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # v2: message_id links evidence directly to the user message that triggered it
-    message_id: Mapped[str | None] = mapped_column(
-        String(64), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
-    )
+    message_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     turn_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    consolidation_decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    consolidation_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     source_type: Mapped[str] = mapped_column(String(32), nullable=False)
     source_field: Mapped[str] = mapped_column(String(32), nullable=False)
     evidence_quote: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -623,11 +678,13 @@ class MemoryEvidenceModel(Base):
     __table_args__ = (
         CheckConstraint(
             "source_type IN ('explicit_feedback', 'explicit_correction', 'edit_diff', "
-            "'accept', 'reject', 'rating', 'outcome', 'import')",
+            "'accept', 'reject', 'rating', 'outcome', 'import', 'conversation_turn', "
+            "'user_edit')",
             name="chk_memory_evidence_source_type",
         ),
         CheckConstraint(
-            "source_field IN ('explicit_text', 'edited_output', 'rating', 'accepted')",
+            "source_field IN ('explicit_text', 'edited_output', 'rating', 'accepted', "
+            "'user_message')",
             name="chk_memory_evidence_source_field",
         ),
         CheckConstraint(
@@ -641,12 +698,45 @@ class MemoryEvidenceModel(Base):
             "'no_memory', 'failed')",
             name="chk_memory_evidence_disposition",
         ),
+        CheckConstraint(
+            "feedback_id IS NOT NULL OR message_id IS NOT NULL",
+            name="chk_memory_evidence_reference",
+        ),
+        CheckConstraint(
+            "turn_index IS NULL OR turn_index >= 1",
+            name="chk_memory_evidence_turn_index",
+        ),
+        CheckConstraint(
+            "consolidation_confidence IS NULL OR "
+            "(consolidation_confidence >= 0 AND consolidation_confidence <= 1)",
+            name="chk_memory_evidence_consolidation_confidence",
+        ),
+        ForeignKeyConstraint(
+            ["owner_id", "reflection_job_id"],
+            ["memory_reflection_jobs.owner_id", "memory_reflection_jobs.id"],
+            name="fk_memory_evidence_reflection_job",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["owner_id", "message_id"],
+            ["messages.owner_id", "messages.id"],
+            name="fk_memory_evidence_message_owner",
+            ondelete="CASCADE",
+        ),
         Index("ix_memory_evidence_owner", "owner_id"),
         Index("ix_memory_evidence_job", "memory_job_id"),
         Index("ix_memory_evidence_feedback", "feedback_id"),
+        Index("ix_memory_evidence_reflection_job", "owner_id", "reflection_job_id"),
+        Index("ix_memory_evidence_message", "owner_id", "message_id"),
     )
 
-    job: Mapped[MemoryJobModel] = relationship("MemoryJobModel", back_populates="evidence_rows")
+    job: Mapped[MemoryJobModel | None] = relationship(
+        "MemoryJobModel", back_populates="evidence_rows"
+    )
+    reflection_job: Mapped[MemoryReflectionJobModel | None] = relationship(
+        "MemoryReflectionJobModel", foreign_keys=[reflection_job_id]
+    )
+    message: Mapped[MessageModel | None] = relationship("MessageModel", foreign_keys=[message_id])
     links: Mapped[list[MemoryEvidenceLinkModel]] = relationship(
         "MemoryEvidenceLinkModel", back_populates="evidence"
     )
@@ -702,6 +792,11 @@ class MemoryRelationModel(Base):
     resolution_action: Mapped[str | None] = mapped_column(String(32), nullable=True)
     resolution_memory_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    llm_consolidation_decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    consolidation_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    consolidation_decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -732,6 +827,16 @@ class MemoryRelationModel(Base):
             "(status = 'resolved' AND (relation_type != 'conflicts_with' OR "
             "(resolution_action IS NOT NULL AND resolved_at IS NOT NULL)))",
             name="chk_memory_relation_resolution_state",
+        ),
+        CheckConstraint(
+            "llm_consolidation_decision IS NULL OR llm_consolidation_decision IN "
+            "('add', 'update', 'supersede', 'coexist', 'noop')",
+            name="chk_memory_relation_llm_decision",
+        ),
+        CheckConstraint(
+            "consolidation_confidence IS NULL OR "
+            "(consolidation_confidence >= 0 AND consolidation_confidence <= 1)",
+            name="chk_memory_relation_llm_confidence",
         ),
         ForeignKeyConstraint(
             ["owner_id", "from_memory_id"],
@@ -848,7 +953,8 @@ class RetrievalTraceModel(Base):
     __table_args__ = (
         UniqueConstraint("owner_id", "run_id", name="uq_retrieval_trace_owner_run"),
         CheckConstraint(
-            "retrieval_mode IN ('tfidf', 'tfidf_degraded')", name="chk_retrieval_trace_mode"
+            "retrieval_mode IN ('tfidf', 'tfidf_degraded', 'llm_judge')",
+            name="chk_retrieval_trace_mode",
         ),
         CheckConstraint("retrieval_ms >= 0", name="chk_retrieval_trace_ms"),
         CheckConstraint("threshold >= 0 AND threshold <= 1", name="chk_retrieval_trace_threshold"),
@@ -1076,30 +1182,46 @@ class ImportBatchModel(Base):
 # ===========================================================================
 
 
+class MemoryEventCursorModel(Base):
+    __tablename__ = "memory_event_cursors"
+
+    owner_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    next_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    __table_args__ = (CheckConstraint("next_seq >= 1", name="chk_memory_event_cursor_next_seq"),)
+
+
 class MemoryReflectionJobModel(Base):
     __tablename__ = "memory_reflection_jobs"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    owner_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    task_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False
-    )
-    run_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
-    )
+    owner_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    task_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_message_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    assistant_message_id: Mapped[str] = mapped_column(String(64), nullable=False)
     turn_index: Mapped[int] = mapped_column(Integer, nullable=False)
-    status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="pending"
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
-    attempt: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0
-    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     mutation_decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    provider_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    prompt_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    schema_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    provider_model: Mapped[str] = mapped_column(String(128), nullable=False)
+    prompt_hash: Mapped[str | None] = mapped_column(String(71), nullable=True)
+    schema_version: Mapped[str] = mapped_column(String(16), nullable=False, default="2.0")
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    token_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
@@ -1113,32 +1235,40 @@ class MemoryReflectionJobModel(Base):
             "status IN ('pending', 'running', 'completed', 'failed')",
             name="chk_reflection_job_status",
         ),
+        CheckConstraint("attempt >= 0", name="chk_reflection_job_attempt"),
+        CheckConstraint("turn_index >= 1", name="chk_reflection_job_turn_index"),
+        CheckConstraint("schema_version = '2.0'", name="chk_reflection_job_schema_version"),
         CheckConstraint(
-            "attempt >= 0",
-            name="chk_reflection_job_attempt",
+            "token_source IS NULL OR token_source IN ('actual', 'mock')",
+            name="chk_reflection_job_token_source",
         ),
-        CheckConstraint(
-            "turn_index >= 0",
-            name="chk_reflection_job_turn_index",
+        ForeignKeyConstraint(["owner_id"], ["users.id"], ondelete="CASCADE"),
+        ForeignKeyConstraint(
+            ["owner_id", "task_id"],
+            ["tasks.owner_id", "tasks.id"],
+            ondelete="CASCADE",
         ),
-        CheckConstraint(
-            "schema_version = '2.0'",
-            name="chk_reflection_job_schema_version",
+        ForeignKeyConstraint(
+            ["owner_id", "task_id", "run_id"],
+            ["agent_runs.owner_id", "agent_runs.task_id", "agent_runs.id"],
+            ondelete="CASCADE",
         ),
+        ForeignKeyConstraint(
+            ["owner_id", "user_message_id"],
+            ["messages.owner_id", "messages.id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["owner_id", "assistant_message_id"],
+            ["messages.owner_id", "messages.id"],
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint("owner_id", "id", name="uq_reflection_jobs_owner_id"),
         UniqueConstraint(
-            "owner_id", "task_id", "run_id", "turn_index",
-            name="uq_reflection_job_turn",
+            "owner_id", "task_id", "run_id", "turn_index", name="uq_reflection_job_turn"
         ),
         Index("ix_reflection_jobs_owner_task", "owner_id", "task_id"),
-        Index("ix_reflection_jobs_status", "status"),
-        Index("ix_reflection_jobs_owner_status", "owner_id", "status"),
-    )
-
-    task: Mapped[TaskModel] = relationship("TaskModel")
-    run: Mapped[AgentRunModel] = relationship("AgentRunModel")
-    judgments: Mapped[list[MemoryLLMJudgeModel]] = relationship(
-        "MemoryLLMJudgeModel", back_populates="job",
-        cascade="all, delete-orphan",
+        Index("ix_reflection_jobs_status_lease", "status", "lease_expires_at", "created_at"),
     )
 
 
@@ -1146,25 +1276,23 @@ class MemoryLLMJudgeModel(Base):
     __tablename__ = "memory_llm_judgments"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    owner_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    job_id: Mapped[str] = mapped_column(
-        String(64),
-        ForeignKey("memory_reflection_jobs.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    memory_id: Mapped[str | None] = mapped_column(
-        String(64),
-        ForeignKey("memory_cards.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    owner_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    task_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    memory_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     judge_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="pending"
-    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
     result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    provider_model: Mapped[str] = mapped_column(String(128), nullable=False)
+    prompt_hash: Mapped[str] = mapped_column(String(71), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(16), nullable=False, default="2.0")
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    token_source: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -1174,25 +1302,40 @@ class MemoryLLMJudgeModel(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "judge_type IN ('applicability', 'effect', 'consolidation')",
+            "judge_type IN ('summary', 'applicability', 'effect', 'consolidation')",
             name="chk_llm_judge_type",
         ),
-        CheckConstraint(
-            "status IN ('pending', 'completed', 'failed')",
-            name="chk_llm_judge_status",
+        CheckConstraint("status IN ('completed', 'failed')", name="chk_llm_judge_status"),
+        CheckConstraint("token_source IN ('actual', 'mock')", name="chk_llm_judge_token_source"),
+        ForeignKeyConstraint(["owner_id"], ["users.id"], ondelete="CASCADE"),
+        ForeignKeyConstraint(
+            ["owner_id", "task_id"],
+            ["tasks.owner_id", "tasks.id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["owner_id", "task_id", "run_id"],
+            ["agent_runs.owner_id", "agent_runs.task_id", "agent_runs.id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["owner_id", "job_id"],
+            ["memory_reflection_jobs.owner_id", "memory_reflection_jobs.id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["owner_id", "memory_id"],
+            ["memory_cards.owner_id", "memory_cards.id"],
+            ondelete="SET NULL",
         ),
         UniqueConstraint(
-            "job_id", "judge_type",
-            name="uq_llm_judge_job_type",
+            "owner_id",
+            "task_id",
+            "run_id",
+            "memory_id",
+            "judge_type",
+            name="uq_llm_judge_run_memory_type",
         ),
         Index("ix_llm_judgments_owner_job", "owner_id", "job_id"),
-        Index("ix_llm_judgments_memory", "memory_id"),
-        Index("ix_llm_judgments_type_status", "judge_type", "status"),
-    )
-
-    job: Mapped[MemoryReflectionJobModel] = relationship(
-        "MemoryReflectionJobModel", back_populates="judgments"
-    )
-    memory: Mapped[MemoryCardModel | None] = relationship(
-        "MemoryCardModel"
+        Index("ix_llm_judgments_owner_memory", "owner_id", "memory_id", "judge_type"),
     )

@@ -39,7 +39,10 @@
         "memory.conflict.detected",
         "memory.conflict.resolved",
         "memory.pack.previewed",
-        "memory.pack.committed"
+        "memory.pack.committed",
+        "memory.analysis.started",
+        "memory.analysis.completed",
+        "memory.effect.judged"
       ]
     },
     "event_seq": {
@@ -582,7 +585,10 @@
     {"if":{"properties":{"event_type":{"const":"memory.conflict.detected"}},"required":["event_type"]},"then":{"properties":{"event_seq":{"type":"integer","minimum":1},"data":{"$ref":"#/$defs/MemoryConflictDetectedPayload"}}}},
     {"if":{"properties":{"event_type":{"const":"memory.conflict.resolved"}},"required":["event_type"]},"then":{"properties":{"event_seq":{"type":"integer","minimum":1},"data":{"$ref":"#/$defs/MemoryConflictResolvedPayload"}}}},
     {"if":{"properties":{"event_type":{"const":"memory.pack.previewed"}},"required":["event_type"]},"then":{"properties":{"event_seq":{"type":"integer","minimum":1},"data":{"$ref":"#/$defs/MemoryPackPreviewedPayload"}}}},
-    {"if":{"properties":{"event_type":{"const":"memory.pack.committed"}},"required":["event_type"]},"then":{"properties":{"event_seq":{"type":"integer","minimum":1},"data":{"$ref":"#/$defs/MemoryPackCommittedPayload"}}}}
+    {"if":{"properties":{"event_type":{"const":"memory.pack.committed"}},"required":["event_type"]},"then":{"properties":{"event_seq":{"type":"integer","minimum":1},"data":{"$ref":"#/$defs/MemoryPackCommittedPayload"}}}},
+    {"if":{"properties":{"event_type":{"const":"memory.analysis.started"}},"required":["event_type"]},"then":{"properties":{"event_seq":{"type":"integer","minimum":1},"data":{"$ref":"#/$defs/MemoryAnalysisStartedPayload"}}}},
+    {"if":{"properties":{"event_type":{"const":"memory.analysis.completed"}},"required":["event_type"]},"then":{"properties":{"event_seq":{"type":"integer","minimum":1},"data":{"$ref":"#/$defs/MemoryAnalysisCompletedPayload"}}}},
+    {"if":{"properties":{"event_type":{"const":"memory.effect.judged"}},"required":["event_type"]},"then":{"properties":{"event_seq":{"type":"integer","minimum":1},"data":{"$ref":"#/$defs/MemoryEffectJudgedPayload"}}}}
   ],
   "$defs": {
     "TaskId": {
@@ -1680,6 +1686,22 @@
       "required":["batch_id","inserted_count","skipped_count"],
       "properties":{"batch_id":{"$ref":"#/$defs/ImportBatchId"},"inserted_count":{"type":"integer","minimum":0},"skipped_count":{"type":"integer","minimum":0}}
     },
+    "MemoryAnalysisStartedPayload": {
+      "type":"object","additionalProperties":false,
+      "required":["job_id","task_id","run_id","status"],
+      "properties":{"job_id":{"$ref":"#/$defs/MemoryReflectionJobId"},"task_id":{"$ref":"#/$defs/TaskId"},"run_id":{"$ref":"#/$defs/RunId"},"status":{"const":"running"}}
+    },
+    "MemoryAnalysisCompletedPayload": {
+      "type":"object","additionalProperties":false,
+      "required":["job_id","task_id","run_id","status","reason_code"],
+      "properties":{"job_id":{"$ref":"#/$defs/MemoryReflectionJobId"},"task_id":{"$ref":"#/$defs/TaskId"},"run_id":{"$ref":"#/$defs/RunId"},"status":{"enum":["completed","failed"]},"reason_code":{"type":"string","minLength":1,"maxLength":64}}
+    },
+    "MemoryEffectJudgedPayload": {
+      "type":"object","additionalProperties":false,
+      "required":["memory_id","run_id","judgment","reason_code"],
+      "properties":{"memory_id":{"$ref":"#/$defs/MemoryId"},"run_id":{"$ref":"#/$defs/RunId"},"judgment":{"enum":["applied","violated","not_observable","unknown"]},"reason_code":{"type":"string","minLength":1,"maxLength":64}}
+    },
+    "MemoryReflectionJobId":{"type":"string","pattern":"^job_[0-9A-HJKMNP-TV-Z]{26}$"},
     "RelationId":{"type":"string","pattern":"^rel_[0-9A-HJKMNP-TV-Z]{26}$"},
     "ImportBatchId":{"type":"string","pattern":"^batch_[0-9A-HJKMNP-TV-Z]{26}$"},
     "RetrievalTraceId": {

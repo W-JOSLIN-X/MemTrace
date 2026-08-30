@@ -3,13 +3,27 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Annotated, Any, Literal
 
-from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from memtrace_api.config import Settings
-from memtrace_api.schemas import AllowedException, MemoryScope
+from memtrace_api.providers import (
+    DeepSeekProvider as ResponsesDeepSeekProvider,
+)
+from memtrace_api.providers import (
+    ProviderFailure as ResponsesProviderFailure,
+)
+from memtrace_api.providers import (
+    ProviderRequest as ResponsesProviderRequest,
+)
+from memtrace_api.providers import (
+    StructuredProvider as ResponsesStructuredProvider,
+)
+from memtrace_api.schemas import AllowedException, AsyncErrorCode, MemoryScope
+
+logger = logging.getLogger(__name__)
 
 
 class CandidateCardSchema(BaseModel):
@@ -225,21 +239,19 @@ class MockStructuredProvider(StructuredProvider):
 
 
 class DeepSeekStructuredProvider(StructuredProvider):
-    """OpenAI-compatible structured-output client for the optional real provider."""
+    """Legacy G2 adapter over the same strict Responses provider used by G5."""
 
     name = "deepseek-structured"
     mode = "real"
 
-    def __init__(self, settings: Settings, *, client: Any | None = None) -> None:
-        if settings.llm_api_key is None:
-            raise ValueError("LLM_API_KEY is required")
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        provider: ResponsesStructuredProvider | None = None,
+    ) -> None:
         self.model = settings.llm_model
-        self._client = client or AsyncOpenAI(
-            api_key=settings.llm_api_key.get_secret_value(),
-            base_url=settings.llm_base_url,
-            timeout=settings.provider_timeout_seconds,
-            max_retries=0,
-        )
+        self._provider = provider or ResponsesDeepSeekProvider(settings)
 
     async def complete_json(
         self,
@@ -249,45 +261,64 @@ class DeepSeekStructuredProvider(StructuredProvider):
         simulation: str | None = None,
     ) -> dict[str, Any]:
         del simulation
-        try:
-            response = await self._client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "memory_extraction",
-                        "strict": True,
-                        "schema": output_schema,
-                    },
-                },
-                extra_body={"thinking": {"type": "disabled"}},
-                max_tokens=1_024,
-            )
-        except APITimeoutError as exc:
-            raise ProviderFailure("MEMORY_PROVIDER_TIMEOUT", retryable=True) from exc
-        except (APIConnectionError, APIStatusError) as exc:
-            raise ProviderFailure("MEMORY_PROVIDER_ERROR", retryable=True) from exc
-
-        choices = getattr(response, "choices", None) or []
-        message = getattr(choices[0], "message", None) if choices else None
-        content = getattr(message, "content", None)
-        if not isinstance(content, str) or not content:
-            raise ProviderFailure("MEMORY_JSON_INVALID", retryable=False)
-        try:
-            value = json.loads(content)
-        except json.JSONDecodeError as exc:
-            raise ProviderFailure("MEMORY_JSON_INVALID", retryable=False) from exc
-        if not isinstance(value, dict):
-            raise ProviderFailure("MEMORY_JSON_INVALID", retryable=False)
-        return value
+        schema = {
+            "name": "legacy_memory_extraction",
+            "schema": output_schema,
+            "strict": True,
+        }
+        schema_failure_kinds = {
+            "structured_json_invalid",
+            "structured_not_object",
+            "structured_schema_invalid",
+        }
+        current_prompt = prompt
+        for schema_attempt in range(2):
+            try:
+                output = await self._provider.complete_json(
+                    ResponsesProviderRequest(
+                        task_text=current_prompt,
+                        output_schema=schema,
+                        stage="reflection",
+                    ),
+                    schema,
+                )
+            except ResponsesProviderFailure as exc:
+                logger.warning(
+                    "legacy_memory_provider.failed stage=reflection code=%s status=%s "
+                    "failure_kind=%s retryable=%s detail=%s schema_attempt=%s",
+                    exc.code.value,
+                    exc.provider_status,
+                    exc.failure_kind,
+                    exc.retryable,
+                    exc.message,
+                    schema_attempt + 1,
+                )
+                if exc.failure_kind in schema_failure_kinds and schema_attempt == 0:
+                    current_prompt = (
+                        prompt
+                        + "\n\nSCHEMA_REPAIR_REQUIRED\n"
+                        + "The prior generated object was rejected by strict server-side "
+                        + "JSON Schema validation. Generate the object again from the "
+                        + "original evidence without adding or changing its meaning. "
+                        + "Obey every required field, enum, array bound, and string "
+                        + "minLength/maxLength exactly; keep titles concise (at most 40 "
+                        + "Unicode characters). Do not include markdown or unknown fields.\n"
+                        + f"CONTROLLED_VALIDATION_DETAIL: {exc.message}"
+                    )
+                    continue
+                if exc.failure_kind in schema_failure_kinds:
+                    raise ProviderFailure("MEMORY_REPAIR_FAILED", retryable=False) from exc
+                code = (
+                    "MEMORY_PROVIDER_TIMEOUT"
+                    if exc.code is AsyncErrorCode.PROVIDER_TIMEOUT
+                    else "MEMORY_PROVIDER_ERROR"
+                )
+                raise ProviderFailure(code, retryable=exc.retryable) from exc
+            return output.parsed
+        raise RuntimeError("unreachable schema repair state")  # pragma: no cover
 
     async def aclose(self) -> None:
-        close = getattr(self._client, "close", None)
-        if close is not None:
-            result = close()
-            if hasattr(result, "__await__"):
-                await result
+        await self._provider.aclose()
 
 
 def _context_from_prompt(prompt: str) -> dict[str, Any]:

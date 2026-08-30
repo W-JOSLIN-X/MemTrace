@@ -26,6 +26,7 @@ from memtrace_api.schemas import (
     MemoryJobErrorCode,
     MemoryJobId,
     MemoryJobStage,
+    MemoryReflectionJobId,
     MemoryVersionId,
     MessageId,
     PlanId,
@@ -316,25 +317,25 @@ class MemoryUsageFeedbackRecordedPayload(ContractModel):
 
 
 class MemoryAnalysisStartedPayload(ContractModel):
-    status: Literal["started"]
-    count: int = Field(ge=0)
-    latency: float = Field(ge=0)
-    token: int = Field(ge=0)
+    job_id: MemoryReflectionJobId
+    task_id: TaskId
+    run_id: RunId
+    status: Literal["running"]
 
 
 class MemoryAnalysisCompletedPayload(ContractModel):
+    job_id: MemoryReflectionJobId
+    task_id: TaskId
+    run_id: RunId
     status: Literal["completed", "failed"]
-    count: int = Field(ge=0)
-    latency: float = Field(ge=0)
-    token: int = Field(ge=0)
+    reason_code: Annotated[str, StringConstraints(min_length=1, max_length=64)]
 
 
 class MemoryEffectJudgedPayload(ContractModel):
-    status: Literal["judged"]
-    reason_code: str
-    count: int = Field(ge=0)
-    latency: float = Field(ge=0)
-    token: int = Field(ge=0)
+    memory_id: MemoryId
+    run_id: RunId
+    judgment: Literal["applied", "violated", "not_observable", "unknown"]
+    reason_code: Annotated[str, StringConstraints(min_length=1, max_length=64)]
 
 
 EventPayload: TypeAlias = (
