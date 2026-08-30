@@ -1,343 +1,226 @@
 # MemTrace（忆迹）
 
-MemTrace 是一个面向黑客松第四赛道的对话 Agent 原型。当前 Day 6 G5 主体验与普通
-对话 Agent 一致：用户直接进行多轮对话，真实大模型在后台提取并分类
-`preference | rule | experience`，右侧记忆栏实时展示 pending/active 状态，并允许用户
-修改类型、内容和适用范围。后续轮次由真实大模型分别完成适用性、冲突/合并和效果判断，
-当前明确指令始终优先于长期记忆。
+MemTrace 是一个普通多轮对话 Agent，同时在后台提取、审阅和复用用户的偏好、规则与经验。用户不选择 `scenario` 或任务类别；真实模型负责 G5 的提取、分类、适用性、冲突/合并和效果判断，确定性代码只负责鉴权、隔离、Schema、事务、幂等、预算、状态机和安全工具边界。
 
-G1–G4 的 owner 隔离、幂等、事务、持久事件、恢复、Memory Center、版本 Diff、冲突裁决、
-匿名 Memory Pack 和安全删除仍保留。旧 `/api/v1` 自动分类与 TF-IDF 能力只作为兼容路径；
-G5 `/api/v2` 产品主链不使用关键词、正则、TF-IDF 或 substring verifier 作语义最终判定。
-Fake/Mock 只用于事务、错误映射和前端 reducer 等工程测试，不能作为 G5 语义验收证据。
+当前 release 版本为 `0.1.0`，公开 wire contract 为 `2.1.0`，数据库 head 为 `007_day7_public_release`。Day 7 的本地真实 DeepSeek 语义门禁已经生成脱敏制品，但 Docker、双浏览器、第二设备和最终 tag 必须全部通过后，才能把本版本标记为完成。权威进度见 `docs/day7/OWNER_RELEASE_REPORT.md`。
 
-## 当前验收状态
+## 产品页面
 
-Day 1–Day 5 历史证据分别保留在对应文档目录；Day 6 的工程测试、真实 DeepSeek 语义
-评测、容器与双浏览器结果以 `docs/day6/OWNER_INTEGRATION_REPORT.md` 为准。只有该报告
-记录的本轮实际命令可作为验收证据。
+- `/login`：用户名和密码登录、统一失败语义、注册与恢复入口。
+- `/register`：一次性邀请码注册，并只展示一次恢复码。
+- `/recover`：使用恢复码设置新密码、轮换恢复码并撤销旧会话。
+- `/`：普通多轮聊天、真实 SSE 增量回答、工具状态、usage、TTFT、记忆效果与实时记忆侧栏。
+- `/memories`：G5 记忆搜索、筛选、版本、Diff、生命周期、冲突、Pack 和安全删除。
+- `/evals`：只读展示冻结的真实模型评测制品，不提供会产生模型费用的运行按钮。
+- `/settings`：账号、每日额度、默认 memory mode、Provider 诊断、密码、恢复码、会话和账号删除。
 
-| 项目 | 当前状态 |
-|---|---|
-| 前后端入口和 lock 文件 | 已存在 |
-| Fixture、Schema 与工程测试 | 包含 G1–G5、会话 Cookie、owner 隔离、幂等写入和 metadata-only Eval |
-| G5 真实模型语义门禁 | 必须 `MOCK_MODE=false`、固定实际模型、非零供应商 usage 且无 Mock fallback |
-| Docker/Compose 与双浏览器 | 以 Day 6 所有者报告的本轮 cold start、恢复和真实 Provider 证据为准 |
-| 第二台电脑启动 | 未验证 |
+生产页面只使用 `/api/v2` 的 `kind/content/applies_when` 投影。`/api/v1` 保留给 G1–G4 兼容测试；共享 demo owner 只有在 `ALLOW_DEMO_SESSIONS=true` 时可用。
 
 ## 目录
 
 ```text
-apps/api/        FastAPI 后端，入口 memtrace_api.main:app
-apps/web/        React/Vite 前端，生产构建输出 apps/web/dist
-contracts/       G1–G5 REST、事件、Pack、对话与 LLM 记忆规范
-fixtures/day1/   Day 1 确定性 QA 输入
-fixtures/day2/   24 条自动分类、反馈能力和持久事件标注
-fixtures/day4/   Day 4 draft 审阅源与 30 条 G3 可执行 fixture
-fixtures/day5/   Day 5 draft 审阅源、8 条冲突与 12 条 Pack/security fixture
-fixtures/day6/   16 条真实语义 case 与 8 条 memory-off/on A/B case
-scripts/day1/    Fixture 校验和全链路 smoke
-scripts/day4/    REST-only G3 EvalRunner
-scripts/day5/    REST-only G4 EvalRunner 与契约投影工具
-scripts/day6/    真实 Provider 预检、组件检查和 REST-only G5 EvalRunner
-Dockerfile       Node 构建 + Alembic migration + Python 单进程运行
-compose.yaml     单容器、SQLite 持久卷和必填 SESSION_SECRET
+apps/api/                     FastAPI、Alembic、后台 worker 和测试
+apps/web/                     React/Vite 产品页面和 Vitest
+contracts/                    OpenAPI、JSON Schema、examples 与契约说明
+fixtures/day3..day7/          冻结的工程/语义评测输入
+scripts/day3..day7/           REST Eval、Provider 预检、评测和运维脚本
+docs/day7/                    Day 7 决策、发布报告和部署手册
+compose.yaml                  本地开发/兼容环境
+compose.release.yaml          runtime-only 公开发布环境
 ```
 
-## 1. 安装前检查（Windows PowerShell）
+## 本地开发
 
-需要：
+### 前置条件
 
-- Python 3.11.x；
-- Node.js 22.12 或更高的 22.x；
-- npm；
-- Git；
-- Docker Desktop + Compose v2（仅容器流程需要）。
+- Python 3.11；
+- Node.js 22 与 npm；
+- Docker Desktop（仅容器门禁需要）；
+- 真实语义测试需要可用的 DeepSeek Key、额度和实时验证后的模型 ID；
+- GitHub 发布需要 `gh` 登录为 `W-JOSLIN-X`。
 
-在仓库根目录运行：
+Windows PowerShell：
 
 ```powershell
 python --version
-Get-Command python
 node --version
 npm --version
-docker --version
-docker compose version
+docker version
+gh auth status
 ```
 
-本机曾出现 `py -3.11` 指向不存在安装的问题。因此本文统一使用实际可工作的
-`python`。如果 `python --version` 不是 3.11.x，先修正 PATH；不要在错误解释器下
-继续安装依赖。
-
-## 2. 本地配置与密钥
-
-复制配置模板：
+### 安装
 
 ```powershell
-Copy-Item -LiteralPath '.\.env.example' -Destination '.\.env'
-git check-ignore -q .env
-if ($LASTEXITCODE -ne 0) { throw '.env 没有被 Git 忽略，请停止操作' }
+python -m venv apps/api/.venv
+apps\api\.venv\Scripts\python.exe -m pip install --require-hashes --no-deps -r apps/api/requirements.lock
+Set-Location apps/web
+npm ci
+Set-Location ../..
 ```
 
-纯工程开发可以保持安全默认值：
+复制 `.env.example` 为 Git 忽略的 `.env`。不要把 Key、密码、邀请码、恢复码、session secret、数据库或真实对话提交到 Git。
+
+工程测试可以使用：
 
 ```dotenv
 MOCK_MODE=true
-LLM_API_KEY=
+ALLOW_DEMO_SESSIONS=true
+COOKIE_SECURE=false
 ```
 
-同时必须在本地 `.env` 写入一个随机、至少 32 bytes 的 `SESSION_SECRET`。该值只能
-来自环境或本地被忽略的 `.env`，不得使用 README 示例值、提交到 Git 或出现在日志和
-截图中。`MOCK_MODE=true` 不需要模型平台登录，但只能生成工程证据；G5 语义、Docker 和
-双浏览器验收必须显式改为 `MOCK_MODE=false` 并使用真实 Provider。Demo 会话仍需要该
-本地签名密钥。
+真实语义测试必须使用：
 
-真实模式只能把新生成的 Key 写入本地 `.env`，不能写进 README、源代码、fixture、
-命令参数、日志、截图或 Git。先前在聊天中出现过的 Key 已经暴露，应撤销后再生成，
-不能当成正式开发凭据。
+```dotenv
+MOCK_MODE=false
+LLM_API_KEY=<仅在本地忽略文件中填写>
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=<通过六项预检确认的精确模型 ID>
+ALLOW_DEMO_SESSIONS=false
+PUBLIC_ORIGIN=http://127.0.0.1:8000
+COOKIE_SECURE=false
+```
 
-## 3. 启动后端
+`SESSION_SECRET` 至少使用 32 字节随机值。本地可只放在当前进程；release Compose 必须改用只读 `SESSION_SECRET_FILE` 和 `LLM_API_KEY_FILE`。
 
-在仓库根目录执行，无需激活虚拟环境：
+### 启动 API 和 Web
 
 ```powershell
-python -m venv .\apps\api\.venv
-.\apps\api\.venv\Scripts\python.exe -m pip install --require-hashes -r .\apps\api\requirements.lock
-.\apps\api\.venv\Scripts\python.exe -m alembic -c .\apps\api\alembic.ini upgrade head
-.\apps\api\.venv\Scripts\python.exe -m uvicorn memtrace_api.main:app `
-  --app-dir .\apps\api\src `
-  --reload `
-  --host 127.0.0.1 `
-  --port 8000
+apps\api\.venv\Scripts\python.exe -m alembic -c apps/api/alembic.ini upgrade head
+apps\api\.venv\Scripts\python.exe -m uvicorn memtrace_api.main:app --app-dir apps/api/src --host 127.0.0.1 --port 8000
 ```
-
-另开终端检查：
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
-Invoke-RestMethod http://127.0.0.1:8000/api/v1/ready
-```
-
-Mock 模式下 `/ready` 应为 200，并明确返回 `provider_mode=mock`、数据库连接通过、
-`migration_revision=pass`。空库、旧 Alembic revision、生产环境缺少
-`SESSION_SECRET`，或真实模式缺少模型 Key 时必须返回 503。
-
-## 4. 启动前端
 
 另开 PowerShell：
 
 ```powershell
-Set-Location .\apps\web
-npm ci
-npm run dev -- --host 127.0.0.1 --port 5173
+Set-Location apps/web
+npm run dev
 ```
 
-浏览器打开 <http://127.0.0.1:5173>。开发服务器把 `/api` 代理到 8000，浏览器中
-不保存也不读取模型 Key。
+开发服务器默认使用 Vite 地址；`PUBLIC_ORIGIN` 必须与浏览器实际 origin 完全一致。生产单容器由 FastAPI 提供构建后的静态页面。
 
-## 5. 本地测试
+## 公开账号管理
 
-后端：
+管理命令直接连接当前 `MEMTRACE_DATABASE_URL`，数据库必须已经升级到唯一 `007_day7_public_release`。创建邀请码会把 secret 只打印一次；应立即保存到安全通道，之后只能查看元数据。
 
 ```powershell
-.\apps\api\.venv\Scripts\python.exe -m ruff check .\apps\api\src .\apps\api\tests .\apps\api\scripts
-.\apps\api\.venv\Scripts\python.exe -m ruff format --check .\apps\api\src .\apps\api\tests .\apps\api\scripts
-.\apps\api\.venv\Scripts\python.exe -m pytest -W error .\apps\api\tests -q
+$env:PYTHONPATH='apps/api/src'
+apps\api\.venv\Scripts\python.exe -m memtrace_api.admin_cli invite-create --max-uses 1 --expires-hours 168
+apps\api\.venv\Scripts\python.exe -m memtrace_api.admin_cli invite-list
+apps\api\.venv\Scripts\python.exe -m memtrace_api.admin_cli account-list
+apps\api\.venv\Scripts\python.exe -m memtrace_api.admin_cli account-disable <username>
+apps\api\.venv\Scripts\python.exe -m memtrace_api.admin_cli account-enable <username>
+apps\api\.venv\Scripts\python.exe -m memtrace_api.admin_cli sessions-revoke <username>
 ```
 
-前端：
+容器内对应命令：
 
 ```powershell
-Set-Location .\apps\web
-npm ci
+docker compose -p memtrace-release -f compose.release.yaml exec app python -m memtrace_api.admin_cli invite-create --max-uses 1 --expires-hours 168
+```
+
+账号规则：用户名经 NFKC + casefold 后唯一；密码 12–128 字符并使用 Argon2id；登录、注册和恢复有限流；每账号 UTC 每日最多 50 个真实模型轮次，同时最多运行 1 轮。失败的真实 Provider 尝试也消耗已预留额度。
+
+## 测试
+
+### 确定性工程门禁
+
+```powershell
+apps\api\.venv\Scripts\python.exe -m pip check
+apps\api\.venv\Scripts\python.exe -m ruff check apps/api scripts/day1 scripts/day3 scripts/day4 scripts/day5 scripts/day6 scripts/day7
+apps\api\.venv\Scripts\python.exe -m ruff format --check apps/api scripts/day1 scripts/day3 scripts/day4 scripts/day5 scripts/day6 scripts/day7
+apps\api\.venv\Scripts\python.exe -m pytest apps/api/tests -q
+apps\api\.venv\Scripts\python.exe -m alembic -c apps/api/alembic.ini heads
+apps\api\.venv\Scripts\python.exe scripts/day1/validate_fixtures.py
+
+Set-Location apps/web
 npm run typecheck
 npm run lint
-npm run test
+npm test
 npm run build
-Set-Location ..\..
 ```
 
-Fixture/Schema：
+Fake/Mock Provider 只证明错误映射、重试、Schema 拒绝、事务、worker 和 UI reducer，不是语义或产品效果证据。
+
+### 真实 DeepSeek 门禁
+
+先在当前进程或忽略的 `.env` 配置真实 Key，再运行六项预检：模型列表、最小调用、streaming、strict schema、function calling 和 actual usage。
 
 ```powershell
-.\apps\api\.venv\Scripts\python.exe .\scripts\day1\validate_fixtures.py
+apps\api\.venv\Scripts\python.exe scripts/day7/provider_preflight.py --output output/day7/provider-preflight.json
 ```
 
-该脚本依赖的 `jsonschema` 已写入后端 hash lock；不要临时安装未锁版本后声称
-环境可复现。
+任何 Key、认证、额度、模型、网络、function calling 或 usage 失败都必须停止；不得回退到 Mock、关键词、TF-IDF 最终判定或固定答案后宣布通过。
 
-## 6. Day 2 G1 全链路 smoke
-
-先以 Mock 模式启动 API，并保持 `MOCK_CHUNK_DELAY_MS=250`，让断线恢复测试有足够
-时间实际触发。然后在仓库根目录运行：
+真实语义 runner 只通过公开 REST/SSE API：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\day1\smoke.ps1
+apps\api\.venv\Scripts\python.exe scripts/day6/eval_runner.py --base-url http://127.0.0.1:8000 --auth-mode public --origin http://127.0.0.1:8000 --primary-username <primary> --primary-password-file <ignored-password-file> --secondary-username <secondary> --secondary-password-file <ignored-password-file> --mode semantic --repeat 2 --output output/day7/semantic.json
+
+apps\api\.venv\Scripts\python.exe scripts/day7/baseline_runner.py --base-url http://127.0.0.1:8000 --origin http://127.0.0.1:8000 --username <username> --password-file <ignored-password-file> --repeat 2 --output output/day7/four-baselines.json
 ```
 
-Smoke 先建立 `blank_demo` Cookie 会话，再检查 health、ready、旧 `scenario` 422、
-自动分类、任务幂等创建、SSE headers/顺序/正文、终态 TaskSnapshot、Provider partial
-failure、未知任务 404，以及 `after_event_seq + after_offset` 双游标恢复。任何缺项都
-必须非零退出。Day 1 的原始规则仍见 `docs/day1/SMOKE_SPEC.md`，Day 2 增量证据见
-`docs/day2/VERIFICATION_REPORT.md`。
+校准和静态评测制品只保存 case ID、受控判定、token、TTFT、时延、hash 与 failure code；原始对话和盲评材料必须留在 `output/`。
 
-### 真实 Provider 门禁（Day 6 G5 必需）
+## Release 容器
 
-真实测试不能复用 Mock fixture 的通过结果。用户在被 Git 忽略的 `.env` 中手工配置：
+`Dockerfile` 只安装 `apps/api/requirements.runtime.lock`，不安装 pytest、Ruff 或前端构建依赖。镜像以 UID/GID 10001 非 root 运行，并带 OCI version/revision/source labels。
 
-```dotenv
-MOCK_MODE=false
-LLM_API_KEY=<用户本人填写>
-LLM_BASE_URL=https://api.deepseek.com
-LLM_MODEL=<先经官方模型列表和最小调用确认的模型 ID>
-```
-
-随后先运行真实预检和五阶段组件检查：
+为两个 secret 各创建一个只读本地文件，然后只通过路径传给 Compose：
 
 ```powershell
-.\apps\api\.venv\Scripts\python.exe .\scripts\day6\provider_preflight.py
-.\apps\api\.venv\Scripts\python.exe .\scripts\day6\component_probe.py
+$env:APP_REVISION=(git rev-parse HEAD)
+$env:PUBLIC_ORIGIN='https://your-domain.example'
+$env:LLM_MODEL='<已实时验证的模型>'
+$env:LLM_API_KEY_FILE='<绝对路径>\llm_api_key'
+$env:SESSION_SECRET_FILE='<绝对路径>\session_secret'
+$env:COOKIE_SECURE='true'
+$env:MEMTRACE_PORT='18070'
+
+docker compose -p memtrace-release -f compose.release.yaml config
+docker compose -p memtrace-release -f compose.release.yaml build
+docker compose -p memtrace-release -f compose.release.yaml up -d
+docker compose -p memtrace-release -f compose.release.yaml ps
 ```
 
-API 以真实模式启动后，再通过公开 REST API 运行 16×2 语义评测与 8 组 A/B：
+本机 HTTP 浏览器门禁只能显式临时设置 `COOKIE_SECURE=false`，生产 HTTPS 必须为 `true`。release 环境固定 `MOCK_MODE=false`、`ALLOW_DEMO_SESSIONS=false`；Key 与 session secret 不进入 Compose environment、镜像或日志。
+
+验收：
 
 ```powershell
-.\apps\api\.venv\Scripts\python.exe .\scripts\day6\eval_runner.py `
-  --base-url http://127.0.0.1:8000 --mode all `
-  --output .\output\day6\real-g5-report.json
+Invoke-RestMethod http://127.0.0.1:18070/api/v1/health
+Invoke-RestMethod http://127.0.0.1:18070/api/v1/ready
+Invoke-RestMethod http://127.0.0.1:18070/api/v2/system
 ```
 
-旧 G1 Provider 兼容 smoke 仍可单独运行：
+## SQLite 备份与恢复
+
+备份脚本使用 SQLite backup API，并在前后运行 `PRAGMA quick_check`。它拒绝覆盖已有目标：
 
 ```powershell
-.\apps\api\.venv\Scripts\python.exe .\scripts\day1\real_provider_smoke.py `
-  --base-url http://127.0.0.1:8000 `
-  --expected-mode real `
-  --timeout-seconds 180
+apps\api\.venv\Scripts\python.exe scripts/day7/backup_sqlite.py --source data/memtrace.sqlite3 --output output/backups/memtrace-20260830.sqlite3
 ```
 
-上述 runner 只保存资源 ID、受控枚举、token、延迟、判定和失败码；不保存对话、记忆、
-回答或 Key。旧脚本同样不读取 Key，也不打印任务正文、回答正文、请求头或上游错误体；成功时只输出
-task/run ID、Provider 模式、模型、token 来源与数量、首字和总耗时。它会实际验证
-AST 工具事件、连续 UTF-8 chunk、metrics、`run.completed`、`stream.done` 和终态
-快照。完成后撤销聊天中暴露过的临时 Key，并重新生成正式开发 Key。
-
-## 7. 单容器构建与启动
-
-### 静态文件边界
-
-后端支持环境变量 `MEMTRACE_WEB_DIST`，容器中固定为 `/app/static`。FastAPI 在
-API 路由之后挂载构建产物，并只对非 `/api` 路径回退到 `index.html`；开发环境目录
-不存在时跳过挂载，不影响 API。本机已分别验证根路径、`/memories` SPA 路由和未知
-`/api` 路由的 404，不能只用镜像 build 成功替代这些检查。
-
-### 静态检查
+记录命令返回的 SHA-256，再恢复到全新且不存在的文件：
 
 ```powershell
-docker compose config --quiet
+apps\api\.venv\Scripts\python.exe scripts/day7/restore_sqlite.py --backup output/backups/memtrace-20260830.sqlite3 --destination output/restore/memtrace.sqlite3 --expected-sha256 <sha256>
 ```
 
-不要把 `docker compose config` 的完整输出保存到日志：它可能展开本地 `.env`。
+不得在运行中的数据库文件上做文件复制恢复。完整容器卷切换、回滚和验证步骤见 `docs/day7/SERVER_DEPLOYMENT_RUNBOOK.md`。
 
-### 构建
+## 安全与隐私边界
 
-```powershell
-docker compose build --pull
-```
+- 生产 Cookie：`Secure + HttpOnly + SameSite=Lax`；所有认证写请求同时验证 Origin、CSRF 与幂等键。
+- 跨 owner 与不存在统一 404；owner ID 只来自已验证 session。
+- 用户正文、模型答案、memory section、密码、邀请码、恢复码、Key 和原始供应商错误不得进入日志、事件、URL、截图或 Git。
+- 模型只能选择服务端编号的 `python_ast_check` 候选；工具只执行 `ast.parse`，不能执行代码、Shell、文件、import 或网络。
+- `assistant.delta` 是临时 SSE，不进入持久事件；完成或失败后以 snapshot 为权威状态。
+- 所有用户/模型文本使用 React 纯文本渲染；Pack preview 在 raw bytes 阶段执行大小、UTF-8、重复 key、深度、Schema、integrity 和危险内容校验。
+- 反向代理必须支持 SSE 禁用 buffering、请求体上限、可信代理边界和 HTTPS。
 
-Dockerfile 使用：
+## 发布边界
 
-1. 固定 digest 的 Node 22 builder 执行 `npm ci` 和 `npm run build`；
-2. 固定 digest 的 Python 3.11 runtime 按带 hash 的 `requirements.lock` 安装；
-3. React dist 复制到 `/app/static`；
-4. 非 root 用户先执行 `alembic upgrade head`，成功后才启动一个 Uvicorn worker；
-5. `/api/v1/ready` 作为容器 healthcheck，迁移未到唯一 head 时不得 healthy。
+Day 7 只冻结本地产品和可部署制品，不执行 SSH、DNS、证书、防火墙或服务器数据迁移。只有本地工程、真实 DeepSeek、Docker、Chrome、Edge、第二干净设备、备份恢复、隐私扫描全部有实际证据后，所有者才能普通 push `main` 并创建指向同一 commit 的 annotated `v0.1.0`。不得 force push 或移动已发布 tag。
 
-本机开发解释器是 Python 3.11.4；固定的容器镜像当前提供 Python 3.11.16，二者
-属于同一 3.11 兼容系列。容器采用更新的安全补丁版本，不为追求字面一致而降级，
-最终报告必须分别记录两者，不能只写笼统的“Python 3.11”。
-
-### 启动和验收
-
-```powershell
-docker compose up -d
-docker compose ps
-Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
-Invoke-RestMethod http://127.0.0.1:8000/api/v1/ready
-Invoke-WebRequest http://127.0.0.1:8000/ -UseBasicParsing
-powershell -ExecutionPolicy Bypass -File .\scripts\day1\smoke.ps1
-```
-
-根路径必须返回 React HTML，而不是 FastAPI 404。`docker compose ps` 必须显示
-healthy。创建 task 和 feedback 后记录非敏感 ID，再验证重启及同一任务恢复：
-
-```powershell
-docker compose restart
-docker compose ps
-Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
-powershell -ExecutionPolicy Bypass -File .\scripts\day1\smoke.ps1
-```
-
-只在同一 Demo 会话 Cookie 下恢复任务；换到另一个演示用户时，同一 task 的 REST 与
-SSE 都必须是 404。持久性验收还必须执行一次保留卷的 `docker compose down` / `up -d`。
-
-查看非敏感尾部日志：
-
-```powershell
-docker compose logs --no-color --tail 100 app
-```
-
-结束容器但保留数据卷：
-
-```powershell
-docker compose down
-```
-
-只有明确要删除所有 MemTrace 容器数据时才运行下列命令；它不可恢复：
-
-```powershell
-docker compose down --volumes
-```
-
-Compose 使用三个命名卷：`memtrace-data`、`memtrace-exports` 和
-`memtrace-eval-results`。Day 2 的 task、run、event、feedback、MemoryJob 和
-idempotency 记录写入 `memtrace-data` 内的 SQLite；保留同一卷时，容器 restart 和
-compose down/up 后必须可恢复。进程中途终止的运行任务恢复为 `RUN_INTERRUPTED`，
-而不是伪装继续运行。
-
-当前为减少两名初学者维护两套 Python lock 的风险，运行镜像暂时安装同一份
-hash lock，其中也包含 pytest、Ruff 等开发依赖，因此镜像不是最小生产镜像。另一个
-已知边界是 Uvicorn 直连尚未设置整个 HTTP 请求体的全局字节上限；字段级契约已有
-上限，但公开部署前仍需在可信反向代理设置请求体限制。两项均不得被误报为已解决。
-
-修复后的运行镜像已移除不需要的 `setuptools`，Docker Scout 的“存在修复版本的
-高危/严重漏洞”结果为零。但 Debian 基础层仍有 5 项被 Scout 标记为
-`not fixed` 的高危/严重 CVE；这属于明确保留的发布风险，不等于镜像总漏洞为零。
-完整编号与扫描证据见 `docs/day1/VERIFICATION_REPORT.md` 和
-`output/docker-scout-day1.sarif`。
-
-## 8. 常见故障
-
-| 现象 | 检查 | 处理 |
-|---|---|---|
-| `python` 不是 3.11 | `python --version`、`Get-Command python` | 修 PATH 后重建 `apps/api/.venv` |
-| `npm ci` 拒绝安装 | Node 版本、`package-lock.json` | 使用 Node 22.12+，不要删除 lock |
-| `/ready` 返回 503 | DB 连接、Alembic head、`SESSION_SECRET`、Provider | 先修迁移或环境；不要在代码中填密钥 |
-| SSE 一直等待 | API 日志、Mock delay、事件终态 | 不得改成一次性假流；修复 `stream.done` |
-| 双游标 smoke 说任务过早结束 | `MOCK_CHUNK_DELAY_MS` | 设为 250 或更高后重启 API |
-| 容器根路径 404 | `MEMTRACE_WEB_DIST`、静态挂载 | 后端实现 SPA fallback 后重建镜像 |
-| 容器 unhealthy | `docker compose logs app` | 先修 `/ready` 所报告的迁移/配置问题，不要提高 retries 掩盖错误 |
-| 真实 Provider 失败 | 余额、模型名、网络、限流 | 保留真实失败；Mock 必须显式标识 |
-
-## 9. 验证报告必须记录
-
-- 当前 commit；
-- `python/node/npm/docker/docker compose` 版本；
-- 测试、build、smoke 命令和退出码；
-- Docker image ID；
-- Mock/Real task 和 run ID，但不记录请求头或 Key；
-- SSE 断线恢复是否真正收到 cursor 之后的 continuation chunk；
-- Docker cold start 和 restart 的 health 结果；
-- 第二台电脑尚未执行时明确写“未验证”。
-
-“我电脑上运行过一次”或“Dockerfile 已存在”都不等于 Day 2 完成。
+服务器阶段只能部署精确 `v0.1.0`；若发现缺陷，发布 `v0.1.1`，不能改写旧 tag。服务器参数和逐步操作见 `docs/day7/SERVER_DEPLOYMENT_RUNBOOK.md`。
