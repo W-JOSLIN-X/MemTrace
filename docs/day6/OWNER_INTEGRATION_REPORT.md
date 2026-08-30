@@ -207,6 +207,9 @@ metadata-only runner。
 4. 恢复到 18060 后 host `/ready` 为 ready/real，再运行新的 real G5 case 1/1。
 5. 最终关键表计数为 tasks 156、runs 160、reflection jobs 86、judgments 114、cards 74、
    events 1509；精确 Key 日志命中 0，正文/secret marker 命中 0。
+6. 全部门禁取证后逐一核对三个卷的 Compose project label 和名称前缀，执行专属项目
+   `down -v`；最终该 project 的 container/volume/network 计数均为 0，未运行全局 prune，也未
+   触碰其他 Docker 项目。
 
 所有 REST runner 访问显式本机 API 时禁用工作站系统代理。此前 `httpx` 自动读取 Windows 系统
 代理，导致健康的 `127.0.0.1` 被代理成 502；`trust_env=false`/空 ProxyHandler 后，同一 G1
