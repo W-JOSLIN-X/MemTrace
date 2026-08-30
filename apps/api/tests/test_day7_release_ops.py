@@ -221,6 +221,9 @@ def test_release_runtime_lock_contains_production_imports_but_excludes_dev_tools
 
 def test_day7_external_runners_do_not_import_backend_modules() -> None:
     for relative in (
+        "scripts/day3/eval_runner.py",
+        "scripts/day4/eval_runner.py",
+        "scripts/day5/eval_runner.py",
         "scripts/day6/eval_runner.py",
         "scripts/day7/baseline_runner.py",
         "scripts/day7/build_eval_artifact.py",
@@ -392,3 +395,11 @@ def test_production_security_headers_and_request_body_limit(client_factory) -> N
         )
         assert oversized.status_code == 413
         assert oversized.json()["error"]["code"] == "VALIDATION_ERROR"
+
+        oversized_pack = client.post(
+            "/api/v2/memory-packs/import/preview",
+            content=b"{" + b" " * 1_100,
+            headers={"content-type": "application/json"},
+        )
+        assert oversized_pack.status_code == 413
+        assert oversized_pack.json()["error"]["code"] == "MEMORY_PACK_TOO_LARGE"

@@ -14,6 +14,7 @@ from memtrace_api.config import Settings
 from memtrace_api.database import session_scope
 from memtrace_api.db_models import EventLogModel, ToolCallModel, UserModel
 from memtrace_api.main import _append_owner_memory_event, create_app
+from memtrace_api.memory_worker import _error_code as reflection_error_code
 from memtrace_api.providers import (
     FunctionCallOutput,
     ProviderFailure,
@@ -24,6 +25,24 @@ from memtrace_api.providers import (
     ToolCall,
 )
 from memtrace_api.schemas import AsyncErrorCode, ProviderMode
+
+
+def test_reflection_provider_failures_keep_controlled_diagnostic_kind() -> None:
+    empty = ProviderFailure(
+        AsyncErrorCode.PROVIDER_ERROR,
+        "synthetic private provider message",
+        retryable=False,
+        failure_kind="structured_output_empty",
+    )
+    unknown = ProviderFailure(
+        AsyncErrorCode.PROVIDER_ERROR,
+        "synthetic private provider message",
+        retryable=False,
+        failure_kind="unexpected_private_failure",
+    )
+
+    assert reflection_error_code(empty) == "REFLECTION_STRUCTURED_OUTPUT_EMPTY"
+    assert reflection_error_code(unknown) == "REFLECTION_PROVIDER_ERROR"
 
 
 def _usage() -> ProviderUsage:

@@ -2,7 +2,7 @@
 """REST-only Day 3 G2 evaluator.
 
 The runner intentionally does not import ``memtrace_api``. It exercises the
-public HTTP contract with an isolated demo session and writes metadata-only
+public HTTP contract with an isolated demo or public-account session and writes metadata-only
 results: fixture ids, controlled classifications/dispositions, counts, and
 pass/fail reasons. Task text, feedback text, edits, rules, and evidence quotes
 are never copied to the result file or console.
@@ -31,9 +31,13 @@ class ApiFailure(Exception):
 
 
 class Client:
-    def __init__(self, base_url: str, timeout: float) -> None:
+    def __init__(
+        self, base_url: str, timeout: float, *, origin: str | None = None
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.origin = origin
+        self.csrf_token: str | None = None
         jar = http.cookiejar.CookieJar()
         self.opener = urllib.request.build_opener(
             urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(jar)
@@ -56,6 +60,11 @@ class Client:
             )
         if idempotency_key is not None:
             headers["Idempotency-Key"] = idempotency_key
+        if self.csrf_token is not None and method not in {"GET", "HEAD", "OPTIONS"}:
+            if self.origin is None:
+                raise ApiFailure(None, "PUBLIC_ORIGIN_NOT_CONFIGURED")
+            headers["Origin"] = self.origin
+            headers["X-CSRF-Token"] = self.csrf_token
         request = urllib.request.Request(
             f"{self.base_url}{path}",
             data=data,
@@ -80,6 +89,30 @@ class Client:
         if not isinstance(value, dict):
             raise ApiFailure(None, "INVALID_RESPONSE")
         return value
+
+    def login(self, username: str, password: str) -> None:
+        self.csrf_token = None
+        payload = self.request(
+            "POST",
+            "/api/v2/auth/login",
+            body={"username": username, "password": password},
+        )
+        csrf_token = payload.get("csrf_token")
+        if not isinstance(csrf_token, str) or len(csrf_token) < 32:
+            raise ApiFailure(None, "PUBLIC_CSRF_MISSING")
+        self.csrf_token = csrf_token
+
+
+def read_credential(path: Path | None) -> str:
+    if path is None:
+        raise ApiFailure(None, "PUBLIC_CREDENTIAL_FILE_MISSING")
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise ApiFailure(None, "PUBLIC_CREDENTIAL_FILE_UNREADABLE") from exc
+    if not value or len(value.encode("utf-8")) > 1024:
+        raise ApiFailure(None, "PUBLIC_CREDENTIAL_FILE_INVALID")
+    return value
 
 
 def stable_key(prefix: str, fixture_id: str, namespace: str = "default") -> str:
@@ -304,27 +337,37 @@ def parse_args() -> argparse.Namespace:
             "LLM kind variability and engineering simulations excluded."
         ),
     )
+    parser.add_argument("--auth-mode", choices=("demo", "public"), default="demo")
+    parser.add_argument("--origin")
+    parser.add_argument("--username")
+    parser.add_argument("--password-file", type=Path)
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     fixture = json.loads(args.fixture.read_text(encoding="utf-8"))
-    client = Client(args.base_url, args.request_timeout)
+    client = Client(args.base_url, args.request_timeout, origin=args.origin)
     report: dict[str, Any] = {
         "report_version": "1.0",
         "contract_version": fixture.get("contract_version"),
         "fixture_review_status": fixture.get("review_status"),
         "expectation_profile": args.expectation_profile,
+        "auth_mode": args.auth_mode,
         "entries": [],
         "smoke": [],
         "engineering_only_skipped": [],
     }
     exit_code = 0
     try:
-        client.request(
-            "POST", "/api/v1/session/demo", body={"demo_alias": args.demo_alias}
-        )
+        if args.auth_mode == "public":
+            if not args.origin or not args.username:
+                raise ApiFailure(None, "PUBLIC_CREDENTIALS_NOT_CONFIGURED")
+            client.login(args.username, read_credential(args.password_file))
+        else:
+            client.request(
+                "POST", "/api/v1/session/demo", body={"demo_alias": args.demo_alias}
+            )
         selected_ids = set(args.case_id)
         entries = [
             entry

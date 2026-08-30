@@ -156,9 +156,19 @@ class SecurityHeadersMiddleware:
     async def _too_large(self, scope: Scope, receive: Receive, send: Send) -> None:
         del receive
         request_id = scope.get("state", {}).get("request_id", "req_unknown")
+        path = scope.get("path")
+        error_code = (
+            ErrorCode.MEMORY_PACK_TOO_LARGE
+            if path
+            in {
+                "/api/v1/memory-packs/import/preview",
+                "/api/v2/memory-packs/import/preview",
+            }
+            else ErrorCode.VALIDATION_ERROR
+        )
         content = build_error_content(
             request_id=request_id,
-            code=ErrorCode.VALIDATION_ERROR,
+            code=error_code,
             message="请求体超过允许上限。",
         )
         body = json.dumps(content, ensure_ascii=False, separators=(",", ":")).encode("utf-8")

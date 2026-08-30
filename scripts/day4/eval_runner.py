@@ -15,10 +15,24 @@ from typing import Any
 
 
 class RestClient:
-    def __init__(self, base_url: str) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        origin: str | None = None,
+        public_identities: dict[str, tuple[str, str]] | None = None,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
+        self.origin = origin
+        self.csrf_token: str | None = None
+        self.public_identities = public_identities or {}
+        self.public_sessions: dict[str, tuple[urllib.request.OpenerDirector, str]] = {}
+        self.opener = self._new_opener()
+
+    @staticmethod
+    def _new_opener() -> urllib.request.OpenerDirector:
         jar = http.cookiejar.CookieJar()
-        self.opener = urllib.request.build_opener(
+        return urllib.request.build_opener(
             urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(jar)
         )
 
@@ -37,6 +51,11 @@ class RestClient:
             headers["Content-Type"] = "application/json"
         if idempotent:
             headers["Idempotency-Key"] = f"d4-eval-{uuid.uuid4()}"
+        if self.csrf_token is not None and method not in {"GET", "HEAD", "OPTIONS"}:
+            if self.origin is None:
+                raise RuntimeError("PUBLIC_ORIGIN_NOT_CONFIGURED")
+            headers["Origin"] = self.origin
+            headers["X-CSRF-Token"] = self.csrf_token
         request = urllib.request.Request(
             f"{self.base_url}{path}", data=data, headers=headers, method=method
         )
@@ -45,6 +64,45 @@ class RestClient:
                 return response.status, json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             return exc.code, json.loads(exc.read().decode("utf-8"))
+
+    def select_identity(self, alias: str) -> None:
+        credentials = self.public_identities.get(alias)
+        if credentials is None:
+            status, _ = self.request(
+                "POST", "/api/v1/session/demo", {"demo_alias": alias}
+            )
+            if status != 200:
+                raise RuntimeError(f"SESSION_{status}")
+            return
+        cached = self.public_sessions.get(alias)
+        if cached is not None:
+            self.opener, self.csrf_token = cached
+            return
+        self.opener = self._new_opener()
+        self.csrf_token = None
+        username, password = credentials
+        status, payload = self.request(
+            "POST",
+            "/api/v2/auth/login",
+            {"username": username, "password": password},
+        )
+        csrf_token = payload.get("csrf_token") if isinstance(payload, dict) else None
+        if status != 200 or not isinstance(csrf_token, str) or len(csrf_token) < 32:
+            raise RuntimeError("PUBLIC_LOGIN_FAILED")
+        self.csrf_token = csrf_token
+        self.public_sessions[alias] = (self.opener, csrf_token)
+
+
+def read_credential(path: Path | None) -> str:
+    if path is None:
+        raise RuntimeError("PUBLIC_CREDENTIAL_FILE_MISSING")
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise RuntimeError("PUBLIC_CREDENTIAL_FILE_UNREADABLE") from exc
+    if not value or len(value.encode("utf-8")) > 1024:
+        raise RuntimeError("PUBLIC_CREDENTIAL_FILE_INVALID")
+    return value
 
 
 def wait_task(client: RestClient, task_id: str) -> dict[str, Any]:
@@ -232,14 +290,38 @@ def main() -> int:
         / "fixtures/day4/g3_retrieval_cases.json",
     )
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--auth-mode", choices=("demo", "public"), default="demo")
+    parser.add_argument("--origin")
+    parser.add_argument("--primary-username")
+    parser.add_argument("--primary-password-file", type=Path)
+    parser.add_argument("--secondary-username")
+    parser.add_argument("--secondary-password-file", type=Path)
     args = parser.parse_args()
     fixture = json.loads(args.fixture.read_text(encoding="utf-8"))
-    client = RestClient(args.base_url)
-    status, _ = client.request(
-        "POST", "/api/v1/session/demo", {"demo_alias": "blank_demo"}
+    public_identities: dict[str, tuple[str, str]] = {}
+    if args.auth_mode == "public":
+        if not args.origin or not args.primary_username or not args.secondary_username:
+            print(json.dumps({"failure_code": "PUBLIC_CREDENTIALS_NOT_CONFIGURED"}))
+            return 1
+        public_identities = {
+            "blank_demo": (
+                args.primary_username,
+                read_credential(args.primary_password_file),
+            ),
+            "seeded_demo": (
+                args.secondary_username,
+                read_credential(args.secondary_password_file),
+            ),
+        }
+    client = RestClient(
+        args.base_url,
+        origin=args.origin,
+        public_identities=public_identities,
     )
-    if status != 200:
-        print(json.dumps({"failure_code": f"SESSION_{status}"}))
+    try:
+        client.select_identity("blank_demo")
+    except RuntimeError as exc:
+        print(json.dumps({"failure_code": str(exc)}))
         return 1
     try:
         pause_existing_active_memories(client)
@@ -339,15 +421,11 @@ def main() -> int:
                 card = resumed["card"]
             elif operation == "owner_isolation":
                 assert last_positive is not None
-                client.request(
-                    "POST", "/api/v1/session/demo", {"demo_alias": "seeded_demo"}
-                )
+                client.select_identity("seeded_demo")
                 cross_status, _ = client.request(
                     "GET", f"/api/v1/tasks/{last_positive['task_id']}"
                 )
-                client.request(
-                    "POST", "/api/v1/session/demo", {"demo_alias": "blank_demo"}
-                )
+                client.select_identity("blank_demo")
                 if cross_status != 404:
                     raise RuntimeError("OWNER_ISOLATION")
                 result = {

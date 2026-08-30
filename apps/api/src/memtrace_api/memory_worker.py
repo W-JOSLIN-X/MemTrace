@@ -433,6 +433,15 @@ class MemoryReflectionWorker:
             phase = "commit"
             self._commit_success(context, extraction, consolidated)
         except ProviderFailure as exc:
+            logger.warning(
+                "reflection_provider.failed job_id=%s phase=%s failure_kind=%s "
+                "provider_status=%s retryable=%s",
+                job_id,
+                phase,
+                exc.failure_kind,
+                exc.provider_status,
+                exc.retryable,
+            )
             self._commit_failure(job_id, _error_code(exc), retryable=exc.retryable)
         except Exception as exc:
             logger.error(
@@ -1031,6 +1040,19 @@ def _token_source(provider: StructuredProvider) -> str:
 
 
 def _error_code(exc: ProviderFailure) -> str:
+    failure_kind = getattr(exc, "failure_kind", "")
+    detailed = {
+        "actual_usage_missing": "REFLECTION_ACTUAL_USAGE_MISSING",
+        "model_mismatch": "REFLECTION_MODEL_MISMATCH",
+        "response_id_missing": "REFLECTION_RESPONSE_ID_MISSING",
+        "structured_json_invalid": "REFLECTION_STRUCTURED_JSON_INVALID",
+        "structured_not_object": "REFLECTION_STRUCTURED_NOT_OBJECT",
+        "structured_output_empty": "REFLECTION_STRUCTURED_OUTPUT_EMPTY",
+        "structured_schema_invalid": "REFLECTION_STRUCTURED_SCHEMA_INVALID",
+        "responses_incomplete_terminal": "REFLECTION_RESPONSE_INCOMPLETE",
+    }.get(failure_kind)
+    if detailed is not None:
+        return detailed
     value = getattr(exc.code, "value", str(exc.code))
     return {
         "PROVIDER_TIMEOUT": "REFLECTION_PROVIDER_TIMEOUT",
