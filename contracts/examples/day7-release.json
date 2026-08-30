@@ -1,0 +1,96 @@
+{
+  "schema_version": "2.1.0",
+  "evidence_label": "synthetic_contract_examples_not_semantic_evidence",
+  "rest_requests": [
+    {
+      "definition": "RegisterRequest",
+      "value": {
+        "invitation_code": "inv_0123456789012345678901234567890123456789",
+        "username": "example_user",
+        "display_name": "Example User",
+        "password": "synthetic password value 123",
+        "password_confirmation": "synthetic password value 123"
+      }
+    },
+    {
+      "definition": "LoginRequest",
+      "value": {
+        "username": "example_user",
+        "password": "synthetic password value 123"
+      }
+    },
+    {
+      "definition": "PackExportV2Request",
+      "value": {
+        "memory_ids": ["mem_01J00000000000000000000001"],
+        "name": "Synthetic export",
+        "description": "Contract shape only."
+      }
+    },
+    {
+      "definition": "MemoryVersionRestoreV2Request",
+      "value": {
+        "source_version_id": "memver_01J00000000000000000000001",
+        "expected_current_version_id": "memver_01J00000000000000000000002"
+      }
+    }
+  ],
+  "conversation_events": [
+    {
+      "event_type": "assistant.delta",
+      "event_seq": null,
+      "data": {
+        "run_id": "run_01J00000000000000000000001",
+        "delta_index": 1,
+        "delta": "合成增量"
+      }
+    },
+    {
+      "event_type": "turn.started",
+      "event_seq": 1,
+      "data": {
+        "event_seq": 1,
+        "run_id": "run_01J00000000000000000000001",
+        "turn_index": 1,
+        "user_message_id": "msg_01J00000000000000000000001"
+      }
+    },
+    {
+      "event_type": "conversation.tool.completed",
+      "event_seq": 2,
+      "data": {
+        "event_seq": 2,
+        "run_id": "run_01J00000000000000000000001",
+        "turn_index": 1,
+        "action": "call",
+        "reason_code": "model_selected_allowed_tool",
+        "model": "live-verified-model",
+        "input_tokens": 12,
+        "output_tokens": 4,
+        "total_tokens": 16,
+        "provider_latency_ms": 42.5,
+        "tool_name": "python_ast_check",
+        "tool_call_id": "tool_01J00000000000000000000001",
+        "status": "succeeded",
+        "code_source": "fenced_python",
+        "code_bytes": 12,
+        "valid": true,
+        "latency_ms": 0.5,
+        "result_ref": "toolres_01J00000000000000000000001"
+      }
+    },
+    {
+      "event_type": "turn.completed",
+      "event_seq": 3,
+      "data": {
+        "event_seq": 3,
+        "run_id": "run_01J00000000000000000000001",
+        "turn_index": 1,
+        "user_message_id": "msg_01J00000000000000000000001",
+        "assistant_message_id": "msg_01J00000000000000000000002",
+        "reflection_pending": true,
+        "job_id": "job_01J00000000000000000000001"
+      }
+    }
+  ]
+}

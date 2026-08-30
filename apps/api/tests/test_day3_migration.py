@@ -24,7 +24,7 @@ from memtrace_api.readiness import DatabaseRevisionError, ensure_database_curren
 from memtrace_api.schemas import utc_now
 
 ALEMBIC_INI = str(PROJECT_ROOT / "apps" / "api" / "alembic.ini")
-EXPECTED_HEAD = "006_conversation_first_memory"
+EXPECTED_HEAD = "007_day7_public_release"
 
 
 def _run_alembic(db_url: str, *args: str) -> None:
@@ -96,7 +96,7 @@ def test_fresh_empty_database_upgrades_to_head() -> None:
     engine.dispose()
 
 
-def test_day5_to_day6_downgrade_and_reupgrade_cycle() -> None:
+def test_day5_to_day7_downgrade_and_reupgrade_cycle() -> None:
     _, db_url = _new_db("day6-cycle.sqlite3")
     _run_alembic(db_url, "upgrade", "005_g4_memory_center_pack")
     engine = create_engine(db_url)
@@ -141,6 +141,74 @@ def test_day5_to_day6_downgrade_and_reupgrade_cycle() -> None:
         & tables_after_down
     )
     assert "memory_kind_v2" not in card_columns_after_down
+    engine.dispose()
+
+    _run_alembic(db_url, "upgrade", EXPECTED_HEAD)
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        assert ensure_database_current(session) == EXPECTED_HEAD
+    engine.dispose()
+
+
+def test_day6_to_day7_downgrade_and_reupgrade_cycle() -> None:
+    _, db_url = _new_db("day7-cycle.sqlite3")
+    _run_alembic(db_url, "upgrade", "006_conversation_first_memory")
+    engine = create_engine(db_url)
+    with engine.connect() as conn:
+        tables_at_006 = {
+            row[0]
+            for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+        }
+        tool_columns_at_006 = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(tool_calls)"))
+        }
+        run_columns_at_006 = {row[1] for row in conn.execute(text("PRAGMA table_info(agent_runs)"))}
+    assert "local_accounts" not in tables_at_006
+    assert "first_token_ms" in run_columns_at_006
+    assert "provider_model" not in tool_columns_at_006
+    engine.dispose()
+
+    _run_alembic(db_url, "upgrade", EXPECTED_HEAD)
+    engine = create_engine(db_url)
+    with engine.connect() as conn:
+        tables_at_007 = {
+            row[0]
+            for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+        }
+        tool_columns_at_007 = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(tool_calls)"))
+        }
+    assert {
+        "local_accounts",
+        "registration_invites",
+        "account_recovery_credentials",
+        "auth_rate_limit_buckets",
+        "daily_turn_quotas",
+    } <= tables_at_007
+    assert {
+        "provider_mode",
+        "provider_model",
+        "prompt_hash",
+        "prompt_tokens",
+        "output_tokens",
+        "total_tokens",
+        "token_source",
+        "provider_latency_ms",
+    } <= tool_columns_at_007
+    engine.dispose()
+
+    _run_alembic(db_url, "downgrade", "006_conversation_first_memory")
+    engine = create_engine(db_url)
+    with engine.connect() as conn:
+        tables_after_down = {
+            row[0]
+            for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+        }
+        tool_columns_after_down = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(tool_calls)"))
+        }
+    assert "local_accounts" not in tables_after_down
+    assert "provider_model" not in tool_columns_after_down
     engine.dispose()
 
     _run_alembic(db_url, "upgrade", EXPECTED_HEAD)

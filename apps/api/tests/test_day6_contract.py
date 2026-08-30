@@ -57,7 +57,7 @@ def test_g5_rest_definitions_match_actual_openapi_components() -> None:
     for name in G5_REST_ROOTS:
         assert normative["$defs"][name] == _rewrite_refs(openapi["components"]["schemas"][name])
     assert normative["description"] == (
-        "Normative MemTrace G1-G5 REST request and response bodies."
+        "Normative MemTrace G1-G5 and Day 7 public-release REST request and response bodies."
     )
 
 

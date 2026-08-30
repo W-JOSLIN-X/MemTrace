@@ -33,3 +33,16 @@ Day 6 freezes the conversation-first G5 contract at `2.0.0`:
 - `fixtures/day6/semantic_cases.json` and `fixtures/day6/ab_cases.json` require a
   real provider. Fake or Mock results may exercise engineering failure paths but
   cannot satisfy these semantic gates.
+
+Day 7 freezes the public release wire contract at `2.1.0` without removing the
+legacy G1-G4 compatibility projections:
+
+- `day7-release.json` is the audit manifest for public accounts, quota,
+  streaming, unified v2 memory APIs, Memory Pack v2, and release evaluation.
+- `schemas/conversation-events.schema.json` validates decoded Day 7 task SSE
+  frames. `assistant.delta` is transient; the three `turn.*` events are
+  persistent and metadata-only.
+- `schemas/memory-pack-v2.schema.json` validates the anonymous G5 memory format.
+  The original `memory-pack.schema.json` remains the G4 compatibility schema.
+- `examples/day7-release.json` contains synthetic contract-shape examples only;
+  it is not real-provider semantic evidence.

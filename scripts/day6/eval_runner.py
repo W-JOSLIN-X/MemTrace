@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from dotenv import dotenv_values
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -43,10 +44,48 @@ class GateFailure(RuntimeError):
         self.details = details or {}
 
 
+def _provider_config(env_file: Path | None) -> tuple[str, str, str]:
+    values: dict[str, str | None] = {}
+    if env_file is not None:
+        try:
+            values = dict(dotenv_values(env_file))
+        except OSError as exc:
+            raise GateFailure("REAL_PROVIDER_ENV_FILE_UNREADABLE") from exc
+
+    def setting(name: str, default: str = "") -> str:
+        return (os.environ.get(name) or values.get(name) or default).strip()
+
+    api_key = setting("LLM_API_KEY")
+    if not api_key:
+        key_file = setting("LLM_API_KEY_FILE")
+        if key_file:
+            try:
+                api_key = Path(key_file).read_text(encoding="utf-8").strip()
+            except OSError as exc:
+                raise GateFailure("LLM_API_KEY_FILE_UNREADABLE") from exc
+    if len(api_key.encode("utf-8")) > 16_384:
+        raise GateFailure("LLM_API_KEY_INVALID")
+    return (
+        api_key,
+        setting("LLM_MODEL"),
+        setting("LLM_BASE_URL", "https://api.deepseek.com"),
+    )
+
+
 class RestClient:
-    def __init__(self, base_url: str, *, timeout: float) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        timeout: float,
+        auth_mode: Literal["demo", "public"] = "demo",
+        origin: str | None = None,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.auth_mode = auth_mode
+        self.origin = origin
+        self.csrf_token: str | None = None
         jar = http.cookiejar.CookieJar()
         self._opener = urllib.request.build_opener(
             urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(jar)
@@ -67,6 +106,11 @@ class RestClient:
             data = json.dumps(body, ensure_ascii=False).encode("utf-8")
         if idempotency_key is not None:
             headers["Idempotency-Key"] = idempotency_key
+        if self.csrf_token is not None and method not in {"GET", "HEAD", "OPTIONS"}:
+            if self.origin is None:
+                raise GateFailure("PUBLIC_ORIGIN_NOT_CONFIGURED")
+            headers["Origin"] = self.origin
+            headers["X-CSRF-Token"] = self.csrf_token
         request = urllib.request.Request(
             f"{self.base_url}{path}",
             data=data,
@@ -81,6 +125,30 @@ class RestClient:
             return exc.code, _parse_json(exc.read())
         except (TimeoutError, urllib.error.URLError, OSError) as exc:
             raise GateFailure("REST_TRANSPORT_ERROR") from exc
+
+    def login(self, username: str, password: str) -> None:
+        status, payload = self.request(
+            "POST",
+            "/api/v2/auth/login",
+            {"username": username, "password": password},
+        )
+        if status != 200 or not isinstance(payload, dict):
+            raise GateFailure("PUBLIC_LOGIN_FAILED")
+        csrf = payload.get("csrf_token")
+        if not isinstance(csrf, str) or len(csrf) < 32:
+            raise GateFailure("PUBLIC_CSRF_MISSING")
+        self.csrf_token = csrf
+
+    def select_demo(self, alias: str) -> None:
+        if self.auth_mode == "public":
+            return
+        _expect(
+            self,
+            "POST",
+            "/api/v1/session/demo",
+            status=200,
+            body={"demo_alias": alias},
+        )
 
 
 def _parse_json(raw: bytes) -> Any:
@@ -130,13 +198,7 @@ def _expect(
 
 
 def _switch_user(client: RestClient, alias: str) -> None:
-    _expect(
-        client,
-        "POST",
-        "/api/v1/session/demo",
-        status=200,
-        body={"demo_alias": alias},
-    )
+    client.select_demo(alias)
 
 
 def _check_ready(client: RestClient) -> None:
@@ -650,18 +712,6 @@ def _evaluate_semantic_case(
         _cleanup_memories(primary, tracked)
 
 
-def _extract_response_text(data: dict[str, Any]) -> str:
-    for item in data.get("output", []):
-        if not isinstance(item, dict) or item.get("type") != "message":
-            continue
-        for content in item.get("content", []):
-            if isinstance(content, dict) and content.get("type") == "output_text":
-                text = content.get("text")
-                if isinstance(text, str) and text:
-                    return text
-    raise GateFailure("BLIND_JUDGE_EMPTY_OUTPUT")
-
-
 def _blind_judge(
     *,
     answer_a: str,
@@ -702,7 +752,8 @@ def _blind_judge(
         "You are an independent blind evaluator. Compare Answer A and Answer B only "
         "against the supplied observable criterion. Do not infer which system produced "
         "either answer. Mark critical_regression true for a material factual, safety, or "
-        "explicit-instruction regression. Return only the strict JSON object."
+        "explicit-instruction regression. Call submit_blind_judgment exactly once with the "
+        "five required judgment fields. Do not emit a prose answer."
     )
     payload = json.dumps(
         {"criterion": criterion, "answer_a": answer_a, "answer_b": answer_b},
@@ -727,13 +778,17 @@ def _blind_judge(
                     max_output_tokens=512,
                     temperature=0.0,
                     reasoning={"effort": "none"},
-                    text={
-                        "format": {
-                            "type": "json_schema",
-                            "name": "memory_effect_blind_judgment",
-                            "schema": schema,
-                            "strict": True,
+                    tools=[
+                        {
+                            "type": "function",
+                            "name": "submit_blind_judgment",
+                            "description": "Submit the complete blind comparison result.",
+                            "parameters": schema,
                         }
+                    ],
+                    tool_choice={
+                        "type": "function",
+                        "name": "submit_blind_judgment",
                     },
                 )
                 data = response.model_dump()
@@ -784,13 +839,43 @@ def _blind_judge(
         for value in (input_tokens, output_tokens, total_tokens)
     ):
         raise GateFailure("BLIND_JUDGE_MISSING_USAGE")
-    raw = _extract_response_text(data)
+    calls = [
+        item
+        for item in data.get("output", [])
+        if isinstance(item, dict)
+        and item.get("type") == "function_call"
+        and item.get("name") == "submit_blind_judgment"
+    ]
+    if len(calls) != 1 or not isinstance(calls[0].get("arguments"), str):
+        raise GateFailure(
+            "BLIND_JUDGE_TOOL_CALL_INVALID",
+            {"matching_call_count": len(calls)},
+        )
+    raw = calls[0]["arguments"]
     try:
         result = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise GateFailure("BLIND_JUDGE_INVALID_JSON") from exc
-    if not isinstance(result, dict) or set(result) != set(schema["required"]):
-        raise GateFailure("BLIND_JUDGE_SCHEMA_REJECTED")
+    expected_fields = set(schema["required"])
+    if not isinstance(result, dict):
+        raise GateFailure(
+            "BLIND_JUDGE_SCHEMA_REJECTED",
+            {"result_type": type(result).__name__},
+        )
+    actual_fields = set(result)
+    if actual_fields != expected_fields:
+        raise GateFailure(
+            "BLIND_JUDGE_SCHEMA_REJECTED",
+            {
+                "missing_fields": sorted(expected_fields - actual_fields),
+                "unexpected_field_count": len(actual_fields - expected_fields),
+                "schema_definition_shape": {
+                    "type",
+                    "properties",
+                    "required",
+                }.issubset(actual_fields),
+            },
+        )
     if result.get("winner") not in {"A", "B", "tie"}:
         raise GateFailure("BLIND_JUDGE_SCHEMA_REJECTED")
     if result.get("reason_code") not in schema["properties"]["reason_code"]["enum"]:
@@ -1004,34 +1089,82 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--case-id", action="append", default=[])
     parser.add_argument("--request-timeout", type=float, default=180.0)
     parser.add_argument("--poll-timeout", type=float, default=300.0)
+    parser.add_argument("--auth-mode", choices=("demo", "public"), default="demo")
+    parser.add_argument("--origin")
+    parser.add_argument("--primary-username")
+    parser.add_argument("--primary-password-file", type=Path)
+    parser.add_argument("--secondary-username")
+    parser.add_argument("--secondary-password-file", type=Path)
+    parser.add_argument("--env-file", type=Path)
     return parser.parse_args()
+
+
+def _read_credential(path: Path | None) -> str:
+    if path is None:
+        raise GateFailure("PUBLIC_CREDENTIAL_FILE_MISSING")
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise GateFailure("PUBLIC_CREDENTIAL_FILE_UNREADABLE") from exc
+    if not value or len(value.encode()) > 1024:
+        raise GateFailure("PUBLIC_CREDENTIAL_FILE_INVALID")
+    return value
 
 
 def main() -> int:
     args = parse_args()
-    api_key = os.environ.get("LLM_API_KEY", "").strip()
-    expected_model = os.environ.get("LLM_MODEL", "").strip()
-    base_url = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com").strip()
+    try:
+        api_key, expected_model, base_url = _provider_config(args.env_file)
+        config_failure: str | None = None
+    except GateFailure as exc:
+        api_key, expected_model, base_url = "", "", ""
+        config_failure = exc.code
     report: dict[str, Any] = {
         "schema_version": "2.0.0",
         "runner": "day6-real-rest-only",
         "provider_mode": "real",
+        "auth_mode": args.auth_mode,
         "has_llm_api_key": bool(api_key),
         "model": expected_model or None,
         "semantic": [],
         "ab": [],
     }
     exit_code = 0
-    if not api_key or not expected_model:
-        report["failure_code"] = "REAL_PROVIDER_NOT_CONFIGURED"
+    if config_failure or not api_key or not expected_model:
+        report["failure_code"] = config_failure or "REAL_PROVIDER_NOT_CONFIGURED"
         exit_code = 2
     else:
         try:
             semantic_cases = _load_fixture(args.semantic_fixture, expected_count=16)
             ab_cases = _load_fixture(args.ab_fixture, expected_count=8)
             selected_ids = set(args.case_id)
-            primary = RestClient(args.base_url, timeout=args.request_timeout)
-            secondary = RestClient(args.base_url, timeout=args.request_timeout)
+            primary = RestClient(
+                args.base_url,
+                timeout=args.request_timeout,
+                auth_mode=args.auth_mode,
+                origin=args.origin,
+            )
+            secondary = RestClient(
+                args.base_url,
+                timeout=args.request_timeout,
+                auth_mode=args.auth_mode,
+                origin=args.origin,
+            )
+            if args.auth_mode == "public":
+                if (
+                    not args.origin
+                    or not args.primary_username
+                    or not args.secondary_username
+                ):
+                    raise GateFailure("PUBLIC_CREDENTIALS_NOT_CONFIGURED")
+                primary.login(
+                    args.primary_username,
+                    _read_credential(args.primary_password_file),
+                )
+                secondary.login(
+                    args.secondary_username,
+                    _read_credential(args.secondary_password_file),
+                )
             _check_ready(primary)
             _check_ready(secondary)
             _assert_clean_active_baseline(primary, "blank_demo")

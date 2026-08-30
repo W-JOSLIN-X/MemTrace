@@ -5,6 +5,778 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v2/auth/register": {
+      "post": {
+        "tags": [
+          "public-auth"
+        ],
+        "summary": "Register",
+        "operationId": "register_api_v2_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/auth/login": {
+      "post": {
+        "tags": [
+          "public-auth"
+        ],
+        "summary": "Login",
+        "operationId": "login_api_v2_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSessionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/auth/session": {
+      "get": {
+        "tags": [
+          "public-auth"
+        ],
+        "summary": "Session Info",
+        "operationId": "session_info_api_v2_auth_session_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSessionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/auth/logout": {
+      "post": {
+        "tags": [
+          "public-auth"
+        ],
+        "summary": "Logout",
+        "operationId": "logout_api_v2_auth_logout_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthActionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/auth/logout-all": {
+      "post": {
+        "tags": [
+          "public-auth"
+        ],
+        "summary": "Logout All",
+        "operationId": "logout_all_api_v2_auth_logout_all_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthActionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/auth/change-password": {
+      "post": {
+        "tags": [
+          "public-auth"
+        ],
+        "summary": "Change Password",
+        "operationId": "change_password_api_v2_auth_change_password_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthActionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/auth/recover": {
+      "post": {
+        "tags": [
+          "public-auth"
+        ],
+        "summary": "Recover",
+        "operationId": "recover_api_v2_auth_recover_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoverRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/auth/recovery-code/rotate": {
+      "post": {
+        "tags": [
+          "public-auth"
+        ],
+        "summary": "Rotate Recovery Code",
+        "operationId": "rotate_recovery_code_api_v2_auth_recovery_code_rotate_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryCodeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/auth/account/preferences": {
+      "patch": {
+        "tags": [
+          "public-auth"
+        ],
+        "summary": "Update Preferences",
+        "operationId": "update_preferences_api_v2_auth_account_preferences_patch",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountPreferencesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthActionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/auth/account": {
+      "delete": {
+        "tags": [
+          "public-auth"
+        ],
+        "summary": "Delete Account",
+        "operationId": "delete_account_api_v2_auth_account_delete",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteAccountRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthActionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/system": {
+      "get": {
+        "tags": [
+          "public-release"
+        ],
+        "summary": "System Info",
+        "operationId": "system_info_api_v2_system_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/tasks": {
+      "get": {
+        "tags": [
+          "public-release"
+        ],
+        "summary": "List Conversations",
+        "operationId": "list_conversations_api_v2_tasks_get",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "V2 Create Conversation Task",
+        "operationId": "v2_create_conversation_task_api_v2_tasks_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationTaskCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationTaskCreateResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/tasks/{task_id}/stream": {
+      "get": {
+        "tags": [
+          "public-release"
+        ],
+        "summary": "Task Stream",
+        "operationId": "task_stream_api_v2_tasks__task_id__stream_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "after_event_seq",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "After Event Seq"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "summary": "Health",
@@ -111,24 +883,6 @@
       "get": {
         "summary": "Get Session",
         "operationId": "get_session_api_v1_session_get",
-        "parameters": [
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -141,21 +895,11 @@
             }
           },
           "401": {
+            "description": "Unauthorized",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -221,22 +965,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -318,22 +1046,6 @@
               "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
               "title": "Task Id"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "responses": {
@@ -407,22 +1119,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -549,22 +1245,6 @@
               ],
               "title": "Last-Event-Id"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "responses": {
@@ -651,22 +1331,6 @@
               ],
               "title": "Idempotency-Key"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "requestBody": {
@@ -747,22 +1411,6 @@
               "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$",
               "title": "Job Id"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "responses": {
@@ -838,22 +1486,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -940,22 +1572,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -1175,22 +1791,6 @@
               ],
               "title": "Cursor"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "responses": {
@@ -1250,22 +1850,6 @@
               "type": "string",
               "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
               "title": "Memory Id"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -1340,22 +1924,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -1451,22 +2019,6 @@
               ],
               "title": "Idempotency-Key"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "requestBody": {
@@ -1547,22 +2099,6 @@
               "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
               "title": "Task Id"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "responses": {
@@ -1622,22 +2158,6 @@
               "type": "string",
               "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
               "title": "Task Id"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -1714,22 +2234,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -1827,22 +2331,6 @@
               ],
               "title": "Idempotency-Key"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "requestBody": {
@@ -1938,22 +2426,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -2051,22 +2523,6 @@
               ],
               "title": "Idempotency-Key"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "requestBody": {
@@ -2163,22 +2619,6 @@
               ],
               "title": "Cursor"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "responses": {
@@ -2259,22 +2699,6 @@
               "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
               "title": "To Version Id"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "responses": {
@@ -2350,22 +2774,6 @@
                 }
               ],
               "title": "Cursor"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -2452,22 +2860,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -2565,22 +2957,6 @@
               ],
               "title": "Cursor"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "responses": {
@@ -2667,22 +3043,6 @@
               ],
               "title": "Cursor"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "responses": {
@@ -2736,22 +3096,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -2833,22 +3177,6 @@
               "pattern": "^rel_[0-9A-HJKMNP-TV-Z]{26}$",
               "title": "Relation Id"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "responses": {
@@ -2924,22 +3252,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -3027,22 +3339,6 @@
               ],
               "title": "Idempotency-Key"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "requestBody": {
@@ -3113,33 +3409,15 @@
       "post": {
         "summary": "Export Memory Pack",
         "operationId": "export_memory_pack_api_v1_memory_packs_export_post",
-        "parameters": [
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
-          }
-        ],
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/PackExportRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -3153,24 +3431,24 @@
             }
           },
           "401": {
+            "description": "Unauthorized",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorEnvelope"
                 }
               }
-            },
-            "description": "Unauthorized"
+            }
           },
           "404": {
+            "description": "Not Found",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorEnvelope"
                 }
               }
-            },
-            "description": "Not Found"
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -3204,22 +3482,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -3286,22 +3548,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -3383,22 +3629,6 @@
               "pattern": "^batch_[0-9A-HJKMNP-TV-Z]{26}$",
               "title": "Batch Id"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "responses": {
@@ -3445,108 +3675,6 @@
         }
       }
     },
-    "/api/v2/tasks": {
-      "post": {
-        "summary": "V2 Create Conversation Task",
-        "operationId": "v2_create_conversation_task_api_v2_tasks_post",
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConversationTaskCreateRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConversationTaskCreateResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Service Unavailable"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v2/tasks/{task_id}/turns": {
       "post": {
         "summary": "V2 Create Conversation Turn",
@@ -3576,22 +3704,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -3703,22 +3815,6 @@
               "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
               "title": "Task Id"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "responses": {
@@ -3773,6 +3869,100 @@
             }
           }
         }
+      },
+      "delete": {
+        "summary": "V2 Delete Source Task",
+        "operationId": "v2_delete_source_task_api_v2_tasks__task_id__delete",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceTaskDeleteV2Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceTaskDeleteV2Response"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v2/tasks/{task_id}/events": {
@@ -3799,22 +3989,6 @@
               "minimum": 0,
               "default": 0,
               "title": "After Event Seq"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -3868,6 +4042,24 @@
         "operationId": "v2_list_memories_api_v2_memories_get",
         "parameters": [
           {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Query"
+            }
+          },
+          {
             "name": "kind",
             "in": "query",
             "required": false,
@@ -3900,6 +4092,41 @@
             }
           },
           {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "conversation_turn",
+                    "user_edit",
+                    "import"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "newest",
+                "oldest"
+              ],
+              "type": "string",
+              "default": "newest",
+              "title": "Sort"
+            }
+          },
+          {
             "name": "cursor",
             "in": "query",
             "required": false,
@@ -3926,22 +4153,6 @@
               "minimum": 1,
               "default": 20,
               "title": "Limit"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -4002,22 +4213,6 @@
               "type": "string",
               "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
               "title": "Memory Id"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -4093,10 +4288,88 @@
               ],
               "title": "Idempotency-Key"
             }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryV2EditRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryV2EditResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      },
+      "delete": {
+        "summary": "V2 Permanent Delete Memory",
+        "operationId": "v2_permanent_delete_memory_api_v2_memories__memory_id__delete",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
           },
           {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
+            "name": "Idempotency-Key",
+            "in": "header",
             "required": false,
             "schema": {
               "anyOf": [
@@ -4107,7 +4380,7 @@
                   "type": "null"
                 }
               ],
-              "title": "Memtrace Demo Session"
+              "title": "Idempotency-Key"
             }
           }
         ],
@@ -4116,7 +4389,690 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/MemoryV2EditRequest"
+                "$ref": "#/components/schemas/MemoryDeleteV2Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryDeleteV2Response"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memories/{memory_id}/version-diff": {
+      "get": {
+        "summary": "V2 Get Memory Version Diff",
+        "operationId": "v2_get_memory_version_diff_api_v2_memories__memory_id__version_diff_get",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "from_version_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "From Version Id"
+            }
+          },
+          {
+            "name": "to_version_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "To Version Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryVersionDiffV2Response"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memories/{memory_id}/usages": {
+      "get": {
+        "summary": "V2 List Memory Usages",
+        "operationId": "v2_list_memory_usages_api_v2_memories__memory_id__usages_get",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^usage_[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryUsageV2ListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memories/{memory_id}/relations": {
+      "get": {
+        "summary": "V2 List Memory Relations",
+        "operationId": "v2_list_memory_relations_api_v2_memories__memory_id__relations_get",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^rel_[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryRelationV2ListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memory-conflicts": {
+      "get": {
+        "summary": "V2 List Memory Conflicts",
+        "operationId": "v2_list_memory_conflicts_api_v2_memory_conflicts_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "unresolved",
+                    "resolved"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^rel_[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryRelationV2ListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "V2 Create Memory Conflict",
+        "operationId": "v2_create_memory_conflict_api_v2_memory_conflicts_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryConflictDetectV2Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryConflictDetectV2Response"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memory-conflicts/{relation_id}": {
+      "get": {
+        "summary": "V2 Get Memory Conflict",
+        "operationId": "v2_get_memory_conflict_api_v2_memory_conflicts__relation_id__get",
+        "parameters": [
+          {
+            "name": "relation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^rel_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Relation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryConflictDetailV2Response"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memory-conflicts/{relation_id}/resolve": {
+      "post": {
+        "summary": "V2 Resolve Memory Conflict",
+        "operationId": "v2_resolve_memory_conflict_api_v2_memory_conflicts__relation_id__resolve_post",
+        "parameters": [
+          {
+            "name": "relation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^rel_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Relation Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryConflictResolveV2Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryConflictResolveV2Response"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memories/{memory_id}/versions/restore": {
+      "post": {
+        "summary": "V2 Restore Memory Version",
+        "operationId": "v2_restore_memory_version_api_v2_memories__memory_id__versions_restore_post",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryVersionRestoreV2Request"
               }
             }
           }
@@ -4205,22 +5161,6 @@
               ],
               "title": "Idempotency-Key"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "responses": {
@@ -4306,22 +5246,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -4409,22 +5333,6 @@
               ],
               "title": "Idempotency-Key"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "responses": {
@@ -4511,10 +5419,80 @@
               ],
               "title": "Idempotency-Key"
             }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryLifecycleV2Response"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memories/{memory_id}/archive": {
+      "post": {
+        "summary": "V2 Archive Memory",
+        "operationId": "v2_archive_memory_api_v2_memories__memory_id__archive_post",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
           },
           {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
+            "name": "Idempotency-Key",
+            "in": "header",
             "required": false,
             "schema": {
               "anyOf": [
@@ -4525,7 +5503,7 @@
                   "type": "null"
                 }
               ],
-              "title": "Memtrace Demo Session"
+              "title": "Idempotency-Key"
             }
           }
         ],
@@ -4536,6 +5514,302 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MemoryLifecycleV2Response"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memories/{memory_id}/restore": {
+      "post": {
+        "summary": "V2 Restore Memory",
+        "operationId": "v2_restore_memory_api_v2_memories__memory_id__restore_post",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryLifecycleV2Response"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memory-packs/export": {
+      "post": {
+        "summary": "V2 Export Memory Pack",
+        "operationId": "v2_export_memory_pack_api_v2_memory_packs_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PackExportV2Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryPackV2Document"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/memory-packs/import/preview": {
+      "post": {
+        "summary": "V2 Preview Memory Pack",
+        "operationId": "v2_preview_memory_pack_api_v2_memory_packs_import_preview_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackPreviewV2Response"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v2/memory-packs/import/commit": {
+      "post": {
+        "summary": "V2 Commit Memory Pack",
+        "operationId": "v2_commit_memory_pack_api_v2_memory_packs_import_commit_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportCommitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportCommitV2Response"
                 }
               }
             }
@@ -4597,22 +5871,6 @@
               "minimum": 0,
               "default": 0,
               "title": "After Seq"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -4685,22 +5943,6 @@
               "default": 0,
               "title": "After Seq"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "responses": {
@@ -4761,22 +6003,6 @@
               "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$",
               "title": "Job Id"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "responses": {
@@ -4836,22 +6062,6 @@
               "type": "string",
               "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$",
               "title": "Job Id"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -4917,22 +6127,6 @@
               "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$",
               "title": "Job Id"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "responses": {
@@ -4996,22 +6190,6 @@
               "type": "string",
               "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
               "title": "Task Id"
-            }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
             }
           }
         ],
@@ -5103,22 +6281,6 @@
               ],
               "title": "Idempotency-Key"
             }
-          },
-          {
-            "name": "memtrace_demo_session",
-            "in": "cookie",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Memtrace Demo Session"
-            }
           }
         ],
         "requestBody": {
@@ -5188,6 +6350,53 @@
   },
   "components": {
     "schemas": {
+      "AccountPreferencesRequest": {
+        "properties": {
+          "default_memory_mode": {
+            "$ref": "#/components/schemas/EffectiveMemoryMode"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "default_memory_mode"
+        ],
+        "title": "AccountPreferencesRequest"
+      },
+      "AccountProjection": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 3,
+            "pattern": "^[a-z0-9_]{3,32}$",
+            "title": "Username"
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Display Name"
+          },
+          "status": {
+            "type": "string",
+            "const": "active",
+            "title": "Status"
+          },
+          "default_memory_mode": {
+            "$ref": "#/components/schemas/EffectiveMemoryMode"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "username",
+          "display_name",
+          "status",
+          "default_memory_mode"
+        ],
+        "title": "AccountProjection"
+      },
       "ActiveMemoryEditRequest": {
         "properties": {
           "expected_current_version_id": {
@@ -5336,6 +6545,103 @@
         ],
         "title": "Audience"
       },
+      "AuthActionResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "logged_out",
+              "all_sessions_revoked",
+              "password_changed",
+              "account_deleted",
+              "preferences_updated"
+            ],
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "status"
+        ],
+        "title": "AuthActionResponse"
+      },
+      "AuthSessionResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "authenticated": {
+            "type": "boolean",
+            "const": true,
+            "title": "Authenticated",
+            "default": true
+          },
+          "account": {
+            "$ref": "#/components/schemas/AccountProjection"
+          },
+          "csrf_token": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 43,
+            "title": "Csrf Token"
+          },
+          "session_expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Session Expires At"
+          },
+          "quota": {
+            "$ref": "#/components/schemas/QuotaProjection"
+          },
+          "provider_mode": {
+            "$ref": "#/components/schemas/ProviderMode"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Model"
+          },
+          "key_configured": {
+            "type": "boolean",
+            "title": "Key Configured"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "account",
+          "csrf_token",
+          "session_expires_at",
+          "quota",
+          "provider_mode",
+          "model",
+          "key_configured"
+        ],
+        "title": "AuthSessionResponse"
+      },
       "CandidateResolveAction": {
         "type": "string",
         "enum": [
@@ -5345,6 +6651,36 @@
           "one_shot"
         ],
         "title": "CandidateResolveAction"
+      },
+      "ChangePasswordRequest": {
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "Current Password"
+          },
+          "new_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "New Password"
+          },
+          "new_password_confirmation": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "New Password Confirmation"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "current_password",
+          "new_password",
+          "new_password_confirmation"
+        ],
+        "title": "ChangePasswordRequest"
       },
       "ClassificationReasonCode": {
         "type": "string",
@@ -5451,6 +6787,92 @@
         ],
         "title": "ConsolidationReasonCode"
       },
+      "ConversationListItem": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Task Id"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "memory_mode": {
+            "$ref": "#/components/schemas/EffectiveMemoryMode"
+          },
+          "message_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Message Count"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "task_id",
+          "title",
+          "memory_mode",
+          "message_count",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ConversationListItem"
+      },
+      "ConversationListResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationListItem"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "items"
+        ],
+        "title": "ConversationListResponse"
+      },
       "ConversationMessageProjection": {
         "properties": {
           "message_id": {
@@ -5516,9 +6938,9 @@
         "properties": {
           "schema_version": {
             "type": "string",
-            "const": "2.0.0",
+            "const": "2.1.0",
             "title": "Schema Version",
-            "default": "2.0.0"
+            "default": "2.1.0"
           },
           "request_id": {
             "type": "string",
@@ -5564,9 +6986,9 @@
         "properties": {
           "schema_version": {
             "type": "string",
-            "const": "2.0.0",
+            "const": "2.1.0",
             "title": "Schema Version",
-            "default": "2.0.0"
+            "default": "2.1.0"
           },
           "request_id": {
             "type": "string",
@@ -5670,9 +7092,9 @@
         "properties": {
           "schema_version": {
             "type": "string",
-            "const": "2.0.0",
+            "const": "2.1.0",
             "title": "Schema Version",
-            "default": "2.0.0"
+            "default": "2.1.0"
           },
           "request_id": {
             "type": "string",
@@ -5722,6 +7144,14 @@
             "type": "array",
             "maxItems": 50,
             "title": "Memory Decisions"
+          },
+          "tool_calls": {
+            "items": {
+              "$ref": "#/components/schemas/ToolCallSnapshot"
+            },
+            "type": "array",
+            "maxItems": 1,
+            "title": "Tool Calls"
           },
           "usage": {
             "items": {
@@ -5781,6 +7211,14 @@
             "maxItems": 50,
             "title": "Memory Decisions"
           },
+          "tool_calls": {
+            "items": {
+              "$ref": "#/components/schemas/ToolCallSnapshot"
+            },
+            "type": "array",
+            "maxItems": 1,
+            "title": "Tool Calls"
+          },
           "usage": {
             "items": {
               "$ref": "#/components/schemas/StageUsageProjection"
@@ -5829,6 +7267,30 @@
           "source"
         ],
         "title": "CurrentConstraints"
+      },
+      "DeleteAccountRequest": {
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "Current Password"
+          },
+          "confirm_username": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 3,
+            "pattern": "^[a-z0-9_]{3,32}$",
+            "title": "Confirm Username"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "current_password",
+          "confirm_username"
+        ],
+        "title": "DeleteAccountRequest"
       },
       "DemoAlias": {
         "type": "string",
@@ -5948,7 +7410,17 @@
           "IMPORT_BATCH_NOT_FOUND",
           "IMPORT_BATCH_EXPIRED",
           "IMPORT_PREVIEW_TOKEN_INVALID",
-          "IMPORT_BATCH_STATE_CONFLICT"
+          "IMPORT_BATCH_STATE_CONFLICT",
+          "AUTHENTICATION_FAILED",
+          "ACCOUNT_REQUIRED",
+          "INVITATION_INVALID",
+          "RECOVERY_FAILED",
+          "RATE_LIMITED",
+          "CSRF_INVALID",
+          "ORIGIN_INVALID",
+          "QUOTA_EXHAUSTED",
+          "CONCURRENT_TURN_LIMIT",
+          "ACCOUNT_CONFIRMATION_MISMATCH"
         ],
         "title": "ErrorCode"
       },
@@ -6065,6 +7537,31 @@
               }
             ],
             "title": "Http Status"
+          },
+          "retry_after_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 86400.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry After Seconds"
+          },
+          "quota_remaining": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quota Remaining"
           }
         },
         "additionalProperties": false,
@@ -6485,6 +7982,75 @@
         ],
         "title": "ImportCommitResponse"
       },
+      "ImportCommitV2Response": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "batch_id": {
+            "type": "string",
+            "pattern": "^batch_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Batch Id"
+          },
+          "inserted_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Inserted Count"
+          },
+          "skipped_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Skipped Count"
+          },
+          "warning_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Warning Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "batch_id",
+          "inserted_count",
+          "skipped_count",
+          "warning_count"
+        ],
+        "title": "ImportCommitV2Response"
+      },
+      "LoginRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 3,
+            "pattern": "^[a-z0-9_]{3,32}$",
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
       "MemoryCard": {
         "properties": {
           "memory_id": {
@@ -6841,6 +8407,12 @@
       },
       "MemoryConfirmResponse": {
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
           "request_id": {
             "type": "string",
             "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
@@ -6902,6 +8474,39 @@
           "right"
         ],
         "title": "MemoryConflictDetailResponse"
+      },
+      "MemoryConflictDetailV2Response": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "relation": {
+            "$ref": "#/components/schemas/MemoryRelationV2Projection"
+          },
+          "left": {
+            "$ref": "#/components/schemas/MemoryV2Projection"
+          },
+          "right": {
+            "$ref": "#/components/schemas/MemoryV2Projection"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "relation",
+          "left",
+          "right"
+        ],
+        "title": "MemoryConflictDetailV2Response"
       },
       "MemoryConflictDetectRequest": {
         "properties": {
@@ -6980,6 +8585,64 @@
           "right_memory_id"
         ],
         "title": "MemoryConflictDetectResponse"
+      },
+      "MemoryConflictDetectV2Request": {
+        "properties": {
+          "left_memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Left Memory Id"
+          },
+          "left_expected_current_version_id": {
+            "type": "string",
+            "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Left Expected Current Version Id"
+          },
+          "right_memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Right Memory Id"
+          },
+          "right_expected_current_version_id": {
+            "type": "string",
+            "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Right Expected Current Version Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "left_memory_id",
+          "left_expected_current_version_id",
+          "right_memory_id",
+          "right_expected_current_version_id"
+        ],
+        "title": "MemoryConflictDetectV2Request"
+      },
+      "MemoryConflictDetectV2Response": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "relation": {
+            "$ref": "#/components/schemas/MemoryRelationV2Projection"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "relation"
+        ],
+        "title": "MemoryConflictDetectV2Response"
       },
       "MemoryConflictResolveRequest": {
         "properties": {
@@ -7099,6 +8762,148 @@
         ],
         "title": "MemoryConflictResolveResponse"
       },
+      "MemoryConflictResolveV2Request": {
+        "properties": {
+          "expected_relation_status": {
+            "type": "string",
+            "const": "unresolved",
+            "title": "Expected Relation Status",
+            "default": "unresolved"
+          },
+          "left_expected_current_version_id": {
+            "type": "string",
+            "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Left Expected Current Version Id"
+          },
+          "right_expected_current_version_id": {
+            "type": "string",
+            "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Right Expected Current Version Id"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "prefer",
+              "separate_scopes",
+              "merge",
+              "pause_both"
+            ],
+            "title": "Action"
+          },
+          "preferred_memory_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preferred Memory Id"
+          },
+          "left_applies_when": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500,
+                "minLength": 4
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Left Applies When"
+          },
+          "right_applies_when": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500,
+                "minLength": 4
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Right Applies When"
+          },
+          "merged_memory": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MergedMemoryV2Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "left_expected_current_version_id",
+          "right_expected_current_version_id",
+          "action"
+        ],
+        "title": "MemoryConflictResolveV2Request"
+      },
+      "MemoryConflictResolveV2Response": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "relation_id": {
+            "type": "string",
+            "pattern": "^rel_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Relation Id"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "prefer",
+              "separate_scopes",
+              "merge",
+              "pause_both"
+            ],
+            "title": "Action"
+          },
+          "status": {
+            "type": "string",
+            "const": "resolved",
+            "title": "Status",
+            "default": "resolved"
+          },
+          "resolution_memory_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Memory Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "relation_id",
+          "action"
+        ],
+        "title": "MemoryConflictResolveV2Response"
+      },
       "MemoryDeleteRequest": {
         "properties": {
           "expected_current_version_id": {
@@ -7160,6 +8965,67 @@
         ],
         "title": "MemoryDeleteResponse"
       },
+      "MemoryDeleteV2Request": {
+        "properties": {
+          "expected_current_version_id": {
+            "type": "string",
+            "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Expected Current Version Id"
+          },
+          "confirm_content": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 4,
+            "title": "Confirm Content"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_current_version_id",
+          "confirm_content"
+        ],
+        "title": "MemoryDeleteV2Request"
+      },
+      "MemoryDeleteV2Response": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Id"
+          },
+          "status": {
+            "type": "string",
+            "const": "deleted",
+            "title": "Status",
+            "default": "deleted"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Deleted At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "memory_id",
+          "deleted_at"
+        ],
+        "title": "MemoryDeleteV2Response"
+      },
       "MemoryDetailResponse": {
         "properties": {
           "request_id": {
@@ -7202,6 +9068,12 @@
       },
       "MemoryDetailV2Response": {
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
           "request_id": {
             "type": "string",
             "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
@@ -7239,6 +9111,12 @@
       },
       "MemoryDismissResponse": {
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
           "request_id": {
             "type": "string",
             "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
@@ -7276,6 +9154,12 @@
       },
       "MemoryEventListResponse": {
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
           "request_id": {
             "type": "string",
             "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
@@ -7520,6 +9404,11 @@
             "pattern": "^msg_[0-9A-HJKMNP-TV-Z]{26}$",
             "title": "Message Id"
           },
+          "task_id": {
+            "type": "string",
+            "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Task Id"
+          },
           "turn_index": {
             "type": "integer",
             "minimum": 1.0,
@@ -7548,6 +9437,7 @@
         "required": [
           "evidence_id",
           "message_id",
+          "task_id",
           "turn_index",
           "source_type",
           "is_primary",
@@ -7570,6 +9460,12 @@
       },
       "MemoryFeedbackResponse": {
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
           "request_id": {
             "type": "string",
             "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
@@ -7761,6 +9657,12 @@
       },
       "MemoryLifecycleV2Response": {
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
           "request_id": {
             "type": "string",
             "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
@@ -8098,6 +10000,223 @@
         ],
         "title": "MemoryPackRelation"
       },
+      "MemoryPackV2Card": {
+        "properties": {
+          "external_id": {
+            "type": "string",
+            "pattern": "^card_[A-Za-z0-9_-]{1,64}$",
+            "title": "External Id"
+          },
+          "schema_version": {
+            "type": "string",
+            "const": "2.0",
+            "title": "Schema Version",
+            "default": "2.0"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/MemoryKindV2"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 4,
+            "title": "Content"
+          },
+          "applies_when": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 4,
+            "title": "Applies When"
+          },
+          "claimed_origin": {
+            "$ref": "#/components/schemas/MemoryPackV2Origin"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "external_id",
+          "kind",
+          "content",
+          "applies_when",
+          "claimed_origin",
+          "version",
+          "updated_at"
+        ],
+        "title": "MemoryPackV2Card"
+      },
+      "MemoryPackV2Document": {
+        "properties": {
+          "schema_ref": {
+            "type": "string",
+            "const": "memtrace-memory-pack@2.0.0",
+            "title": "Schema Ref"
+          },
+          "format": {
+            "type": "string",
+            "const": "memtrace-memory-pack",
+            "title": "Format"
+          },
+          "format_version": {
+            "type": "string",
+            "const": "2.0.0",
+            "title": "Format Version"
+          },
+          "pack_id": {
+            "type": "string",
+            "pattern": "^pack_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Pack Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Description"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "producer": {
+            "$ref": "#/components/schemas/PackProducer"
+          },
+          "source": {
+            "$ref": "#/components/schemas/PackSource"
+          },
+          "privacy": {
+            "$ref": "#/components/schemas/PackPrivacy"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryPackV2Card"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Cards"
+          },
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryPackV2Relation"
+            },
+            "type": "array",
+            "maxItems": 400,
+            "title": "Relations"
+          },
+          "integrity": {
+            "$ref": "#/components/schemas/PackIntegrity"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_ref",
+          "format",
+          "format_version",
+          "pack_id",
+          "name",
+          "description",
+          "created_at",
+          "producer",
+          "source",
+          "privacy",
+          "cards",
+          "relations",
+          "integrity"
+        ],
+        "title": "MemoryPackV2Document"
+      },
+      "MemoryPackV2Origin": {
+        "properties": {
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "conversation_turn",
+              "user_edit",
+              "import"
+            ],
+            "title": "Source Type"
+          },
+          "trust_level": {
+            "type": "string",
+            "enum": [
+              "user_confirmed",
+              "self_asserted",
+              "imported_unverified"
+            ],
+            "title": "Trust Level"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "source_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Source Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source_type",
+          "trust_level",
+          "created_at",
+          "source_version"
+        ],
+        "title": "MemoryPackV2Origin"
+      },
+      "MemoryPackV2Relation": {
+        "properties": {
+          "from_external_id": {
+            "type": "string",
+            "pattern": "^card_[A-Za-z0-9_-]{1,64}$",
+            "title": "From External Id"
+          },
+          "to_external_id": {
+            "type": "string",
+            "pattern": "^card_[A-Za-z0-9_-]{1,64}$",
+            "title": "To External Id"
+          },
+          "relation_type": {
+            "type": "string",
+            "enum": [
+              "duplicate_of",
+              "reinforces",
+              "conflicts_with",
+              "supersedes",
+              "merged_into",
+              "related_to"
+            ],
+            "title": "Relation Type"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "from_external_id",
+          "to_external_id",
+          "relation_type"
+        ],
+        "title": "MemoryPackV2Relation"
+      },
       "MemoryReflectionJobResponse": {
         "properties": {
           "request_id": {
@@ -8331,6 +10450,133 @@
           "created_at"
         ],
         "title": "MemoryRelationProjection"
+      },
+      "MemoryRelationV2ListResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryRelationV2Projection"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^rel_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id"
+        ],
+        "title": "MemoryRelationV2ListResponse"
+      },
+      "MemoryRelationV2Projection": {
+        "properties": {
+          "relation_id": {
+            "type": "string",
+            "pattern": "^rel_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Relation Id"
+          },
+          "from_memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "From Memory Id"
+          },
+          "to_memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "To Memory Id"
+          },
+          "relation_type": {
+            "type": "string",
+            "enum": [
+              "duplicate_of",
+              "conflicts_with",
+              "supersedes",
+              "reinforces",
+              "merged_into",
+              "related_to"
+            ],
+            "title": "Relation Type"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "unresolved",
+              "resolved"
+            ],
+            "title": "Status"
+          },
+          "resolution_action": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "prefer",
+                  "separate_scopes",
+                  "merge",
+                  "pause_both"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Action"
+          },
+          "resolution_memory_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Memory Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "relation_id",
+          "from_memory_id",
+          "to_memory_id",
+          "relation_type",
+          "status",
+          "resolution_action",
+          "resolution_memory_id",
+          "created_at"
+        ],
+        "title": "MemoryRelationV2Projection"
       },
       "MemoryScope": {
         "properties": {
@@ -8638,6 +10884,123 @@
         ],
         "title": "MemoryUsageResponse"
       },
+      "MemoryUsageV2ListResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryUsageV2Projection"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^usage_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id"
+        ],
+        "title": "MemoryUsageV2ListResponse"
+      },
+      "MemoryUsageV2Projection": {
+        "properties": {
+          "usage_id": {
+            "type": "string",
+            "pattern": "^usage_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Usage Id"
+          },
+          "task_id": {
+            "type": "string",
+            "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Task Id"
+          },
+          "run_id": {
+            "type": "string",
+            "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Run Id"
+          },
+          "memory_id": {
+            "type": "string",
+            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Id"
+          },
+          "memory_version_id": {
+            "type": "string",
+            "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Memory Version Id"
+          },
+          "injected": {
+            "type": "boolean",
+            "title": "Injected"
+          },
+          "estimated_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Estimated Tokens"
+          },
+          "verification_status": {
+            "$ref": "#/components/schemas/VerificationStatus"
+          },
+          "user_effect": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserEffect"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "usage_id",
+          "task_id",
+          "run_id",
+          "memory_id",
+          "memory_version_id",
+          "injected",
+          "estimated_tokens",
+          "verification_status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MemoryUsageV2Projection"
+      },
       "MemoryV2EditRequest": {
         "properties": {
           "kind": {
@@ -8692,59 +11055,37 @@
       },
       "MemoryV2EditResponse": {
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
           "request_id": {
             "type": "string",
             "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
             "title": "Request Id"
           },
-          "memory_id": {
-            "type": "string",
-            "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
-            "title": "Memory Id"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/MemoryKindV2"
-          },
-          "content": {
-            "type": "string",
-            "maxLength": 4000,
-            "title": "Content"
-          },
-          "applies_when": {
-            "type": "string",
-            "maxLength": 500,
-            "title": "Applies When"
-          },
-          "status": {
-            "$ref": "#/components/schemas/ReviewStatus"
-          },
-          "current_version_id": {
-            "type": "string",
-            "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
-            "title": "Current Version Id"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Updated At"
+          "memory": {
+            "$ref": "#/components/schemas/MemoryV2Projection"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "request_id",
-          "memory_id",
-          "kind",
-          "content",
-          "applies_when",
-          "status",
-          "current_version_id",
-          "updated_at"
+          "memory"
         ],
         "title": "MemoryV2EditResponse"
       },
       "MemoryV2ListResponse": {
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
           "request_id": {
             "type": "string",
             "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
@@ -8823,9 +11164,52 @@
             "type": "string",
             "enum": [
               "conversation_turn",
-              "user_edit"
+              "user_edit",
+              "import"
             ],
             "title": "Source Type"
+          },
+          "retrieved_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Retrieved Count"
+          },
+          "injected_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Injected Count"
+          },
+          "verified_applied_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Verified Applied Count"
+          },
+          "helpful_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Helpful Count"
+          },
+          "harmful_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Harmful Count"
+          },
+          "stale_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Stale Count"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
           },
           "created_at": {
             "type": "string",
@@ -8850,6 +11234,12 @@
           "current_version_id",
           "version",
           "source_type",
+          "retrieved_count",
+          "injected_count",
+          "verified_applied_count",
+          "helpful_count",
+          "harmful_count",
+          "stale_count",
           "created_at",
           "updated_at"
         ],
@@ -8893,6 +11283,50 @@
           "changed_fields"
         ],
         "title": "MemoryVersionDiffResponse"
+      },
+      "MemoryVersionDiffV2Response": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "from_version": {
+            "$ref": "#/components/schemas/MemoryVersionV2Projection"
+          },
+          "to_version": {
+            "$ref": "#/components/schemas/MemoryVersionV2Projection"
+          },
+          "changed_fields": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "kind",
+                "content",
+                "applies_when",
+                "review_status",
+                "confidence"
+              ]
+            },
+            "type": "array",
+            "title": "Changed Fields"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "from_version",
+          "to_version",
+          "changed_fields"
+        ],
+        "title": "MemoryVersionDiffV2Response"
       },
       "MemoryVersionListResponse": {
         "properties": {
@@ -9006,6 +11440,27 @@
         ],
         "title": "MemoryVersionProjection"
       },
+      "MemoryVersionRestoreV2Request": {
+        "properties": {
+          "expected_current_version_id": {
+            "type": "string",
+            "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Expected Current Version Id"
+          },
+          "source_version_id": {
+            "type": "string",
+            "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Source Version Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_current_version_id",
+          "source_version_id"
+        ],
+        "title": "MemoryVersionRestoreV2Request"
+      },
       "MemoryVersionV2Projection": {
         "properties": {
           "version_id": {
@@ -9045,10 +11500,18 @@
           "created_by_action": {
             "type": "string",
             "enum": [
+              "accept",
+              "edit_accept",
+              "edit",
+              "import",
+              "merge",
+              "scope_resolution",
               "llm_extract",
               "llm_update",
               "llm_supersede",
-              "user_edit"
+              "llm_coexist",
+              "user_edit",
+              "user_restore"
             ],
             "title": "Created By Action"
           },
@@ -9123,6 +11586,33 @@
           "scope"
         ],
         "title": "MergedMemoryCardInput"
+      },
+      "MergedMemoryV2Input": {
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/MemoryKindV2"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 4,
+            "title": "Content"
+          },
+          "applies_when": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 4,
+            "title": "Applies When"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "content",
+          "applies_when"
+        ],
+        "title": "MergedMemoryV2Input"
       },
       "MessageRole": {
         "type": "string",
@@ -9262,6 +11752,43 @@
         "additionalProperties": false,
         "type": "object",
         "title": "PackExportRequest"
+      },
+      "PackExportV2Request": {
+        "properties": {
+          "memory_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                "type": "array",
+                "maxItems": 200,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Ids"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "default": "MemTrace export"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Description",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PackExportV2Request"
       },
       "PackIntegrity": {
         "properties": {
@@ -9468,6 +11995,155 @@
         ],
         "title": "PackPreviewResponse"
       },
+      "PackPreviewV2Item": {
+        "properties": {
+          "external_id": {
+            "type": "string",
+            "pattern": "^card_[A-Za-z0-9_-]{1,64}$",
+            "title": "External Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/MemoryKindV2"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 4,
+            "title": "Content"
+          },
+          "applies_when": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 4,
+            "title": "Applies When"
+          },
+          "classification": {
+            "type": "string",
+            "enum": [
+              "legal_new",
+              "duplicate",
+              "potential_conflict",
+              "suspicious"
+            ],
+            "title": "Classification"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "exact_duplicate",
+                  "declared_conflict",
+                  "suspicious_text"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "external_id",
+          "kind",
+          "content",
+          "applies_when",
+          "classification"
+        ],
+        "title": "PackPreviewV2Item"
+      },
+      "PackPreviewV2Response": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "batch_id": {
+            "type": "string",
+            "pattern": "^batch_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Batch Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "format_version": {
+            "type": "string",
+            "const": "2.0.0",
+            "title": "Format Version",
+            "default": "2.0.0"
+          },
+          "legal_new_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Legal New Count"
+          },
+          "duplicate_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Duplicate Count"
+          },
+          "potential_conflict_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Potential Conflict Count"
+          },
+          "suspicious_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Suspicious Count"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PackPreviewV2Item"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Items"
+          },
+          "preview_token": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "title": "Preview Token"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "batch_id",
+          "name",
+          "description",
+          "legal_new_count",
+          "duplicate_count",
+          "potential_conflict_count",
+          "suspicious_count",
+          "items",
+          "preview_token",
+          "expires_at"
+        ],
+        "title": "PackPreviewV2Response"
+      },
       "PackPrivacy": {
         "properties": {
           "contains_raw_evidence": {
@@ -9622,6 +12298,45 @@
         ],
         "title": "PythonAstResult"
       },
+      "QuotaProjection": {
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Limit"
+          },
+          "used": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Used"
+          },
+          "remaining": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Remaining"
+          },
+          "active": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Active"
+          },
+          "resets_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Resets At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "limit",
+          "used",
+          "remaining",
+          "active",
+          "resets_at"
+        ],
+        "title": "QuotaProjection"
+      },
       "ReadinessChecks": {
         "properties": {
           "config": {
@@ -9710,6 +12425,183 @@
           "at"
         ],
         "title": "ReadyResponse"
+      },
+      "RecoverRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 3,
+            "pattern": "^[a-z0-9_]{3,32}$",
+            "title": "Username"
+          },
+          "recovery_code": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 20,
+            "title": "Recovery Code"
+          },
+          "new_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "New Password"
+          },
+          "new_password_confirmation": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "New Password Confirmation"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "username",
+          "recovery_code",
+          "new_password",
+          "new_password_confirmation"
+        ],
+        "title": "RecoverRequest"
+      },
+      "RecoveryCodeResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "recovery_code": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 20,
+            "title": "Recovery Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "recovery_code"
+        ],
+        "title": "RecoveryCodeResponse"
+      },
+      "RecoveryResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "recovery_code": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 20,
+            "title": "Recovery Code"
+          },
+          "sessions_revoked": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Sessions Revoked"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "recovery_code",
+          "sessions_revoked"
+        ],
+        "title": "RecoveryResponse"
+      },
+      "RegisterRequest": {
+        "properties": {
+          "invitation_code": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 20,
+            "title": "Invitation Code"
+          },
+          "username": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 3,
+            "pattern": "^[a-z0-9_]{3,32}$",
+            "title": "Username"
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Display Name"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "Password"
+          },
+          "password_confirmation": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "Password Confirmation"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "invitation_code",
+          "username",
+          "display_name",
+          "password",
+          "password_confirmation"
+        ],
+        "title": "RegisterRequest"
+      },
+      "RegisterResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "session": {
+            "$ref": "#/components/schemas/AuthSessionResponse"
+          },
+          "recovery_code": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 20,
+            "title": "Recovery Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "session",
+          "recovery_code"
+        ],
+        "title": "RegisterResponse"
       },
       "RejectionReason": {
         "type": "string",
@@ -10216,6 +13108,72 @@
         ],
         "title": "ScopeLevel"
       },
+      "SourceTaskDeleteV2Request": {
+        "properties": {
+          "confirm_task_id": {
+            "type": "string",
+            "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Confirm Task Id"
+          },
+          "memory_policy": {
+            "type": "string",
+            "const": "preserve_and_mark_evidence_missing",
+            "title": "Memory Policy",
+            "default": "preserve_and_mark_evidence_missing"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "confirm_task_id"
+        ],
+        "title": "SourceTaskDeleteV2Request"
+      },
+      "SourceTaskDeleteV2Response": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "task_id": {
+            "type": "string",
+            "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Task Id"
+          },
+          "status": {
+            "type": "string",
+            "const": "deleted",
+            "title": "Status",
+            "default": "deleted"
+          },
+          "memory_policy": {
+            "type": "string",
+            "const": "preserve_and_mark_evidence_missing",
+            "title": "Memory Policy"
+          },
+          "affected_memory_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Affected Memory Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "task_id",
+          "memory_policy",
+          "affected_memory_count"
+        ],
+        "title": "SourceTaskDeleteV2Response"
+      },
       "SourceType": {
         "type": "string",
         "enum": [
@@ -10237,6 +13195,7 @@
             "enum": [
               "summary",
               "applicability",
+              "tool_planning",
               "chat",
               "reflection",
               "consolidation",
@@ -10289,6 +13248,18 @@
             "type": "integer",
             "minimum": 0.0,
             "title": "Latency Ms"
+          },
+          "first_token_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Token Ms"
           }
         },
         "additionalProperties": false,
@@ -10304,6 +13275,89 @@
           "latency_ms"
         ],
         "title": "StageUsageProjection"
+      },
+      "SystemResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Request Id"
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Version"
+          },
+          "revision": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Revision"
+          },
+          "migration": {
+            "type": "string",
+            "const": "007_day7_public_release",
+            "title": "Migration"
+          },
+          "provider_mode": {
+            "$ref": "#/components/schemas/ProviderMode"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Model"
+          },
+          "key_configured": {
+            "type": "boolean",
+            "title": "Key Configured"
+          },
+          "memory_budget_per_card": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Memory Budget Per Card"
+          },
+          "memory_budget_total": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Memory Budget Total"
+          },
+          "tool_allowlist": {
+            "items": {
+              "type": "string",
+              "const": "python_ast_check"
+            },
+            "type": "array",
+            "maxItems": 1,
+            "minItems": 1,
+            "title": "Tool Allowlist"
+          },
+          "quota": {
+            "$ref": "#/components/schemas/QuotaProjection"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "version",
+          "revision",
+          "migration",
+          "provider_mode",
+          "model",
+          "key_configured",
+          "memory_budget_per_card",
+          "memory_budget_total",
+          "quota"
+        ],
+        "title": "SystemResponse"
       },
       "TaskCreateAccepted": {
         "properties": {
@@ -10554,6 +13608,12 @@
       },
       "TaskMemoryUsageResponse": {
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "2.1.0",
+            "title": "Schema Version",
+            "default": "2.1.0"
+          },
           "request_id": {
             "type": "string",
             "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",

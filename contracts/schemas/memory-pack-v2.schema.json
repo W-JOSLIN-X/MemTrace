@@ -1,0 +1,326 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://memtrace.local/contracts/schemas/memory-pack-v2.schema.json",
+  "title": "MemTrace Memory Pack v2",
+  "description": "Anonymous, integrity-protected Memory Pack used by the Day 7 public v2 API. Local owner, task, message, evidence, and memory identifiers are forbidden.",
+  "$ref": "#/$defs/MemoryPackV2Document",
+  "$defs": {
+    "MemoryPackV2Document": {
+      "properties": {
+        "schema_ref": {
+          "type": "string",
+          "const": "memtrace-memory-pack@2.0.0",
+          "title": "Schema Ref"
+        },
+        "format": {
+          "type": "string",
+          "const": "memtrace-memory-pack",
+          "title": "Format"
+        },
+        "format_version": {
+          "type": "string",
+          "const": "2.0.0",
+          "title": "Format Version"
+        },
+        "pack_id": {
+          "type": "string",
+          "pattern": "^pack_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Pack Id"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "title": "Description"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        },
+        "producer": {
+          "$ref": "#/$defs/PackProducer"
+        },
+        "source": {
+          "$ref": "#/$defs/PackSource"
+        },
+        "privacy": {
+          "$ref": "#/$defs/PackPrivacy"
+        },
+        "cards": {
+          "items": {
+            "$ref": "#/$defs/MemoryPackV2Card"
+          },
+          "type": "array",
+          "maxItems": 200,
+          "minItems": 1,
+          "title": "Cards"
+        },
+        "relations": {
+          "items": {
+            "$ref": "#/$defs/MemoryPackV2Relation"
+          },
+          "type": "array",
+          "maxItems": 400,
+          "title": "Relations"
+        },
+        "integrity": {
+          "$ref": "#/$defs/PackIntegrity"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "schema_ref",
+        "format",
+        "format_version",
+        "pack_id",
+        "name",
+        "description",
+        "created_at",
+        "producer",
+        "source",
+        "privacy",
+        "cards",
+        "relations",
+        "integrity"
+      ],
+      "title": "MemoryPackV2Document"
+    },
+    "PackIntegrity": {
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "const": "sha256",
+          "title": "Algorithm"
+        },
+        "canonical_payload_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Canonical Payload Sha256"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "algorithm",
+        "canonical_payload_sha256"
+      ],
+      "title": "PackIntegrity"
+    },
+    "MemoryPackV2Card": {
+      "properties": {
+        "external_id": {
+          "type": "string",
+          "pattern": "^card_[A-Za-z0-9_-]{1,64}$",
+          "title": "External Id"
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "2.0",
+          "title": "Schema Version",
+          "default": "2.0"
+        },
+        "kind": {
+          "$ref": "#/$defs/MemoryKindV2"
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 4000,
+          "minLength": 4,
+          "title": "Content"
+        },
+        "applies_when": {
+          "type": "string",
+          "maxLength": 500,
+          "minLength": 4,
+          "title": "Applies When"
+        },
+        "claimed_origin": {
+          "$ref": "#/$defs/MemoryPackV2Origin"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1.0,
+          "title": "Version"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Updated At"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "external_id",
+        "kind",
+        "content",
+        "applies_when",
+        "claimed_origin",
+        "version",
+        "updated_at"
+      ],
+      "title": "MemoryPackV2Card"
+    },
+    "MemoryKindV2": {
+      "type": "string",
+      "enum": [
+        "preference",
+        "rule",
+        "experience"
+      ],
+      "title": "MemoryKindV2",
+      "description": "User-visible memory kinds in v2. Only three categories."
+    },
+    "MemoryPackV2Origin": {
+      "properties": {
+        "source_type": {
+          "type": "string",
+          "enum": [
+            "conversation_turn",
+            "user_edit",
+            "import"
+          ],
+          "title": "Source Type"
+        },
+        "trust_level": {
+          "type": "string",
+          "enum": [
+            "user_confirmed",
+            "self_asserted",
+            "imported_unverified"
+          ],
+          "title": "Trust Level"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        },
+        "source_version": {
+          "type": "integer",
+          "minimum": 1.0,
+          "title": "Source Version"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "source_type",
+        "trust_level",
+        "created_at",
+        "source_version"
+      ],
+      "title": "MemoryPackV2Origin"
+    },
+    "PackProducer": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 80,
+          "title": "Name"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "title": "Version"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "PackProducer"
+    },
+    "PackSource": {
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "user_export",
+            "external_import"
+          ],
+          "title": "Kind"
+        },
+        "trust": {
+          "type": "string",
+          "enum": [
+            "self_asserted",
+            "unverified"
+          ],
+          "title": "Trust"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "trust"
+      ],
+      "title": "PackSource"
+    },
+    "MemoryPackV2Relation": {
+      "properties": {
+        "from_external_id": {
+          "type": "string",
+          "pattern": "^card_[A-Za-z0-9_-]{1,64}$",
+          "title": "From External Id"
+        },
+        "to_external_id": {
+          "type": "string",
+          "pattern": "^card_[A-Za-z0-9_-]{1,64}$",
+          "title": "To External Id"
+        },
+        "relation_type": {
+          "type": "string",
+          "enum": [
+            "duplicate_of",
+            "reinforces",
+            "conflicts_with",
+            "supersedes",
+            "merged_into",
+            "related_to"
+          ],
+          "title": "Relation Type"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "from_external_id",
+        "to_external_id",
+        "relation_type"
+      ],
+      "title": "MemoryPackV2Relation"
+    },
+    "PackPrivacy": {
+      "properties": {
+        "contains_raw_evidence": {
+          "type": "boolean",
+          "const": false,
+          "title": "Contains Raw Evidence"
+        },
+        "anonymized": {
+          "type": "boolean",
+          "const": true,
+          "title": "Anonymized"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "contains_raw_evidence",
+        "anonymized"
+      ],
+      "title": "PackPrivacy"
+    }
+  }
+}

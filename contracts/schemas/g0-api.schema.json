@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://memtrace.local/contracts/schemas/g0-api.schema.json",
-  "title": "MemTrace G0 REST bodies",
-  "description": "Normative MemTrace G1-G5 REST request and response bodies.",
+  "title": "MemTrace 2.1.0 REST bodies",
+  "description": "Normative MemTrace G1-G5 and Day 7 public-release REST request and response bodies.",
   "oneOf": [
     {
       "$ref": "#/$defs/HealthResponse"
@@ -171,6 +171,105 @@
     },
     {
       "$ref": "#/$defs/ConversationTurnStateProjection"
+    },
+    {
+      "$ref": "#/$defs/AccountPreferencesRequest"
+    },
+    {
+      "$ref": "#/$defs/AccountProjection"
+    },
+    {
+      "$ref": "#/$defs/AuthActionResponse"
+    },
+    {
+      "$ref": "#/$defs/AuthSessionResponse"
+    },
+    {
+      "$ref": "#/$defs/ChangePasswordRequest"
+    },
+    {
+      "$ref": "#/$defs/ConversationListResponse"
+    },
+    {
+      "$ref": "#/$defs/DeleteAccountRequest"
+    },
+    {
+      "$ref": "#/$defs/ErrorCode"
+    },
+    {
+      "$ref": "#/$defs/ErrorEnvelope"
+    },
+    {
+      "$ref": "#/$defs/ImportCommitV2Response"
+    },
+    {
+      "$ref": "#/$defs/LoginRequest"
+    },
+    {
+      "$ref": "#/$defs/MemoryConflictDetailV2Response"
+    },
+    {
+      "$ref": "#/$defs/MemoryConflictDetectV2Request"
+    },
+    {
+      "$ref": "#/$defs/MemoryConflictDetectV2Response"
+    },
+    {
+      "$ref": "#/$defs/MemoryConflictResolveV2Request"
+    },
+    {
+      "$ref": "#/$defs/MemoryConflictResolveV2Response"
+    },
+    {
+      "$ref": "#/$defs/MemoryDeleteV2Request"
+    },
+    {
+      "$ref": "#/$defs/MemoryDeleteV2Response"
+    },
+    {
+      "$ref": "#/$defs/MemoryPackV2Document"
+    },
+    {
+      "$ref": "#/$defs/MemoryRelationV2ListResponse"
+    },
+    {
+      "$ref": "#/$defs/MemoryUsageV2ListResponse"
+    },
+    {
+      "$ref": "#/$defs/MemoryVersionDiffV2Response"
+    },
+    {
+      "$ref": "#/$defs/MemoryVersionRestoreV2Request"
+    },
+    {
+      "$ref": "#/$defs/PackExportV2Request"
+    },
+    {
+      "$ref": "#/$defs/PackPreviewV2Response"
+    },
+    {
+      "$ref": "#/$defs/RecoverRequest"
+    },
+    {
+      "$ref": "#/$defs/RecoveryCodeResponse"
+    },
+    {
+      "$ref": "#/$defs/RecoveryResponse"
+    },
+    {
+      "$ref": "#/$defs/RegisterRequest"
+    },
+    {
+      "$ref": "#/$defs/RegisterResponse"
+    },
+    {
+      "$ref": "#/$defs/SourceTaskDeleteV2Request"
+    },
+    {
+      "$ref": "#/$defs/SourceTaskDeleteV2Response"
+    },
+    {
+      "$ref": "#/$defs/SystemResponse"
     }
   ],
   "$defs": {
@@ -236,14 +335,16 @@
       "enum": [
         "mock",
         "real"
-      ]
+      ],
+      "title": "ProviderMode"
     },
     "EffectiveMemoryMode": {
       "type": "string",
       "enum": [
         "on",
         "off"
-      ]
+      ],
+      "title": "EffectiveMemoryMode"
     },
     "Scenario": {
       "type": "string",
@@ -649,87 +750,103 @@
       ]
     },
     "ToolArgsSummary": {
-      "type": "object",
       "properties": {
         "language": {
           "type": "string",
-          "const": "python"
+          "const": "python",
+          "title": "Language",
+          "default": "python"
         },
         "code_source": {
-          "type": "string",
-          "enum": [
-            "fenced_python",
-            "whole_task_valid_python"
-          ]
+          "$ref": "#/$defs/CodeSource"
         },
         "code_bytes": {
           "type": "integer",
-          "minimum": 1,
-          "maximum": 102400
+          "maximum": 102400.0,
+          "minimum": 1.0,
+          "title": "Code Bytes"
         }
       },
+      "additionalProperties": false,
+      "type": "object",
       "required": [
-        "language",
         "code_source",
         "code_bytes"
       ],
-      "additionalProperties": false
+      "title": "ToolArgsSummary"
     },
     "AstSyntaxError": {
-      "type": "object",
-      "description": "Python SyntaxError metadata. The source text, filename, and original code are forbidden.",
       "properties": {
         "message": {
           "type": "string",
+          "maxLength": 200,
           "minLength": 1,
-          "maxLength": 200
+          "title": "Message"
         },
         "line": {
-          "type": [
-            "integer",
-            "null"
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1.0
+            },
+            {
+              "type": "null"
+            }
           ],
-          "minimum": 1
+          "title": "Line"
         },
         "column": {
-          "type": [
-            "integer",
-            "null"
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1.0
+            },
+            {
+              "type": "null"
+            }
           ],
-          "minimum": 1
+          "title": "Column"
         },
         "end_line": {
-          "type": [
-            "integer",
-            "null"
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1.0
+            },
+            {
+              "type": "null"
+            }
           ],
-          "minimum": 1
+          "title": "End Line"
         },
         "end_column": {
-          "type": [
-            "integer",
-            "null"
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1.0
+            },
+            {
+              "type": "null"
+            }
           ],
-          "minimum": 1
+          "title": "End Column"
         }
       },
+      "additionalProperties": false,
+      "type": "object",
       "required": [
-        "message",
-        "line",
-        "column",
-        "end_line",
-        "end_column"
+        "message"
       ],
-      "additionalProperties": false
+      "title": "AstSyntaxError"
     },
     "PythonAstResult": {
-      "type": "object",
       "properties": {
         "valid": {
-          "type": "boolean"
+          "type": "boolean",
+          "title": "Valid"
         },
         "syntax_error": {
-          "oneOf": [
+          "anyOf": [
             {
               "$ref": "#/$defs/AstSyntaxError"
             },
@@ -739,98 +856,65 @@
           ]
         }
       },
+      "additionalProperties": false,
+      "type": "object",
       "required": [
         "valid",
         "syntax_error"
       ],
-      "additionalProperties": false,
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "valid": {
-                "const": true
-              }
-            },
-            "required": [
-              "valid"
-            ]
-          },
-          "then": {
-            "properties": {
-              "syntax_error": {
-                "type": "null"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "valid": {
-                "const": false
-              }
-            },
-            "required": [
-              "valid"
-            ]
-          },
-          "then": {
-            "properties": {
-              "syntax_error": {
-                "$ref": "#/$defs/AstSyntaxError"
-              }
-            }
-          }
-        }
-      ]
+      "title": "PythonAstResult"
     },
     "ToolCallSnapshot": {
-      "type": "object",
       "properties": {
         "tool_call_id": {
-          "$ref": "#/$defs/ToolCallId"
+          "type": "string",
+          "pattern": "^tool_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Tool Call Id"
         },
         "tool_name": {
           "type": "string",
-          "const": "python_ast_check"
+          "const": "python_ast_check",
+          "title": "Tool Name",
+          "default": "python_ast_check"
         },
         "reason": {
           "type": "string",
-          "minLength": 1,
           "maxLength": 240,
-          "description": "Curated explanation; must not contain source code."
+          "minLength": 1,
+          "title": "Reason"
         },
         "args_summary": {
           "$ref": "#/$defs/ToolArgsSummary"
         },
         "status": {
-          "type": "string",
-          "enum": [
-            "running",
-            "succeeded",
-            "failed"
-          ]
+          "$ref": "#/$defs/ToolCallStatus"
         },
         "latency_ms": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0
-        },
-        "result_ref": {
-          "oneOf": [
+          "anyOf": [
             {
-              "$ref": "#/$defs/ToolResultId"
+              "type": "number",
+              "minimum": 0.0
             },
             {
               "type": "null"
             }
-          ]
+          ],
+          "title": "Latency Ms"
+        },
+        "result_ref": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^toolres_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Result Ref"
         },
         "result": {
-          "oneOf": [
+          "anyOf": [
             {
               "$ref": "#/$defs/PythonAstResult"
             },
@@ -840,17 +924,15 @@
           ]
         }
       },
+      "additionalProperties": false,
+      "type": "object",
       "required": [
         "tool_call_id",
-        "tool_name",
         "reason",
         "args_summary",
-        "status",
-        "latency_ms",
-        "result_ref",
-        "result"
+        "status"
       ],
-      "additionalProperties": false
+      "title": "ToolCallSnapshot"
     },
     "MessageSnapshot": {
       "type": "object",
@@ -1623,13 +1705,10 @@
       "additionalProperties": false
     },
     "ValidationFieldError": {
-      "type": "object",
       "properties": {
         "loc": {
-          "type": "array",
-          "minItems": 1,
           "items": {
-            "oneOf": [
+            "anyOf": [
               {
                 "type": "string"
               },
@@ -1637,82 +1716,140 @@
                 "type": "integer"
               }
             ]
-          }
+          },
+          "type": "array",
+          "title": "Loc"
         },
         "message": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 240
+          "title": "Message"
         },
         "type": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 120
+          "title": "Type"
         }
       },
+      "additionalProperties": false,
+      "type": "object",
       "required": [
         "loc",
         "message",
         "type"
       ],
-      "additionalProperties": false
+      "title": "ValidationFieldError"
     },
     "ErrorDetails": {
-      "type": "object",
       "properties": {
         "field_errors": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/ValidationFieldError"
-          },
-          "maxItems": 50
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ValidationFieldError"
+              },
+              "type": "array",
+              "maxItems": 50
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Field Errors"
         },
         "task_id": {
-          "oneOf": [
+          "anyOf": [
             {
-              "$ref": "#/$defs/TaskId"
+              "type": "string"
             },
             {
               "type": "null"
             }
-          ]
+          ],
+          "title": "Task Id"
         },
         "run_id": {
-          "oneOf": [
+          "anyOf": [
             {
-              "$ref": "#/$defs/RunId"
+              "type": "string"
             },
             {
               "type": "null"
             }
-          ]
+          ],
+          "title": "Run Id"
         },
         "provider_status": {
-          "type": [
-            "integer",
-            "null"
+          "anyOf": [
+            {
+              "type": "integer",
+              "maximum": 599.0,
+              "minimum": 400.0
+            },
+            {
+              "type": "null"
+            }
           ],
-          "minimum": 400,
-          "maximum": 599
+          "title": "Provider Status"
         },
         "check": {
-          "type": "string",
-          "enum": [
-            "provider_configuration",
-            "data_directory",
-            "database_connection",
-            "migration_revision",
-            "session_secret"
-          ]
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "provider_configuration",
+                "data_directory",
+                "database_connection",
+                "migration_revision",
+                "session_secret"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Check"
         },
         "http_status": {
-          "type": "integer",
-          "minimum": 400,
-          "maximum": 599
+          "anyOf": [
+            {
+              "type": "integer",
+              "maximum": 599.0,
+              "minimum": 400.0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Http Status"
+        },
+        "retry_after_seconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "maximum": 86400.0,
+              "minimum": 0.0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retry After Seconds"
+        },
+        "quota_remaining": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0.0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Quota Remaining"
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "type": "object",
+      "title": "ErrorDetails"
     },
     "ErrorCode": {
       "type": "string",
@@ -1747,8 +1884,19 @@
         "IMPORT_BATCH_NOT_FOUND",
         "IMPORT_BATCH_EXPIRED",
         "IMPORT_PREVIEW_TOKEN_INVALID",
-        "IMPORT_BATCH_STATE_CONFLICT"
-      ]
+        "IMPORT_BATCH_STATE_CONFLICT",
+        "AUTHENTICATION_FAILED",
+        "ACCOUNT_REQUIRED",
+        "INVITATION_INVALID",
+        "RECOVERY_FAILED",
+        "RATE_LIMITED",
+        "CSRF_INVALID",
+        "ORIGIN_INVALID",
+        "QUOTA_EXHAUSTED",
+        "CONCURRENT_TURN_LIMIT",
+        "ACCOUNT_CONFIRMATION_MISMATCH"
+      ],
+      "title": "ErrorCode"
     },
     "ErrorResponse": {
       "type": "object",
@@ -4171,54 +4319,26 @@
     },
     "MemoryV2EditResponse": {
       "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
         "request_id": {
           "type": "string",
           "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
           "title": "Request Id"
         },
-        "memory_id": {
-          "type": "string",
-          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
-          "title": "Memory Id"
-        },
-        "kind": {
-          "$ref": "#/$defs/MemoryKindV2"
-        },
-        "content": {
-          "type": "string",
-          "maxLength": 4000,
-          "title": "Content"
-        },
-        "applies_when": {
-          "type": "string",
-          "maxLength": 500,
-          "title": "Applies When"
-        },
-        "status": {
-          "$ref": "#/$defs/ReviewStatus"
-        },
-        "current_version_id": {
-          "type": "string",
-          "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
-          "title": "Current Version Id"
-        },
-        "updated_at": {
-          "type": "string",
-          "format": "date-time",
-          "title": "Updated At"
+        "memory": {
+          "$ref": "#/$defs/MemoryV2Projection"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
         "request_id",
-        "memory_id",
-        "kind",
-        "content",
-        "applies_when",
-        "status",
-        "current_version_id",
-        "updated_at"
+        "memory"
       ],
       "title": "MemoryV2EditResponse"
     },
@@ -4246,6 +4366,12 @@
     },
     "MemoryDetailV2Response": {
       "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
         "request_id": {
           "type": "string",
           "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
@@ -4293,6 +4419,11 @@
           "pattern": "^msg_[0-9A-HJKMNP-TV-Z]{26}$",
           "title": "Message Id"
         },
+        "task_id": {
+          "type": "string",
+          "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Task Id"
+        },
         "turn_index": {
           "type": "integer",
           "minimum": 1.0,
@@ -4321,6 +4452,7 @@
       "required": [
         "evidence_id",
         "message_id",
+        "task_id",
         "turn_index",
         "source_type",
         "is_primary",
@@ -4367,10 +4499,18 @@
         "created_by_action": {
           "type": "string",
           "enum": [
+            "accept",
+            "edit_accept",
+            "edit",
+            "import",
+            "merge",
+            "scope_resolution",
             "llm_extract",
             "llm_update",
             "llm_supersede",
-            "user_edit"
+            "llm_coexist",
+            "user_edit",
+            "user_restore"
           ],
           "title": "Created By Action"
         },
@@ -4440,9 +4580,52 @@
           "type": "string",
           "enum": [
             "conversation_turn",
-            "user_edit"
+            "user_edit",
+            "import"
           ],
           "title": "Source Type"
+        },
+        "retrieved_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Retrieved Count"
+        },
+        "injected_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Injected Count"
+        },
+        "verified_applied_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Verified Applied Count"
+        },
+        "helpful_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Helpful Count"
+        },
+        "harmful_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Harmful Count"
+        },
+        "stale_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Stale Count"
+        },
+        "last_used_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Used At"
         },
         "created_at": {
           "type": "string",
@@ -4467,6 +4650,12 @@
         "current_version_id",
         "version",
         "source_type",
+        "retrieved_count",
+        "injected_count",
+        "verified_applied_count",
+        "helpful_count",
+        "harmful_count",
+        "stale_count",
         "created_at",
         "updated_at"
       ],
@@ -4476,9 +4665,9 @@
       "properties": {
         "schema_version": {
           "type": "string",
-          "const": "2.0.0",
+          "const": "2.1.0",
           "title": "Schema Version",
-          "default": "2.0.0"
+          "default": "2.1.0"
         },
         "request_id": {
           "type": "string",
@@ -4528,6 +4717,14 @@
           "type": "array",
           "maxItems": 50,
           "title": "Memory Decisions"
+        },
+        "tool_calls": {
+          "items": {
+            "$ref": "#/$defs/ToolCallSnapshot"
+          },
+          "type": "array",
+          "maxItems": 1,
+          "title": "Tool Calls"
         },
         "usage": {
           "items": {
@@ -4705,6 +4902,7 @@
           "enum": [
             "summary",
             "applicability",
+            "tool_planning",
             "chat",
             "reflection",
             "consolidation",
@@ -4757,6 +4955,18 @@
           "type": "integer",
           "minimum": 0.0,
           "title": "Latency Ms"
+        },
+        "first_token_ms": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0.0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "First Token Ms"
         }
       },
       "additionalProperties": false,
@@ -4775,6 +4985,12 @@
     },
     "TaskMemoryUsageResponse": {
       "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
         "request_id": {
           "type": "string",
           "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
@@ -4844,9 +5060,9 @@
       "properties": {
         "schema_version": {
           "type": "string",
-          "const": "2.0.0",
+          "const": "2.1.0",
           "title": "Schema Version",
-          "default": "2.0.0"
+          "default": "2.1.0"
         },
         "request_id": {
           "type": "string",
@@ -4924,9 +5140,9 @@
       "properties": {
         "schema_version": {
           "type": "string",
-          "const": "2.0.0",
+          "const": "2.1.0",
           "title": "Schema Version",
-          "default": "2.0.0"
+          "default": "2.1.0"
         },
         "request_id": {
           "type": "string",
@@ -4970,6 +5186,12 @@
     },
     "MemoryFeedbackResponse": {
       "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
         "request_id": {
           "type": "string",
           "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
@@ -5140,6 +5362,12 @@
     },
     "MemoryEventListResponse": {
       "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
         "request_id": {
           "type": "string",
           "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
@@ -5280,6 +5508,12 @@
     },
     "MemoryV2ListResponse": {
       "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
         "request_id": {
           "type": "string",
           "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
@@ -5315,6 +5549,12 @@
     },
     "MemoryDismissResponse": {
       "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
         "request_id": {
           "type": "string",
           "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
@@ -5391,6 +5631,12 @@
     },
     "MemoryLifecycleV2Response": {
       "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
         "request_id": {
           "type": "string",
           "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
@@ -5478,6 +5724,12 @@
     },
     "MemoryConfirmResponse": {
       "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
         "request_id": {
           "type": "string",
           "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
@@ -5627,6 +5879,14 @@
           "maxItems": 50,
           "title": "Memory Decisions"
         },
+        "tool_calls": {
+          "items": {
+            "$ref": "#/$defs/ToolCallSnapshot"
+          },
+          "type": "array",
+          "maxItems": 1,
+          "title": "Tool Calls"
+        },
         "usage": {
           "items": {
             "$ref": "#/$defs/StageUsageProjection"
@@ -5647,6 +5907,1829 @@
         "usage"
       ],
       "title": "ConversationTurnStateProjection"
+    },
+    "ToolCallStatus": {
+      "type": "string",
+      "enum": [
+        "running",
+        "succeeded",
+        "failed"
+      ],
+      "title": "ToolCallStatus"
+    },
+    "CodeSource": {
+      "type": "string",
+      "enum": [
+        "fenced_python",
+        "whole_task_valid_python"
+      ],
+      "title": "CodeSource"
+    },
+    "MemoryRelationV2ListResponse": {
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/MemoryRelationV2Projection"
+          },
+          "type": "array",
+          "maxItems": 100,
+          "title": "Items"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^rel_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id"
+      ],
+      "title": "MemoryRelationV2ListResponse"
+    },
+    "MemoryRelationV2Projection": {
+      "properties": {
+        "relation_id": {
+          "type": "string",
+          "pattern": "^rel_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Relation Id"
+        },
+        "from_memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "From Memory Id"
+        },
+        "to_memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "To Memory Id"
+        },
+        "relation_type": {
+          "type": "string",
+          "enum": [
+            "duplicate_of",
+            "conflicts_with",
+            "supersedes",
+            "reinforces",
+            "merged_into",
+            "related_to"
+          ],
+          "title": "Relation Type"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "unresolved",
+            "resolved"
+          ],
+          "title": "Status"
+        },
+        "resolution_action": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "prefer",
+                "separate_scopes",
+                "merge",
+                "pause_both"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resolution Action"
+        },
+        "resolution_memory_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resolution Memory Id"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "relation_id",
+        "from_memory_id",
+        "to_memory_id",
+        "relation_type",
+        "status",
+        "resolution_action",
+        "resolution_memory_id",
+        "created_at"
+      ],
+      "title": "MemoryRelationV2Projection"
+    },
+    "LoginRequest": {
+      "properties": {
+        "username": {
+          "type": "string",
+          "maxLength": 32,
+          "minLength": 3,
+          "pattern": "^[a-z0-9_]{3,32}$",
+          "title": "Username"
+        },
+        "password": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 12,
+          "title": "Password"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "username",
+        "password"
+      ],
+      "title": "LoginRequest"
+    },
+    "PackPreviewV2Response": {
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "batch_id": {
+          "type": "string",
+          "pattern": "^batch_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Batch Id"
+        },
+        "name": {
+          "type": "string",
+          "title": "Name"
+        },
+        "description": {
+          "type": "string",
+          "title": "Description"
+        },
+        "format_version": {
+          "type": "string",
+          "const": "2.0.0",
+          "title": "Format Version",
+          "default": "2.0.0"
+        },
+        "legal_new_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Legal New Count"
+        },
+        "duplicate_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Duplicate Count"
+        },
+        "potential_conflict_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Potential Conflict Count"
+        },
+        "suspicious_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Suspicious Count"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/PackPreviewV2Item"
+          },
+          "type": "array",
+          "maxItems": 200,
+          "minItems": 1,
+          "title": "Items"
+        },
+        "preview_token": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$",
+          "title": "Preview Token"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Expires At"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "batch_id",
+        "name",
+        "description",
+        "legal_new_count",
+        "duplicate_count",
+        "potential_conflict_count",
+        "suspicious_count",
+        "items",
+        "preview_token",
+        "expires_at"
+      ],
+      "title": "PackPreviewV2Response"
+    },
+    "PackPreviewV2Item": {
+      "properties": {
+        "external_id": {
+          "type": "string",
+          "pattern": "^card_[A-Za-z0-9_-]{1,64}$",
+          "title": "External Id"
+        },
+        "kind": {
+          "$ref": "#/$defs/MemoryKindV2"
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 4000,
+          "minLength": 4,
+          "title": "Content"
+        },
+        "applies_when": {
+          "type": "string",
+          "maxLength": 500,
+          "minLength": 4,
+          "title": "Applies When"
+        },
+        "classification": {
+          "type": "string",
+          "enum": [
+            "legal_new",
+            "duplicate",
+            "potential_conflict",
+            "suspicious"
+          ],
+          "title": "Classification"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "exact_duplicate",
+                "declared_conflict",
+                "suspicious_text"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "external_id",
+        "kind",
+        "content",
+        "applies_when",
+        "classification"
+      ],
+      "title": "PackPreviewV2Item"
+    },
+    "MemoryVersionRestoreV2Request": {
+      "properties": {
+        "expected_current_version_id": {
+          "type": "string",
+          "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Expected Current Version Id"
+        },
+        "source_version_id": {
+          "type": "string",
+          "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Source Version Id"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "expected_current_version_id",
+        "source_version_id"
+      ],
+      "title": "MemoryVersionRestoreV2Request"
+    },
+    "RecoveryResponse": {
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "recovery_code": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 20,
+          "title": "Recovery Code"
+        },
+        "sessions_revoked": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Sessions Revoked"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "recovery_code",
+        "sessions_revoked"
+      ],
+      "title": "RecoveryResponse"
+    },
+    "MemoryConflictDetectV2Response": {
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "relation": {
+          "$ref": "#/$defs/MemoryRelationV2Projection"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "relation"
+      ],
+      "title": "MemoryConflictDetectV2Response"
+    },
+    "ChangePasswordRequest": {
+      "properties": {
+        "current_password": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 12,
+          "title": "Current Password"
+        },
+        "new_password": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 12,
+          "title": "New Password"
+        },
+        "new_password_confirmation": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 12,
+          "title": "New Password Confirmation"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "current_password",
+        "new_password",
+        "new_password_confirmation"
+      ],
+      "title": "ChangePasswordRequest"
+    },
+    "MemoryDeleteV2Request": {
+      "properties": {
+        "expected_current_version_id": {
+          "type": "string",
+          "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Expected Current Version Id"
+        },
+        "confirm_content": {
+          "type": "string",
+          "maxLength": 4000,
+          "minLength": 4,
+          "title": "Confirm Content"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "expected_current_version_id",
+        "confirm_content"
+      ],
+      "title": "MemoryDeleteV2Request"
+    },
+    "ErrorEnvelope": {
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ErrorDetail"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "title": "ErrorEnvelope"
+    },
+    "ErrorDetail": {
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "type": "string",
+          "title": "Message"
+        },
+        "request_id": {
+          "type": "string",
+          "title": "Request Id"
+        },
+        "retryable": {
+          "type": "boolean",
+          "title": "Retryable",
+          "default": false
+        },
+        "details": {
+          "$ref": "#/$defs/ErrorDetails"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "request_id"
+      ],
+      "title": "ErrorDetail"
+    },
+    "MemoryDeleteV2Response": {
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Memory Id"
+        },
+        "status": {
+          "type": "string",
+          "const": "deleted",
+          "title": "Status",
+          "default": "deleted"
+        },
+        "deleted_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Deleted At"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "memory_id",
+        "deleted_at"
+      ],
+      "title": "MemoryDeleteV2Response"
+    },
+    "AuthActionResponse": {
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "logged_out",
+            "all_sessions_revoked",
+            "password_changed",
+            "account_deleted",
+            "preferences_updated"
+          ],
+          "title": "Status"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "status"
+      ],
+      "title": "AuthActionResponse"
+    },
+    "RecoveryCodeResponse": {
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "recovery_code": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 20,
+          "title": "Recovery Code"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "recovery_code"
+      ],
+      "title": "RecoveryCodeResponse"
+    },
+    "ConversationListResponse": {
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ConversationListItem"
+          },
+          "type": "array",
+          "maxItems": 100,
+          "title": "Items"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "items"
+      ],
+      "title": "ConversationListResponse"
+    },
+    "ConversationListItem": {
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Task Id"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title"
+        },
+        "memory_mode": {
+          "$ref": "#/$defs/EffectiveMemoryMode"
+        },
+        "message_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Message Count"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Updated At"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "task_id",
+        "title",
+        "memory_mode",
+        "message_count",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "ConversationListItem"
+    },
+    "MemoryUsageV2ListResponse": {
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/MemoryUsageV2Projection"
+          },
+          "type": "array",
+          "maxItems": 100,
+          "title": "Items"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^usage_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id"
+      ],
+      "title": "MemoryUsageV2ListResponse"
+    },
+    "MemoryUsageV2Projection": {
+      "properties": {
+        "usage_id": {
+          "type": "string",
+          "pattern": "^usage_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Usage Id"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Task Id"
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Run Id"
+        },
+        "memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Memory Id"
+        },
+        "memory_version_id": {
+          "type": "string",
+          "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Memory Version Id"
+        },
+        "injected": {
+          "type": "boolean",
+          "title": "Injected"
+        },
+        "estimated_tokens": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Estimated Tokens"
+        },
+        "verification_status": {
+          "$ref": "#/$defs/VerificationStatus"
+        },
+        "user_effect": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UserEffect"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Updated At"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "usage_id",
+        "task_id",
+        "run_id",
+        "memory_id",
+        "memory_version_id",
+        "injected",
+        "estimated_tokens",
+        "verification_status",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "MemoryUsageV2Projection"
+    },
+    "VerificationStatus": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "applied",
+        "violated",
+        "not_observable",
+        "unknown"
+      ],
+      "title": "VerificationStatus"
+    },
+    "MemoryConflictDetailV2Response": {
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "relation": {
+          "$ref": "#/$defs/MemoryRelationV2Projection"
+        },
+        "left": {
+          "$ref": "#/$defs/MemoryV2Projection"
+        },
+        "right": {
+          "$ref": "#/$defs/MemoryV2Projection"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "relation",
+        "left",
+        "right"
+      ],
+      "title": "MemoryConflictDetailV2Response"
+    },
+    "DeleteAccountRequest": {
+      "properties": {
+        "current_password": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 12,
+          "title": "Current Password"
+        },
+        "confirm_username": {
+          "type": "string",
+          "maxLength": 32,
+          "minLength": 3,
+          "pattern": "^[a-z0-9_]{3,32}$",
+          "title": "Confirm Username"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "current_password",
+        "confirm_username"
+      ],
+      "title": "DeleteAccountRequest"
+    },
+    "PackExportV2Request": {
+      "properties": {
+        "memory_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string",
+                "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              "type": "array",
+              "maxItems": 200,
+              "minItems": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Memory Ids"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name",
+          "default": "MemTrace export"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "title": "Description",
+          "default": ""
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "title": "PackExportV2Request"
+    },
+    "SystemResponse": {
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Version"
+        },
+        "revision": {
+          "type": "string",
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Revision"
+        },
+        "migration": {
+          "type": "string",
+          "const": "007_day7_public_release",
+          "title": "Migration"
+        },
+        "provider_mode": {
+          "$ref": "#/$defs/ProviderMode"
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Model"
+        },
+        "key_configured": {
+          "type": "boolean",
+          "title": "Key Configured"
+        },
+        "memory_budget_per_card": {
+          "type": "integer",
+          "minimum": 1.0,
+          "title": "Memory Budget Per Card"
+        },
+        "memory_budget_total": {
+          "type": "integer",
+          "minimum": 1.0,
+          "title": "Memory Budget Total"
+        },
+        "tool_allowlist": {
+          "items": {
+            "type": "string",
+            "const": "python_ast_check"
+          },
+          "type": "array",
+          "maxItems": 1,
+          "minItems": 1,
+          "title": "Tool Allowlist"
+        },
+        "quota": {
+          "$ref": "#/$defs/QuotaProjection"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "version",
+        "revision",
+        "migration",
+        "provider_mode",
+        "model",
+        "key_configured",
+        "memory_budget_per_card",
+        "memory_budget_total",
+        "quota"
+      ],
+      "title": "SystemResponse"
+    },
+    "QuotaProjection": {
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1.0,
+          "title": "Limit"
+        },
+        "used": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Used"
+        },
+        "remaining": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Remaining"
+        },
+        "active": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Active"
+        },
+        "resets_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Resets At"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "limit",
+        "used",
+        "remaining",
+        "active",
+        "resets_at"
+      ],
+      "title": "QuotaProjection"
+    },
+    "SourceTaskDeleteV2Response": {
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Task Id"
+        },
+        "status": {
+          "type": "string",
+          "const": "deleted",
+          "title": "Status",
+          "default": "deleted"
+        },
+        "memory_policy": {
+          "type": "string",
+          "const": "preserve_and_mark_evidence_missing",
+          "title": "Memory Policy"
+        },
+        "affected_memory_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Affected Memory Count"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "task_id",
+        "memory_policy",
+        "affected_memory_count"
+      ],
+      "title": "SourceTaskDeleteV2Response"
+    },
+    "MemoryVersionDiffV2Response": {
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "from_version": {
+          "$ref": "#/$defs/MemoryVersionV2Projection"
+        },
+        "to_version": {
+          "$ref": "#/$defs/MemoryVersionV2Projection"
+        },
+        "changed_fields": {
+          "items": {
+            "type": "string",
+            "enum": [
+              "kind",
+              "content",
+              "applies_when",
+              "review_status",
+              "confidence"
+            ]
+          },
+          "type": "array",
+          "title": "Changed Fields"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "from_version",
+        "to_version",
+        "changed_fields"
+      ],
+      "title": "MemoryVersionDiffV2Response"
+    },
+    "MemoryConflictDetectV2Request": {
+      "properties": {
+        "left_memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Left Memory Id"
+        },
+        "left_expected_current_version_id": {
+          "type": "string",
+          "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Left Expected Current Version Id"
+        },
+        "right_memory_id": {
+          "type": "string",
+          "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Right Memory Id"
+        },
+        "right_expected_current_version_id": {
+          "type": "string",
+          "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Right Expected Current Version Id"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "left_memory_id",
+        "left_expected_current_version_id",
+        "right_memory_id",
+        "right_expected_current_version_id"
+      ],
+      "title": "MemoryConflictDetectV2Request"
+    },
+    "AccountPreferencesRequest": {
+      "properties": {
+        "default_memory_mode": {
+          "$ref": "#/$defs/EffectiveMemoryMode"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "default_memory_mode"
+      ],
+      "title": "AccountPreferencesRequest"
+    },
+    "MemoryPackV2Document": {
+      "properties": {
+        "schema_ref": {
+          "type": "string",
+          "const": "memtrace-memory-pack@2.0.0",
+          "title": "Schema Ref"
+        },
+        "format": {
+          "type": "string",
+          "const": "memtrace-memory-pack",
+          "title": "Format"
+        },
+        "format_version": {
+          "type": "string",
+          "const": "2.0.0",
+          "title": "Format Version"
+        },
+        "pack_id": {
+          "type": "string",
+          "pattern": "^pack_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Pack Id"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "title": "Description"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        },
+        "producer": {
+          "$ref": "#/$defs/PackProducer"
+        },
+        "source": {
+          "$ref": "#/$defs/PackSource"
+        },
+        "privacy": {
+          "$ref": "#/$defs/PackPrivacy"
+        },
+        "cards": {
+          "items": {
+            "$ref": "#/$defs/MemoryPackV2Card"
+          },
+          "type": "array",
+          "maxItems": 200,
+          "minItems": 1,
+          "title": "Cards"
+        },
+        "relations": {
+          "items": {
+            "$ref": "#/$defs/MemoryPackV2Relation"
+          },
+          "type": "array",
+          "maxItems": 400,
+          "title": "Relations"
+        },
+        "integrity": {
+          "$ref": "#/$defs/PackIntegrity"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "schema_ref",
+        "format",
+        "format_version",
+        "pack_id",
+        "name",
+        "description",
+        "created_at",
+        "producer",
+        "source",
+        "privacy",
+        "cards",
+        "relations",
+        "integrity"
+      ],
+      "title": "MemoryPackV2Document"
+    },
+    "MemoryPackV2Card": {
+      "properties": {
+        "external_id": {
+          "type": "string",
+          "pattern": "^card_[A-Za-z0-9_-]{1,64}$",
+          "title": "External Id"
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "2.0",
+          "title": "Schema Version",
+          "default": "2.0"
+        },
+        "kind": {
+          "$ref": "#/$defs/MemoryKindV2"
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 4000,
+          "minLength": 4,
+          "title": "Content"
+        },
+        "applies_when": {
+          "type": "string",
+          "maxLength": 500,
+          "minLength": 4,
+          "title": "Applies When"
+        },
+        "claimed_origin": {
+          "$ref": "#/$defs/MemoryPackV2Origin"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1.0,
+          "title": "Version"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Updated At"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "external_id",
+        "kind",
+        "content",
+        "applies_when",
+        "claimed_origin",
+        "version",
+        "updated_at"
+      ],
+      "title": "MemoryPackV2Card"
+    },
+    "MemoryPackV2Origin": {
+      "properties": {
+        "source_type": {
+          "type": "string",
+          "enum": [
+            "conversation_turn",
+            "user_edit",
+            "import"
+          ],
+          "title": "Source Type"
+        },
+        "trust_level": {
+          "type": "string",
+          "enum": [
+            "user_confirmed",
+            "self_asserted",
+            "imported_unverified"
+          ],
+          "title": "Trust Level"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        },
+        "source_version": {
+          "type": "integer",
+          "minimum": 1.0,
+          "title": "Source Version"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "source_type",
+        "trust_level",
+        "created_at",
+        "source_version"
+      ],
+      "title": "MemoryPackV2Origin"
+    },
+    "MemoryPackV2Relation": {
+      "properties": {
+        "from_external_id": {
+          "type": "string",
+          "pattern": "^card_[A-Za-z0-9_-]{1,64}$",
+          "title": "From External Id"
+        },
+        "to_external_id": {
+          "type": "string",
+          "pattern": "^card_[A-Za-z0-9_-]{1,64}$",
+          "title": "To External Id"
+        },
+        "relation_type": {
+          "type": "string",
+          "enum": [
+            "duplicate_of",
+            "reinforces",
+            "conflicts_with",
+            "supersedes",
+            "merged_into",
+            "related_to"
+          ],
+          "title": "Relation Type"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "from_external_id",
+        "to_external_id",
+        "relation_type"
+      ],
+      "title": "MemoryPackV2Relation"
+    },
+    "RegisterResponse": {
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "session": {
+          "$ref": "#/$defs/AuthSessionResponse"
+        },
+        "recovery_code": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 20,
+          "title": "Recovery Code"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "session",
+        "recovery_code"
+      ],
+      "title": "RegisterResponse"
+    },
+    "AuthSessionResponse": {
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "authenticated": {
+          "type": "boolean",
+          "const": true,
+          "title": "Authenticated",
+          "default": true
+        },
+        "account": {
+          "$ref": "#/$defs/AccountProjection"
+        },
+        "csrf_token": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 43,
+          "title": "Csrf Token"
+        },
+        "session_expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Session Expires At"
+        },
+        "quota": {
+          "$ref": "#/$defs/QuotaProjection"
+        },
+        "provider_mode": {
+          "$ref": "#/$defs/ProviderMode"
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Model"
+        },
+        "key_configured": {
+          "type": "boolean",
+          "title": "Key Configured"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "account",
+        "csrf_token",
+        "session_expires_at",
+        "quota",
+        "provider_mode",
+        "model",
+        "key_configured"
+      ],
+      "title": "AuthSessionResponse"
+    },
+    "AccountProjection": {
+      "properties": {
+        "username": {
+          "type": "string",
+          "maxLength": 32,
+          "minLength": 3,
+          "pattern": "^[a-z0-9_]{3,32}$",
+          "title": "Username"
+        },
+        "display_name": {
+          "type": "string",
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Display Name"
+        },
+        "status": {
+          "type": "string",
+          "const": "active",
+          "title": "Status"
+        },
+        "default_memory_mode": {
+          "$ref": "#/$defs/EffectiveMemoryMode"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "username",
+        "display_name",
+        "status",
+        "default_memory_mode"
+      ],
+      "title": "AccountProjection"
+    },
+    "RecoverRequest": {
+      "properties": {
+        "username": {
+          "type": "string",
+          "maxLength": 32,
+          "minLength": 3,
+          "pattern": "^[a-z0-9_]{3,32}$",
+          "title": "Username"
+        },
+        "recovery_code": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 20,
+          "title": "Recovery Code"
+        },
+        "new_password": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 12,
+          "title": "New Password"
+        },
+        "new_password_confirmation": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 12,
+          "title": "New Password Confirmation"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "username",
+        "recovery_code",
+        "new_password",
+        "new_password_confirmation"
+      ],
+      "title": "RecoverRequest"
+    },
+    "MemoryConflictResolveV2Request": {
+      "properties": {
+        "expected_relation_status": {
+          "type": "string",
+          "const": "unresolved",
+          "title": "Expected Relation Status",
+          "default": "unresolved"
+        },
+        "left_expected_current_version_id": {
+          "type": "string",
+          "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Left Expected Current Version Id"
+        },
+        "right_expected_current_version_id": {
+          "type": "string",
+          "pattern": "^memver_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Right Expected Current Version Id"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "prefer",
+            "separate_scopes",
+            "merge",
+            "pause_both"
+          ],
+          "title": "Action"
+        },
+        "preferred_memory_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Preferred Memory Id"
+        },
+        "left_applies_when": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 500,
+              "minLength": 4
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Left Applies When"
+        },
+        "right_applies_when": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 500,
+              "minLength": 4
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Right Applies When"
+        },
+        "merged_memory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MergedMemoryV2Input"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "left_expected_current_version_id",
+        "right_expected_current_version_id",
+        "action"
+      ],
+      "title": "MemoryConflictResolveV2Request"
+    },
+    "MergedMemoryV2Input": {
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/MemoryKindV2"
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 4000,
+          "minLength": 4,
+          "title": "Content"
+        },
+        "applies_when": {
+          "type": "string",
+          "maxLength": 500,
+          "minLength": 4,
+          "title": "Applies When"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "content",
+        "applies_when"
+      ],
+      "title": "MergedMemoryV2Input"
+    },
+    "RegisterRequest": {
+      "properties": {
+        "invitation_code": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 20,
+          "title": "Invitation Code"
+        },
+        "username": {
+          "type": "string",
+          "maxLength": 32,
+          "minLength": 3,
+          "pattern": "^[a-z0-9_]{3,32}$",
+          "title": "Username"
+        },
+        "display_name": {
+          "type": "string",
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Display Name"
+        },
+        "password": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 12,
+          "title": "Password"
+        },
+        "password_confirmation": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 12,
+          "title": "Password Confirmation"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "invitation_code",
+        "username",
+        "display_name",
+        "password",
+        "password_confirmation"
+      ],
+      "title": "RegisterRequest"
+    },
+    "ImportCommitV2Response": {
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "batch_id": {
+          "type": "string",
+          "pattern": "^batch_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Batch Id"
+        },
+        "inserted_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Inserted Count"
+        },
+        "skipped_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Skipped Count"
+        },
+        "warning_count": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Warning Count"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "batch_id",
+        "inserted_count",
+        "skipped_count",
+        "warning_count"
+      ],
+      "title": "ImportCommitV2Response"
+    },
+    "MemoryConflictResolveV2Response": {
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.1.0",
+          "title": "Schema Version",
+          "default": "2.1.0"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Request Id"
+        },
+        "relation_id": {
+          "type": "string",
+          "pattern": "^rel_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Relation Id"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "prefer",
+            "separate_scopes",
+            "merge",
+            "pause_both"
+          ],
+          "title": "Action"
+        },
+        "status": {
+          "type": "string",
+          "const": "resolved",
+          "title": "Status",
+          "default": "resolved"
+        },
+        "resolution_memory_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^mem_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resolution Memory Id"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "relation_id",
+        "action"
+      ],
+      "title": "MemoryConflictResolveV2Response"
+    },
+    "SourceTaskDeleteV2Request": {
+      "properties": {
+        "confirm_task_id": {
+          "type": "string",
+          "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$",
+          "title": "Confirm Task Id"
+        },
+        "memory_policy": {
+          "type": "string",
+          "const": "preserve_and_mark_evidence_missing",
+          "title": "Memory Policy",
+          "default": "preserve_and_mark_evidence_missing"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "confirm_task_id"
+      ],
+      "title": "SourceTaskDeleteV2Request"
     }
   }
 }

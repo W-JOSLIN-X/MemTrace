@@ -187,7 +187,7 @@ async def test_deepseek_responses_uses_full_history_and_ignores_reasoning() -> N
 
 
 @pytest.mark.asyncio
-async def test_successful_buffered_response_coalesces_upstream_token_deltas() -> None:
+async def test_successful_stream_forwards_upstream_token_deltas_immediately() -> None:
     data = response_data(output_text="x" * 200)
     stream = FakeStream(
         [
@@ -201,9 +201,10 @@ async def test_successful_buffered_response_coalesces_upstream_token_deltas() ->
     items = [item async for item in provider.stream(provider_request())]
 
     deltas = [item.delta for item in items if item.delta]
-    assert deltas == ["x" * 200]
+    assert deltas == ["x"] * 200
     assert items[-1].usage is not None
     assert items[-1].usage.total_tokens == 18
+    assert items[-1].first_token_ms is not None
 
 
 @pytest.mark.asyncio
@@ -227,7 +228,11 @@ async def test_structured_output_is_strict_and_locally_validated() -> None:
     assert result.parsed == {"answer": "ok"}
     assert result.usage.total_tokens == 18
     assert result.model == "deepseek-v4-flash"
-    assert fake.responses.kwargs[0]["text"]["format"]["strict"] is True
+    assert set(fake.responses.kwargs[0]["text"]["format"]) == {"type", "name", "schema"}
+    assert (
+        "Return data, never the JSON Schema definition itself"
+        in fake.responses.kwargs[0]["instructions"]
+    )
     assert fake.responses.kwargs[0]["temperature"] == 0.0
 
 
@@ -408,7 +413,7 @@ async def test_stream_retries_nested_response_server_failure(
 
 
 @pytest.mark.asyncio
-async def test_stream_retries_raw_httpx_transport_failure_without_partial_output(
+async def test_stream_does_not_retry_transport_failure_after_visible_delta(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     completed = FakeStream(
@@ -424,10 +429,14 @@ async def test_stream_retries_raw_httpx_transport_failure_without_partial_output
     monkeypatch.setattr(providers_module, "_PROVIDER_RETRY_DELAYS", (0.0,))
     provider = DeepSeekProvider(real_settings(), client=fake)
 
-    items = [item async for item in provider.stream(provider_request())]
+    received: list[str] = []
+    with pytest.raises(ProviderFailure) as caught:
+        async for item in provider.stream(provider_request()):
+            received.append(item.delta)
 
-    assert "".join(item.delta for item in items) == "重试完成"
-    assert fake.responses.calls == 2
+    assert received == ["不得泄露"]
+    assert caught.value.retryable is True
+    assert fake.responses.calls == 1
 
 
 @pytest.mark.asyncio

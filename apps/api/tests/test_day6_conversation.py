@@ -12,14 +12,16 @@ from sqlalchemy import select
 from conftest import TEST_SESSION_SECRET, migrate_database
 from memtrace_api.config import Settings
 from memtrace_api.database import session_scope
-from memtrace_api.db_models import UserModel
+from memtrace_api.db_models import EventLogModel, ToolCallModel, UserModel
 from memtrace_api.main import _append_owner_memory_event, create_app
 from memtrace_api.providers import (
+    FunctionCallOutput,
     ProviderFailure,
     ProviderRequest,
     ProviderStreamItem,
     ProviderUsage,
     StructuredOutput,
+    ToolCall,
 )
 from memtrace_api.schemas import AsyncErrorCode, ProviderMode
 
@@ -42,6 +44,7 @@ class EngineeringChatProvider:
 
     def __init__(self) -> None:
         self.requests: list[ProviderRequest] = []
+        self.tool_requests: list[ProviderRequest] = []
 
     async def stream(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamItem]:
         self.requests.append(request)
@@ -58,6 +61,29 @@ class EngineeringChatProvider:
             model=self.model,
             prompt_hash="sha256:" + "a" * 64,
             latency_ms=3,
+            first_token_ms=1,
+        )
+
+    async def function_call(
+        self, request: ProviderRequest, tools: list[dict[str, Any]]
+    ) -> FunctionCallOutput:
+        self.tool_requests.append(request)
+        parameters = tools[0]["parameters"]
+        code_block_id = parameters["properties"]["code_block_id"]["enum"][0]
+        return FunctionCallOutput(
+            calls=[
+                ToolCall(
+                    id="call_engineering_ast",
+                    name="python_ast_check",
+                    arguments=json.dumps({"code_block_id": code_block_id}),
+                )
+            ],
+            tool_outputs={},
+            usage=_usage(),
+            response_id="resp_tool_engineering",
+            model=self.model,
+            prompt_hash="sha256:" + "c" * 64,
+            latency_ms=2,
         )
 
     async def aclose(self) -> None:
@@ -341,6 +367,7 @@ def test_conversation_reflection_reuse_effect_and_lifecycle(tmp_path: Path) -> N
             "turn_index": 2,
             "reflection_job_id": second_body["reflection_job_id"],
             "memory_decisions": second_body["memory_decisions"],
+            "tool_calls": [],
             "usage": restored_usage,
         }
 
@@ -358,7 +385,8 @@ def test_conversation_reflection_reuse_effect_and_lifecycle(tmp_path: Path) -> N
             },
         )
         assert edited.status_code == 200, edited.text
-        assert edited.json()["kind"] == "rule"
+        assert edited.json()["schema_version"] == "2.1.0"
+        assert edited.json()["memory"]["kind"] == "rule"
 
         paused = client.post(
             f"/api/v2/memories/{memory_id}/pause",
@@ -477,7 +505,7 @@ def test_v2_contract_rejects_unknown_fields_and_idempotency_conflict(tmp_path: P
         assert conflict.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
 
 
-def test_failed_real_transport_shape_rolls_back_turn_and_same_key_retries_cleanly(
+def test_failed_real_transport_keeps_user_turn_and_same_key_can_retry_cleanly(
     tmp_path: Path,
 ) -> None:
     chat = FailOnceChatProvider()
@@ -495,7 +523,10 @@ def test_failed_real_transport_shape_rolls_back_turn_and_same_key_retries_cleanl
             json={"content": "这轮会触发合成传输失败。"},
         )
         assert first.status_code == 502, first.text
-        assert client.get(f"/api/v2/tasks/{task_id}").json()["messages"] == []
+        failed_snapshot = client.get(f"/api/v2/tasks/{task_id}").json()
+        assert len(failed_snapshot["messages"]) == 1
+        assert failed_snapshot["messages"][0]["role"] == "user"
+        assert failed_snapshot["messages"][0]["turn_index"] == 1
 
         retry = client.post(
             f"/api/v2/tasks/{task_id}/turns",
@@ -503,13 +534,74 @@ def test_failed_real_transport_shape_rolls_back_turn_and_same_key_retries_cleanl
             json={"content": "这轮会触发合成传输失败。"},
         )
         assert retry.status_code == 200, retry.text
-        assert retry.json()["turn_index"] == 1
+        assert retry.json()["turn_index"] == 2
         snapshot = client.get(f"/api/v2/tasks/{task_id}").json()
-        assert len(snapshot["messages"]) == 2
-        assert [message["turn_index"] for message in snapshot["messages"]] == [1, 1]
+        assert len(snapshot["messages"]) == 3
+        assert [message["turn_index"] for message in snapshot["messages"]] == [1, 2, 2]
         assert snapshot["last_turn"]["run_id"] == retry.json()["run_id"]
         assert snapshot["last_turn"]["memory_decisions"] == []
         assert snapshot["last_turn"]["usage"] == retry.json()["usage"]
+
+
+def test_model_tool_planning_uses_server_block_id_and_persists_metadata_only(
+    tmp_path: Path,
+) -> None:
+    client, chat, _ = _client(tmp_path)
+    source = "def broken(:\n    pass"
+    with client:
+        _login(client)
+        task_id = client.post(
+            "/api/v2/tasks",
+            headers={"Idempotency-Key": "d7-tool-task"},
+            json={"memory_mode": "off"},
+        ).json()["task_id"]
+        turn = client.post(
+            f"/api/v2/tasks/{task_id}/turns",
+            headers={"Idempotency-Key": "d7-tool-turn"},
+            json={"content": f"请检查这段代码：\n```python\n{source}\n```"},
+        )
+        assert turn.status_code == 200, turn.text
+        body = turn.json()
+        assert [item["stage"] for item in body["usage"]] == ["tool_planning", "chat"]
+        assert body["usage"][0]["input_tokens"] > 0
+        assert body["usage"][1]["first_token_ms"] == 1
+        assert len(body["tool_calls"]) == 1
+        assert body["tool_calls"][0]["tool_name"] == "python_ast_check"
+        assert body["tool_calls"][0]["result"]["valid"] is False
+        assert chat.tool_requests[-1].stage == "tool_planning"
+        assert chat.requests[-1].tool_result is not None
+        assert chat.requests[-1].tool_result.valid is False
+
+        snapshot = client.get(f"/api/v2/tasks/{task_id}").json()
+        assert snapshot["last_turn"]["tool_calls"] == body["tool_calls"]
+        assert {item["stage"] for item in snapshot["last_turn"]["usage"]} == {
+            "tool_planning",
+            "chat",
+        }
+        with session_scope(client.app.state.db_session_factory) as session:
+            tool_row = session.execute(
+                select(ToolCallModel).where(ToolCallModel.run_id == body["run_id"])
+            ).scalar_one()
+            assert source not in tool_row.args_summary_json
+            assert source not in (tool_row.result_summary_json or "")
+            event_rows = list(
+                session.execute(
+                    select(EventLogModel).where(
+                        EventLogModel.stream_id == task_id,
+                        EventLogModel.event_type.in_(
+                            (
+                                "turn.started",
+                                "conversation.tool.completed",
+                                "turn.completed",
+                            )
+                        ),
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert len(event_rows) == 3
+            assert all(source not in row.metadata_json for row in event_rows)
 
 
 def test_current_override_is_not_injected_and_pending_memory_can_be_reviewed(

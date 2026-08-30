@@ -1,0 +1,438 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://memtrace.local/contracts/schemas/conversation-events.schema.json",
+  "title": "MemTrace Day 7 decoded conversation SSE events",
+  "description": "Decoded SSE event name, persistent cursor, and data. assistant.delta is transient and must never be written to the persistent event log.",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "event_type": {
+          "const": "assistant.delta"
+        },
+        "event_seq": {
+          "type": "null"
+        },
+        "data": {
+          "$ref": "#/$defs/AssistantDeltaData"
+        }
+      },
+      "required": [
+        "event_type",
+        "event_seq",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "event_type": {
+          "const": "turn.started"
+        },
+        "event_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "data": {
+          "$ref": "#/$defs/TurnStartedData"
+        }
+      },
+      "required": [
+        "event_type",
+        "event_seq",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "event_type": {
+          "const": "turn.completed"
+        },
+        "event_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "data": {
+          "$ref": "#/$defs/TurnCompletedData"
+        }
+      },
+      "required": [
+        "event_type",
+        "event_seq",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "event_type": {
+          "const": "turn.failed"
+        },
+        "event_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "data": {
+          "$ref": "#/$defs/TurnFailedData"
+        }
+      },
+      "required": [
+        "event_type",
+        "event_seq",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "event_type": {
+          "const": "conversation.tool.skipped"
+        },
+        "event_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "data": {
+          "$ref": "#/$defs/ToolSkippedData"
+        }
+      },
+      "required": [
+        "event_type",
+        "event_seq",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "event_type": {
+          "const": "conversation.tool.completed"
+        },
+        "event_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "data": {
+          "$ref": "#/$defs/ToolCompletedData"
+        }
+      },
+      "required": [
+        "event_type",
+        "event_seq",
+        "data"
+      ],
+      "additionalProperties": false
+    }
+  ],
+  "$defs": {
+    "AsyncErrorCode": {
+      "type": "string",
+      "enum": [
+        "PROVIDER_TIMEOUT",
+        "PROVIDER_ERROR",
+        "TOOL_NOT_FOUND",
+        "TOOL_INPUT_INVALID",
+        "STREAM_INTERRUPTED",
+        "RUN_INTERRUPTED"
+      ],
+      "title": "AsyncErrorCode"
+    },
+    "RunId": {
+      "type": "string",
+      "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "MessageId": {
+      "type": "string",
+      "pattern": "^msg_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "MemoryReflectionJobId": {
+      "type": "string",
+      "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "AssistantDeltaData": {
+      "type": "object",
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/RunId"
+        },
+        "delta_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "delta": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32768
+        }
+      },
+      "required": [
+        "run_id",
+        "delta_index",
+        "delta"
+      ],
+      "additionalProperties": false
+    },
+    "TurnStartedData": {
+      "type": "object",
+      "properties": {
+        "event_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId"
+        },
+        "turn_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "user_message_id": {
+          "$ref": "#/$defs/MessageId"
+        }
+      },
+      "required": [
+        "event_seq",
+        "run_id",
+        "turn_index",
+        "user_message_id"
+      ],
+      "additionalProperties": false
+    },
+    "TurnCompletedData": {
+      "type": "object",
+      "properties": {
+        "event_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId"
+        },
+        "turn_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "user_message_id": {
+          "$ref": "#/$defs/MessageId"
+        },
+        "assistant_message_id": {
+          "$ref": "#/$defs/MessageId"
+        },
+        "reflection_pending": {
+          "type": "boolean"
+        },
+        "job_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryReflectionJobId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "event_seq",
+        "run_id",
+        "turn_index",
+        "user_message_id",
+        "assistant_message_id",
+        "reflection_pending",
+        "job_id"
+      ],
+      "additionalProperties": false
+    },
+    "TurnFailedData": {
+      "type": "object",
+      "properties": {
+        "event_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId"
+        },
+        "turn_index": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error_code": {
+          "$ref": "#/$defs/AsyncErrorCode"
+        }
+      },
+      "required": [
+        "event_seq",
+        "run_id",
+        "turn_index",
+        "error_code"
+      ],
+      "additionalProperties": false
+    },
+    "ToolSkippedData": {
+      "type": "object",
+      "properties": {
+        "event_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId"
+        },
+        "turn_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "action": {
+          "const": "skip"
+        },
+        "reason_code": {
+          "const": "model_skipped_tool"
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "input_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "provider_latency_ms": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "event_seq",
+        "run_id",
+        "turn_index",
+        "action",
+        "reason_code",
+        "model",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "provider_latency_ms"
+      ],
+      "additionalProperties": false
+    },
+    "ToolCompletedData": {
+      "type": "object",
+      "properties": {
+        "event_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId"
+        },
+        "turn_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "action": {
+          "const": "call"
+        },
+        "reason_code": {
+          "const": "model_selected_allowed_tool"
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "input_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "provider_latency_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "tool_name": {
+          "const": "python_ast_check"
+        },
+        "tool_call_id": {
+          "type": "string",
+          "pattern": "^tool_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "status": {
+          "const": "succeeded"
+        },
+        "code_source": {
+          "enum": [
+            "fenced_python",
+            "whole_task_valid_python"
+          ]
+        },
+        "code_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 102400
+        },
+        "valid": {
+          "type": "boolean"
+        },
+        "latency_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "result_ref": {
+          "type": "string",
+          "pattern": "^toolres_[0-9A-HJKMNP-TV-Z]{26}$"
+        }
+      },
+      "required": [
+        "event_seq",
+        "run_id",
+        "turn_index",
+        "action",
+        "reason_code",
+        "model",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "provider_latency_ms",
+        "tool_name",
+        "tool_call_id",
+        "status",
+        "code_source",
+        "code_bytes",
+        "valid",
+        "latency_ms",
+        "result_ref"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

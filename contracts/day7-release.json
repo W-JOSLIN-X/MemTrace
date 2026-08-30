@@ -1,0 +1,59 @@
+{
+  "contract_version": "2.1.0",
+  "status": "owner_frozen_2026-08-30",
+  "product_mode": "public_conversation_memory_agent",
+  "database_head": "007_day7_public_release",
+  "public_api_prefix": "/api/v2",
+  "normative_projections": {
+    "rest": "contracts/schemas/g0-api.schema.json",
+    "legacy_events": "contracts/schemas/events.schema.json",
+    "conversation_events": "contracts/schemas/conversation-events.schema.json",
+    "provider_outputs": "contracts/schemas/g5-llm.schema.json",
+    "memory_pack_v2": "contracts/schemas/memory-pack-v2.schema.json",
+    "openapi": "contracts/openapi.json",
+    "typescript_runtime": "apps/web/src/g5/runtime.ts",
+    "examples": "contracts/examples/day7-release.json"
+  },
+  "authentication": {
+    "method": "local_username_password",
+    "registration": "one_time_invitation",
+    "password_hash": "argon2id",
+    "session_storage": "sha256_hash_only",
+    "csrf": "origin_and_session_bound_token",
+    "demo_sessions_in_release": false
+  },
+  "quota": {
+    "utc_daily_real_turns": 50,
+    "max_concurrent_turns_per_owner": 1,
+    "failed_provider_attempt_consumes_quota": true
+  },
+  "semantic_authority": {
+    "provider_mode": "real",
+    "actual_usage_required": true,
+    "keyword_fallback_forbidden": true,
+    "tfidf_final_decision_forbidden": true,
+    "substring_effect_verifier_forbidden": true,
+    "mock_semantic_acceptance_forbidden": true
+  },
+  "streaming": {
+    "transient_events": ["assistant.delta"],
+    "persistent_events": [
+      "turn.started",
+      "conversation.tool.skipped",
+      "conversation.tool.completed",
+      "turn.completed",
+      "turn.failed"
+    ],
+    "persistent_text_forbidden": true
+  },
+  "tool_allowlist": ["python_ast_check"],
+  "real_eval": {
+    "semantic_fixture": "fixtures/day6/semantic_cases.json",
+    "validation_ids": ["g5-01", "g5-04", "g5-05", "g5-07", "g5-09", "g5-10", "g5-13", "g5-15"],
+    "untouched_test_ids": ["g5-02", "g5-03", "g5-06", "g5-08", "g5-11", "g5-12", "g5-14", "g5-16"],
+    "baseline_modes": ["no_memory", "full_history", "retrieval_only", "memtrace"],
+    "minimum_activation_precision": 0.95,
+    "minimum_ab_memory_on_wins": 6,
+    "security_failures_allowed": 0
+  }
+}

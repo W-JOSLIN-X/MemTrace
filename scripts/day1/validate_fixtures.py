@@ -17,6 +17,7 @@ DAY3_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day3"
 DAY4_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day4"
 DAY5_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day5"
 DAY6_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day6"
+DAY7_FIXTURE_ROOT = PROJECT_ROOT / "fixtures" / "day7"
 API_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "schemas" / "g0-api.schema.json"
 EVENT_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "schemas" / "events.schema.json"
 G5_LLM_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "schemas" / "g5-llm.schema.json"
@@ -519,6 +520,34 @@ def validate_day6_g5_cases(
         )
 
 
+def validate_day7_baseline_cases() -> None:
+    fixture = load_json(DAY7_FIXTURE_ROOT / "baseline_cases.json")
+    source_path = PROJECT_ROOT / fixture["source_fixture"]
+    source = load_json(source_path)
+    scan_forbidden(fixture, "day7_baseline_cases")
+    assert fixture["schema_version"] == "1.0.0"
+    assert fixture["fixture_id"] == "day7_four_baseline_8_v1"
+    assert fixture["status"] == "owner_frozen_2026-08-30"
+    assert fixture["provider_requirement"] == "real_only"
+    assert (
+        hashlib.sha256(source_path.read_bytes()).hexdigest() == fixture["source_sha256"]
+    )
+    assert fixture["cases"] == source["cases"]
+    for section in ("history_before", "history_after"):
+        history = fixture[section]
+        assert len(history) >= 6 and len(history) % 2 == 0
+        for index, message in enumerate(history):
+            assert set(message) == {"role", "content"}
+            assert message["role"] == ("user" if index % 2 == 0 else "assistant")
+            assert 20 <= len(message["content"]) <= 500
+    history_chars = sum(
+        len(message["content"])
+        for section in ("history_before", "history_after")
+        for message in fixture[section]
+    )
+    assert history_chars >= 700
+
+
 def trace_signature(events: list[dict[str, Any]]) -> list[str]:
     signature: list[str] = []
     chunk_seen = False
@@ -696,6 +725,7 @@ def main() -> int:
     validate_day4_g3_cases()
     validate_day5_g4_cases()
     validate_day6_g5_cases(api_schema, g5_llm_schema)
+    validate_day7_baseline_cases()
     for path in MOCK_FIXTURES:
         validate_mock_fixture(path, api_schema, event_validator)
 
@@ -708,6 +738,9 @@ def main() -> int:
     print("PASS: 30 owner-verified Day 4 G3 REST-only cases and privacy metadata")
     print("PASS: 8 Day 5 conflict and 12 Pack/security REST-only cases")
     print("PASS: 16 Day 6 real semantic and 8 blind A/B cases plus strict G5 examples")
+    print(
+        "PASS: 8 Day 7 four-baseline cases preserve the frozen A/B source and full history"
+    )
     print("PASS: python_success, no_tool_success, and run_failure SSE fixtures")
     print(
         "PASS: UTF-8 byte offsets, trace order, metadata IDs, and secret/reasoning scan"
