@@ -222,6 +222,64 @@ def test_v2_conflict_actions_are_atomic_and_user_controlled(tmp_path: Path, acti
         assert detail.json()["relation"]["status"] == "resolved"
 
 
+def test_v2_repeated_conflict_after_resolution_returns_controlled_409(tmp_path: Path) -> None:
+    client, _, _ = _client(tmp_path)
+    with client:
+        _login(client)
+        _, left = _create_memory(
+            client,
+            task_key="d7-conflict-repeat-task-1",
+            turn_key="d7-conflict-repeat-turn-1",
+            content="以后解释代码时，请先给结论。",
+        )
+        _, right = _create_memory(
+            client,
+            task_key="d7-conflict-repeat-task-2",
+            turn_key="d7-conflict-repeat-turn-2",
+            content="以后解释算法时，请先给详细推导。",
+        )
+        request = {
+            "left_memory_id": left["memory_id"],
+            "left_expected_current_version_id": left["current_version_id"],
+            "right_memory_id": right["memory_id"],
+            "right_expected_current_version_id": right["current_version_id"],
+        }
+        created = client.post(
+            "/api/v2/memory-conflicts",
+            headers={"Idempotency-Key": "d7-conflict-repeat-create-1"},
+            json=request,
+        )
+        assert created.status_code == 200, created.text
+        relation_id = created.json()["relation"]["relation_id"]
+        resolved = client.post(
+            f"/api/v2/memory-conflicts/{relation_id}/resolve",
+            headers={"Idempotency-Key": "d7-conflict-repeat-resolve"},
+            json={
+                "expected_relation_status": "unresolved",
+                "left_expected_current_version_id": left["current_version_id"],
+                "right_expected_current_version_id": right["current_version_id"],
+                "action": "separate_scopes",
+                "left_applies_when": "仅解释具体代码实现时",
+                "right_applies_when": "仅解释抽象算法原理时",
+            },
+        )
+        assert resolved.status_code == 200, resolved.text
+        left_after = client.get(f"/api/v2/memories/{left['memory_id']}").json()["memory"]
+        right_after = client.get(f"/api/v2/memories/{right['memory_id']}").json()["memory"]
+        repeated = client.post(
+            "/api/v2/memory-conflicts",
+            headers={"Idempotency-Key": "d7-conflict-repeat-create-2"},
+            json={
+                "left_memory_id": left_after["memory_id"],
+                "left_expected_current_version_id": left_after["current_version_id"],
+                "right_memory_id": right_after["memory_id"],
+                "right_expected_current_version_id": right_after["current_version_id"],
+            },
+        )
+        assert repeated.status_code == 409, repeated.text
+        assert repeated.json()["error"]["code"] == "MEMORY_STATE_CONFLICT"
+
+
 def test_memory_pack_v2_round_trip_idempotency_security_and_owner_isolation(
     tmp_path: Path,
 ) -> None:

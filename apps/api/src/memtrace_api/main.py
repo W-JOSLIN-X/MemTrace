@@ -2398,6 +2398,20 @@ def create_app(
                     left_id, right_id = body.right_memory_id, body.left_memory_id
                 else:
                     left_id, right_id = body.left_memory_id, body.right_memory_id
+                previous_conflict_status = session.execute(
+                    select(MemoryRelationModel.status).where(
+                        and_(
+                            MemoryRelationModel.owner_id == user_ctx.user_id,
+                            MemoryRelationModel.from_memory_id == left_id,
+                            MemoryRelationModel.to_memory_id == right_id,
+                            MemoryRelationModel.relation_type == "conflicts_with",
+                        )
+                    )
+                ).scalar_one_or_none()
+                if previous_conflict_status is not None:
+                    raise _memory_state_conflict(
+                        "这两条记忆已有未解决或已裁决的冲突关系，不能重复创建。"
+                    )
                 relation_id = new_prefixed_ulid("rel")
                 conflict_repo = ConflictRepository(user_ctx, session)
                 conflict_repo.create_conflict(
@@ -3876,19 +3890,20 @@ def create_app(
                         message="两端结构化 scope 明确不重叠，不能创建冲突。",
                     )
                 left_id, right_id = sorted((body.left_memory_id, body.right_memory_id))
-                duplicate = session.execute(
-                    select(MemoryRelationModel.id).where(
+                previous_conflict_status = session.execute(
+                    select(MemoryRelationModel.status).where(
                         and_(
                             MemoryRelationModel.owner_id == user_ctx.user_id,
                             MemoryRelationModel.from_memory_id == left_id,
                             MemoryRelationModel.to_memory_id == right_id,
                             MemoryRelationModel.relation_type == "conflicts_with",
-                            MemoryRelationModel.status == "unresolved",
                         )
                     )
                 ).scalar_one_or_none()
-                if duplicate is not None:
-                    raise _memory_state_conflict("这两条记忆已经存在未解决冲突。")
+                if previous_conflict_status is not None:
+                    raise _memory_state_conflict(
+                        "这两条记忆已有未解决或已裁决的冲突关系，不能重复创建。"
+                    )
                 relation = ConflictRepository(user_ctx, session).create_conflict(
                     relation_id=new_prefixed_ulid("rel"),
                     left_memory_id=left_id,
