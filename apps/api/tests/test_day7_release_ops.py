@@ -164,10 +164,11 @@ def test_release_secret_preparation_is_quiet_and_refuses_overwrite(tmp_path: Pat
     assert retry_report["failure_code"] == "SECRET_TARGET_ALREADY_EXISTS"
 
 
-def test_release_runtime_lock_excludes_test_and_lint_dependencies() -> None:
+def test_release_runtime_lock_contains_production_imports_but_excludes_dev_tools() -> None:
     runtime_lock = (PROJECT_ROOT / "apps/api/requirements.runtime.lock").read_text("utf-8")
     lowered = runtime_lock.casefold()
-    for forbidden in ("pytest==", "ruff==", "jsonschema==", "vitest"):
+    assert "jsonschema==4.26.0" in lowered
+    for forbidden in ("pytest==", "ruff==", "httpx2==", "vitest"):
         assert forbidden not in lowered
     dockerfile = (PROJECT_ROOT / "Dockerfile").read_text("utf-8")
     assert "--require-hashes --no-deps" in dockerfile
