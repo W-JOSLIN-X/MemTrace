@@ -160,6 +160,16 @@ apps\api\.venv\Scripts\python.exe scripts/day6/eval_runner.py --base-url http://
 apps\api\.venv\Scripts\python.exe scripts/day7/baseline_runner.py --base-url http://127.0.0.1:8000 --origin http://127.0.0.1:8000 --username <username> --password-file <ignored-password-file> --repeat 2 --output output/day7/four-baselines.json
 ```
 
+Release 容器固定 `ALLOW_DEMO_SESSIONS=false`。G2–G4 兼容回归也必须使用公开账号；涉及 owner isolation 的 runner 要传入两个独立账号，不能临时开启共享 demo owner：
+
+```powershell
+apps\api\.venv\Scripts\python.exe scripts/day3/eval_runner.py --base-url http://127.0.0.1:8000 --fixture fixtures/day3/learning_events.json --output output/day7/day3.json --expectation-profile real-provider --auth-mode public --origin http://127.0.0.1:8000 --username <primary> --password-file <ignored-password-file>
+
+apps\api\.venv\Scripts\python.exe scripts/day4/eval_runner.py --base-url http://127.0.0.1:8000 --output output/day7/day4.json --auth-mode public --origin http://127.0.0.1:8000 --primary-username <primary> --primary-password-file <ignored-password-file> --secondary-username <secondary> --secondary-password-file <ignored-password-file>
+
+apps\api\.venv\Scripts\python.exe scripts/day5/eval_runner.py --base-url http://127.0.0.1:8000 --output output/day7/day5.json --auth-mode public --origin http://127.0.0.1:8000 --primary-username <primary> --primary-password-file <ignored-password-file> --secondary-username <secondary> --secondary-password-file <ignored-password-file>
+```
+
 校准和静态评测制品只保存 case ID、受控判定、token、TTFT、时延、hash 与 failure code；原始对话和盲评材料必须留在 `output/`。
 
 ## Release 容器
