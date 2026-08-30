@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppRoutes } from '../App'
 import {
   createG5Response,
+  createG5JobResponse,
   createG5SnapshotResponse,
   createG5TurnResponse,
 } from '../test/g5Fixtures'
@@ -44,6 +45,9 @@ describe('production Agent streaming page', () => {
           })
         }
         if (url === `/api/v2/tasks/${snapshot.task_id}`) return json(snapshot)
+        if (url.startsWith('/api/v2/reflection-jobs/')) {
+          return json({ ...createG5JobResponse(), mutation_decision: 'noop' })
+        }
         if (url.startsWith('/api/v2/memories?')) return json(memoryList())
         if (url.startsWith('/api/v2/memory-events?')) return json(memoryEvents())
         return notFound()
@@ -82,6 +86,9 @@ describe('production Agent streaming page', () => {
         if (url.startsWith('/api/v2/memory-events?')) return json(memoryEvents())
         if (url === '/api/v2/tasks' && init?.method === 'POST') return json(createG5Response(), 201)
         if (url.endsWith('/turns') && init?.method === 'POST') return turnResponse
+        if (url.startsWith('/api/v2/reflection-jobs/')) {
+          return json({ ...createG5JobResponse(), mutation_decision: 'noop' })
+        }
         return notFound()
       }),
     )
@@ -115,6 +122,7 @@ describe('production Agent streaming page', () => {
     expect(screen.queryByText(/正在流式回答/)).not.toBeInTheDocument()
     expect(screen.getByText('本轮实际 token：30')).toBeInTheDocument()
     expect(screen.getByText('首 token：20 ms')).toBeInTheDocument()
+    expect(await screen.findByText('本轮没有新增长期记忆。')).toBeInTheDocument()
     const turnWrite = writes.find((item) => item.url.endsWith('/turns'))
     expect(new Headers(turnWrite?.init?.headers).get('Idempotency-Key')).toMatch(/^memtrace-/)
   })

@@ -10,6 +10,7 @@ import type {
   MemoryKind,
   MemoryMode,
   MemoryProjection,
+  ReflectionJobId,
   StageUsage,
   TaskId,
   ToolCall,
@@ -60,6 +61,7 @@ export function AgentPage() {
   const operationKeys = useRef(new Map<string, string>())
   const lastDeltaIndex = useRef(0)
   const memorySeq = useRef(0)
+  const reflectionPoll = useRef<{ jobId: ReflectionJobId; token: symbol } | null>(null)
 
   const registerController = useCallback(() => {
     const controller = new AbortController()
@@ -81,6 +83,7 @@ export function AgentPage() {
     eventSourceReady.current = null
     operationKeys.current.clear()
     lastDeltaIndex.current = 0
+    reflectionPoll.current = null
     setPendingUser(null)
     setStreamingText('')
     setDraft(null)
@@ -98,6 +101,50 @@ export function AgentPage() {
     return page.items
   }, [])
 
+  const pollReflectionJob = useCallback(
+    async (jobId: ReflectionJobId, expectedGeneration: number) => {
+      if (reflectionPoll.current?.jobId === jobId) return
+      const token = Symbol(jobId)
+      reflectionPoll.current = { jobId, token }
+      const controller = registerController()
+      try {
+        for (let attempt = 0; attempt < 120; attempt += 1) {
+          if (generation.current !== expectedGeneration) return
+          const job = await browserG5Api.getReflectionJob(jobId, controller.signal)
+          if (generation.current !== expectedGeneration) return
+          if (job.status === 'completed') {
+            await loadMemories(controller.signal)
+            setAnalysisState(
+              job.mutation_decision === 'noop'
+                ? '本轮没有新增长期记忆。'
+                : '本轮记忆分析完成，右侧记忆已同步。',
+            )
+            return
+          }
+          if (job.status === 'failed') {
+            setAnalysisState(`后台记忆分析失败（${job.error_code ?? '受控错误'}）。`)
+            return
+          }
+          await abortableDelay(500, controller.signal)
+        }
+        if (generation.current === expectedGeneration) {
+          setAnalysisState('后台记忆分析仍在继续；可以继续对话。')
+        }
+      } catch (reason) {
+        if (
+          !(reason instanceof DOMException && reason.name === 'AbortError') &&
+          generation.current === expectedGeneration
+        ) {
+          setAnalysisState(message(reason, '后台记忆状态同步失败；可以继续对话。'))
+        }
+      } finally {
+        if (reflectionPoll.current?.token === token) reflectionPoll.current = null
+        releaseController(controller)
+      }
+    },
+    [loadMemories, registerController, releaseController],
+  )
+
   const syncTaskParam = useCallback((nextTaskId: TaskId | null) => {
     const url = new URL(globalThis.location.href)
     if (nextTaskId === null) url.searchParams.delete('task')
@@ -109,15 +156,23 @@ export function AgentPage() {
     )
   }, [])
 
-  const restoreTask = useCallback(async (nextTaskId: TaskId, signal?: AbortSignal) => {
-    const snapshot = await browserG5Api.getTask(nextTaskId, signal)
-    setTaskId(snapshot.task_id)
-    setMessages(snapshot.messages)
-    setMemoryMode(snapshot.memory_mode)
-    setDecisions(snapshot.last_turn?.memory_decisions ?? [])
-    setToolCalls(snapshot.last_turn?.tool_calls ?? [])
-    setUsage(snapshot.last_turn?.usage ?? [])
-  }, [])
+  const restoreTask = useCallback(
+    async (nextTaskId: TaskId, signal?: AbortSignal) => {
+      const snapshot = await browserG5Api.getTask(nextTaskId, signal)
+      setTaskId(snapshot.task_id)
+      setMessages(snapshot.messages)
+      setMemoryMode(snapshot.memory_mode)
+      setDecisions(snapshot.last_turn?.memory_decisions ?? [])
+      setToolCalls(snapshot.last_turn?.tool_calls ?? [])
+      setUsage(snapshot.last_turn?.usage ?? [])
+      if (snapshot.last_turn?.reflection_job_id) {
+        void pollReflectionJob(snapshot.last_turn.reflection_job_id, generation.current)
+      } else {
+        setAnalysisState(null)
+      }
+    },
+    [pollReflectionJob],
+  )
 
   const connectTaskStream = useCallback(
     (nextTaskId: TaskId): Promise<void> => {
@@ -327,6 +382,9 @@ export function AgentPage() {
       setPendingUser(null)
       setStreamingText('')
       setAnalysisState(turn.reflection_job_id ? '后台正在提取偏好、规则与经验…' : null)
+      if (turn.reflection_job_id) {
+        void pollReflectionJob(turn.reflection_job_id, generation.current)
+      }
       await Promise.all([loadTasks(controller.signal), refresh(controller.signal)])
     } catch (reason) {
       setStreamingText('')
@@ -554,6 +612,24 @@ function mergeMessages(current: ConversationMessage[], incoming: ConversationMes
   const byId = new Map(current.map((item) => [item.message_id, item]))
   for (const item of incoming) byId.set(item.message_id, item)
   return [...byId.values()].sort((left, right) => left.turn_index - right.turn_index || left.created_at.localeCompare(right.created_at))
+}
+
+function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'))
+      return
+    }
+    const onAbort = () => {
+      globalThis.clearTimeout(timer)
+      reject(new DOMException('Aborted', 'AbortError'))
+    }
+    const timer = globalThis.setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, milliseconds)
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 function message(reason: unknown, fallback: string): string {
