@@ -1,5 +1,10 @@
 # Day 6 成员 A 交接报告
 
+> **所有者核验更正（2026-08-29）**：远端实际 base/merge-base 为
+> `bb69aa90a9ddb3c0a84f02b5a58dd92b7094f922`，远端实际协作者 head 为
+> `9ef1c6f8b276e7a267517e4ce5d811b66a4ae5ef`，分支已经 push。下文
+> `89f70771...` 与“尚未 push”是交接时的历史声明，不作为整合证据；原文保留以便审计。
+
 > 仓库：W-JOSLIN-X/MemTrace
 > 分支：`feat/a-d6-llm-memory-core`
 > 交接时间：2026-08-28
