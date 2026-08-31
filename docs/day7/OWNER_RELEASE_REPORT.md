@@ -1,7 +1,7 @@
 # Day 7 owner release report
 
-Status: local-machine release candidate accepted; final post-report gates and
-normal `main`/`v0.1.0` publication remain to be executed
+Status: local-machine release gates accepted; normal `main`/`v0.1.0`
+publication remains to be executed
 
 ## 1. Authority, source and scope
 
@@ -120,7 +120,22 @@ The deterministic contract hashes are:
 The 501-test backend suite includes fresh `007`, `006 -> 007 -> 006 -> 007`,
 stale-revision readiness, auth/session/CSRF/rate/quota, transaction rollback,
 worker recovery, SSE recovery, owner isolation, Pack safety, backup/restore and
-G1-G4 regression coverage. A post-report full rerun is required before push.
+G1-G4 regression coverage.
+
+After the first report commit `f14ecd3`, the complete deterministic gates were
+run again against the unchanged product tree:
+
+- pip check, Ruff check over `apps/api scripts`, and Ruff format-check over all
+  112 files: exit 0;
+- backend pytest: exit 0, 501 passed in 562.03 seconds;
+- Alembic heads and fixture validation: exit 0, unique `007`, all Day 1-Day 7
+  fixtures valid;
+- frontend typecheck, lint and build: exit 0;
+- frontend Vitest: exit 0, 19 files / 84 tests.
+
+This evidence-only wording update does not change runtime code. Contract
+generation, Git whitespace, secret and artifact checks are repeated again on
+the final publication candidate.
 
 ## 5. Real DeepSeek semantic evidence
 
@@ -269,11 +284,12 @@ error.
 
 ## 10. Remaining publication procedure and limitations
 
-At the time this report is committed, no remote claim is made yet. Publication
+The post-report backend and frontend reruns are complete. At the time this
+evidence update is committed, no remote claim is made yet. Publication still
 requires:
 
-1. rerun backend, frontend, contract generation, `git diff --check`, secret and
-   ignored-artifact checks after this report;
+1. repeat deterministic contract generation, `git diff --check`, secret and
+   ignored-artifact checks on the final candidate;
 2. rebuild the release image with the final Git revision in its OCI label and
    recheck health/ready and runtime-only dependencies;
 3. verify GitHub identity with `gh auth status`, `gh api user` and an official
