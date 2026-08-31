@@ -1,6 +1,7 @@
 # Day 7 G5 public release contract decision
 
-Status: frozen for implementation on 2026-08-30
+Status: frozen for implementation on 2026-08-30; local-gate scope amended by
+the owner on 2026-08-31
 
 ## Source and product boundary
 
@@ -53,6 +54,8 @@ execution, imports, shell, file, or network access.
 
 Fake/Mock Provider results are engineering evidence only. Semantic release
 evidence requires `MOCK_MODE=false`, the frozen real DeepSeek model, actual
-provider usage, no fallback, REST-only evaluations, Docker, Chrome, Edge, and a
-clean second-device clone. Missing external evidence blocks release and cannot
-be represented as success.
+provider usage, no fallback, REST-only evaluations, Docker, Chrome, and Edge.
+The owner explicitly removed the second-device/clean-VM gate on 2026-08-31 and
+accepted validation on this development computer only. This scope change does
+not authorize Mock fallback and does not count as server deployment; deployment
+remains a separate post-Day-7 stage.

@@ -2,7 +2,7 @@
 
 MemTrace 是一个普通多轮对话 Agent，同时在后台提取、审阅和复用用户的偏好、规则与经验。用户不选择 `scenario` 或任务类别；真实模型负责 G5 的提取、分类、适用性、冲突/合并和效果判断，确定性代码只负责鉴权、隔离、Schema、事务、幂等、预算、状态机和安全工具边界。
 
-当前 release 版本为 `0.1.0`，公开 wire contract 为 `2.1.0`，数据库 head 为 `007_day7_public_release`。Day 7 的本地真实 DeepSeek 语义门禁已经生成脱敏制品，但 Docker、双浏览器、第二设备和最终 tag 必须全部通过后，才能把本版本标记为完成。权威进度见 `docs/day7/OWNER_RELEASE_REPORT.md`。
+当前 release 版本为 `0.1.0`，公开 wire contract 为 `2.1.0`，数据库 head 为 `007_day7_public_release`。Day 7 按所有者 2026-08-31 的明确决定采用本机发布门禁：真实 DeepSeek、Docker、Chrome 与 Edge 必须全部通过，不再要求第二台设备或干净 VM；服务器上线仍是 Day 7 之后的独立阶段。权威证据见 `docs/day7/OWNER_RELEASE_REPORT.md`。
 
 ## 产品页面
 

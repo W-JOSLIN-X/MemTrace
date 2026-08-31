@@ -1,262 +1,289 @@
 # Day 7 owner release report
 
-Status: product candidate verified locally; external vulnerability-scan consent and
-second-device release gates remain open
+Status: local-machine release candidate accepted; final post-report gates and
+normal `main`/`v0.1.0` publication remain to be executed
 
-## Locked baseline
+## 1. Authority, source and scope
 
-- Owner: `W-JOSLIN-X`.
+- Owner, integrator and publisher: `W-JOSLIN-X`.
 - Integration branch: `codex/day7-release-hardening`.
-- Verified base and fetched `origin/main`:
-  `4aadf45fdb9de84e4efd645162d6cb6c29568067`.
+- Fetched Day 6 base: `4aadf45fdb9de84e4efd645162d6cb6c29568067`.
+- Browser-validated product image revision:
+  `53eebfc5c6528c9d9d7325e3563af6bc88977d1d`.
+- The following commit, `20ed143a5b8aa5cb6001cf121c696554aaf5509a`,
+  changes only Ruff formatting in a historical schema utility and does not
+  change the release runtime.
 - Original brief page 5 SHA-256:
   `7CD810AFCA0E535A8802E4C19F6F4D270B64EBA1668CA2CA4676DFBE146E14E3`.
-- GitHub CLI was independently verified as `W-JOSLIN-X` in the system
-  environment. Docker Desktop 4.81.0 / Engine 29.6.1 was available. The local
-  ignored `.env` contained an `LLM_API_KEY`; its value was not printed.
+- Public contract: `2.1.0`; unique database head:
+  `007_day7_public_release`.
 
-## Failure baseline retained before fixes
+The owner explicitly changed the acceptance scope on 2026-08-31: the clean
+second-device/VM gate is removed. Day 7 is accepted on this computer using a
+real DeepSeek provider, release Docker, installed Google Chrome and installed
+Microsoft Edge. This decision does not weaken the real-provider gate and does
+not claim that server deployment has happened. Server deployment remains a
+separate stage after `v0.1.0` is frozen.
 
-- Settings was a placeholder and Evals was a static Day 5 N/A shell.
-- Production routing had no login, registration, recovery, account, CSRF,
-  invite, rate-limit, or quota experience.
-- The memory center mixed G4/v1 and G5/v2 projections.
-- The G5 turn endpoint returned only after generation and did not expose live
-  provider deltas to the product UI.
-- DeepSeek streaming buffered the complete response before yielding, so it did
-  not provide truthful first-token UX.
-- The G5 conversation path did not ask the real model to select the approved
-  AST tool.
+## 2. Failure baseline retained before fixes
+
+- Settings was a placeholder and Evals was a static Day 5 `N/A` shell.
+- Production routing had no public login, invitation registration, recovery,
+  account security, CSRF, rate-limit or quota experience.
 - Shared `blank_demo` and `seeded_demo` owners were enabled by default and were
-  unsuitable for public deployment.
-- The only migration head was `006_conversation_first_memory`; no public
-  account schema existed.
-- Production requirements and release Compose/backup/restore/SBOM workflow had
-  not been separated.
-- Page tests covered Conversation but not authentication, Memories, Evals, or
-  Settings as a release product.
-- No Day 7 four-baseline artifact, Docker release evidence, two-browser public
-  account evidence, second-device evidence, release tag, or final backup
-  restore evidence existed.
+  unsuitable for a public multi-user release.
+- Memory Center mixed G4/v1 and G5/v2 projections.
+- The ordinary conversation path did not expose real provider deltas and did
+  not ask the real model to choose the approved AST tool.
+- DeepSeek streaming buffered the full answer before yielding, making TTFT
+  untruthful.
+- The database head was still `006_conversation_first_memory`; release account
+  tables and Day 7 runtime metrics did not exist.
+- Production dependencies, secret-file Compose, backup/restore and security
+  artifacts were not separated from development tooling.
+- Page tests covered Conversation but not Auth, Memories, Evals or Settings as
+  a finished release product.
+- There was no four-baseline artifact, exact-image Docker evidence, full
+  two-browser public-account evidence, or final backup-restore drill.
 
-## Engineering baseline before Day 7 changes
+The pre-Day-7 deterministic baseline was 466 backend tests and 63 frontend
+tests. It was engineering evidence only; no Mock result below is presented as
+semantic acceptance.
 
-| Gate | Result |
-|---|---|
-| `python -m pip check` | exit 0, no broken requirements |
-| `python -m ruff check apps/api` | exit 0 |
-| `python -m ruff format --check apps/api` | exit 0, 82 files |
-| `python -m pytest apps/api/tests -q` with engineering Mock mode | exit 0, 466 passed in 376.16s |
-| `alembic heads` | exit 0, `006_conversation_first_memory` |
-| fixture validator | exit 0 |
-| web typecheck/lint | exit 0 |
-| web Vitest in system environment | exit 0, 12 files / 63 tests |
-| web production build in system environment | exit 0 |
+## 3. Delivered product
 
-The sandbox-only Vitest/build attempts initially failed with `spawn EPERM`;
-the same commands passed in the system environment, so this is retained as an
-environment distinction rather than a product failure.
+The release now provides:
 
-## Fix and release evidence
+- invitation-only username/password accounts with Argon2id, one-time recovery
+  codes, hashed sessions, Origin-bound CSRF, uniform auth errors, rate limits,
+  logout-all, password change and transactional account deletion;
+- a 50-real-turn UTC daily quota and one concurrent active turn per owner;
+- ordinary multi-turn chat with real DeepSeek SSE deltas, truthful actual
+  usage, TTFT, total latency, current-turn memory override and memory-off mode;
+- real-model applicability, extraction/classification, conflict/consolidation
+  and effect judgment with no keyword, TF-IDF or substring semantic fallback;
+- real model selection of the sole `python_ast_check` tool, whose argument is a
+  server-created code-block ID and whose implementation only performs
+  `ast.parse`;
+- a live preference/rule/experience sidebar and a unified v2 Memory Center for
+  lifecycle, immutable versions, Diff, restore-as-new-version, relations,
+  conflict resolution, anonymous Pack and safe deletion;
+- measured Evals and complete Settings pages, with no production placeholder or
+  required `N/A` metric;
+- a runtime-only, non-root, read-only release image, secret-file Compose,
+  request-size/security-header controls, account CLI and SQLite backup/restore
+  utilities.
 
-The first fully exercised product-code candidate is
-`5d02d3010b4e5560d9de697b471391e6ff742796`. It contains all 23 owner commits
-after the fetched Day 6 base. The final three browser-visible correctness fixes
-before the candidate were:
+The v1 API remains only as a G1-G4 compatibility surface. Production pages use
+the v2 `kind/content/applies_when` projection.
 
-- `cb50676`: restore the release page layouts;
-- `e2a667f`: keep memory actions visible at normal desktop heights;
-- `5d02d30`: make permanent-deletion events replayable without weakening the
-  mutable lifecycle contract.
+## 4. Deterministic engineering evidence
 
-The last fix retains `pending | active | paused | archived | superseded` for
-mutable memory state and permits `deleted` only as the terminal
-`memory.deleted.new_status`. Before the fix, replaying the owner memory stream
-from sequence zero after a permanent deletion returned HTTP 500. The fixed
-backend and strict TypeScript parser now accept only that event exception, and
-the OpenAPI/schema generator sorts `$defs` deterministically.
+### Initial and repaired gate
 
-### Local deterministic engineering gates
+The first expanded final command deliberately checked `apps/api scripts`, not
+only the narrower planned `apps/api` format scope. Results were:
 
-All commands below ran against `5d02d3010b4e5560d9de697b471391e6ff742796`.
+- pip check: exit 0;
+- Ruff check: exit 0;
+- backend pytest: exit 0, 501 passed in 528.09 seconds;
+- Alembic heads: exit 0, only `007_day7_public_release`;
+- Day 1-Day 7 fixture validator: exit 0;
+- expanded Ruff format: exit 1 only because
+  `scripts/day5/sync_g4_schema.py` had historical formatting drift.
+
+The drift was mechanically repaired and committed as `20ed143`; targeted Ruff
+check and format-check then both exited 0. The failure is retained here instead
+of being rewritten as an initial pass.
+
+### Frontend and contract evidence after the product fix
 
 | Gate | Actual result |
 |---|---|
-| `apps/api/.venv/Scripts/python.exe -m pip check` | exit 0 |
-| `python -m ruff check apps/api scripts` | exit 0 |
-| `python -m ruff format --check apps/api` | exit 0, 93 files |
-| `python -m pytest apps/api/tests -q` | exit 0, 501 passed in 521.36s |
-| `python -m alembic -c apps/api/alembic.ini heads` | exit 0, only `007_day7_public_release` |
-| `python scripts/day1/validate_fixtures.py` | exit 0, Day 1 through Day 7 fixtures valid |
 | `npm run typecheck` | exit 0 |
 | `npm run lint` | exit 0 |
-| `npm test` | exit 0, 19 files / 83 tests |
-| `npm run build` | exit 0 |
-| OpenAPI and Day 7 schema generation twice | exit 0 and zero diff both times |
-| `git diff --check` and tracked secret scan | exit 0 / no finding |
+| `npm test` | exit 0, 19 files / 84 tests |
+| `npm run build` | exit 0, Vite production bundle |
+| OpenAPI plus Day 7 schema generation, run twice | exit 0; identical hashes and zero Git diff |
 
-The two identical contract-generation runs produced these SHA-256 values:
+The deterministic contract hashes are:
 
-- OpenAPI: `7457ce4bd01ee1e4950ec105716392063592248aa275e79763dc7171c635851b`;
-- G0 schema: `143354f2089bf8b6b84eb5fc7658d32868ff5495b2fef6e07b68d77f9c074a9f`;
-- Memory Pack schema: `843d6342a7fa030201de526050661076e902180b0d11dbe5955b51eaa5ac6c79`;
-- conversation event schema:
+- OpenAPI:
+  `7457ce4bd01ee1e4950ec105716392063592248aa275e79763dc7171c635851b`;
+- G0 API schema:
+  `143354f2089bf8b6b84eb5fc7658d32868ff5495b2fef6e07b68d77f9c074a9f`;
+- Memory Pack v2 schema:
+  `843d6342a7fa030201de526050661076e902180b0d11dbe5955b51eaa5ac6c79`;
+- conversation-event schema:
   `45dab8808673df327949e099d72bcd46f68654655f1cfc21e7a3b0163573ac8`.
 
-An intentionally broader, non-frozen `ruff format --check apps/api scripts`
-also inspected historical utility scripts and reported only the pre-existing,
-unmodified `scripts/day5/sync_g4_schema.py`. The frozen release gate is
-`apps/api`, as documented above; this broader diagnostic is retained and is
-not represented as a passing gate.
+The 501-test backend suite includes fresh `007`, `006 -> 007 -> 006 -> 007`,
+stale-revision readiness, auth/session/CSRF/rate/quota, transaction rollback,
+worker recovery, SSE recovery, owner isolation, Pack safety, backup/restore and
+G1-G4 regression coverage. A post-report full rerun is required before push.
 
-### Real DeepSeek semantic and product-effect gates
+## 5. Real DeepSeek semantic evidence
 
-Every accepted semantic result below used `MOCK_MODE=false`, provider mode
-`real`, and model `deepseek-v4-flash`. Provider usage was returned by the
-provider; no zero usage was synthesized and no Mock/keyword fallback was
-accepted.
+Every accepted semantic result used `MOCK_MODE=false`, provider mode `real`,
+model `deepseek-v4-flash`, provider-returned non-synthetic usage, and no
+Mock/keyword fallback.
 
-The failure evidence was retained:
+Failure evidence is retained:
 
-- the first runner invocation omitted the local `.env` and stopped with
-  `REAL_PROVIDER_NOT_CONFIGURED` before executing a case;
-- the first two 16-case accounts had nearly exhausted their daily product
-  quota, so they stopped at 9/16 and 8/16 respectively with controlled 429
-  failures;
-- the first A/B run completed its product workflows, but the sandbox could not
-  reach the independent blind-judge provider and recorded
-  `BLIND_JUDGE_PROVIDER_ERROR` for 8/8;
-- the same official provider preflight in the system network then passed 6/6,
-  proving this was a sandbox-network distinction before the A/B rerun.
+- a runner without the ignored local configuration stopped before cases with
+  `REAL_PROVIDER_NOT_CONFIGURED`;
+- two nearly exhausted gate accounts stopped at 9/16 and 8/16 with controlled
+  quota 429 responses;
+- a sandbox-network blind-judge run recorded 8/8
+  `BLIND_JUDGE_PROVIDER_ERROR`; the same official preflight and judge in the
+  system network then passed.
 
-Fresh-account and system-network results:
+Accepted results:
 
 | Real gate | Result |
 |---|---|
-| official provider preflight: model list, minimal response, streaming, strict JSON schema, function calling, actual usage | 6/6 passed |
-| 16-case semantic workflow, fresh account A | 16/16 passed, precision 1.0, security false activations 0 |
-| 16-case semantic workflow, fresh account B | 16/16 passed, precision 1.0, security false activations 0 |
-| blinded memory A/B | 8/8 memory-on wins, critical regressions 0 |
-| four baselines, two repetitions | 64/64 real workflows completed |
+| model list, minimal response, streaming, strict JSON schema, function calling, actual usage | 6/6 |
+| 16-case validation workflow, two independent executions | 16/16 each; precision 1.0; safety false activations 0 |
+| untouched semantic test | 16/16 |
+| blinded memory A/B | 8/8 memory-on wins; critical regressions 0 |
+| four baselines, two repetitions | 64/64 real workflows |
 | Day 3 public REST compatibility | 21/21 fixtures and 2/2 smoke; 9 engineering-only cases explicitly skipped |
-| Day 4 public REST compatibility | first 29/30 (`TASK_TIMEOUT`), complete retry 30/30 |
-| Day 5 public REST compatibility with bounded two-second preview TTL | 20/20 |
+| Day 4 public REST compatibility | first 29/30 timed out; complete retry 30/30 |
+| Day 5 public REST compatibility | 20/20 with bounded two-second preview TTL |
 
-For the exact four-baseline run, MemTrace was not worse in 7/8 comparison
-cases, used median 318 provider input tokens versus full-history 525, and had
-p95 first-token latency 1063 ms. All 64 workflows completed. The recorded
-quality passes were 0/16 no-memory, 15/16 full-history, 16/16 retrieval-only,
-and 15/16 MemTrace. These are observed values, not retrofitted thresholds.
+For the exact frozen baseline artifact, MemTrace was not worse than
+retrieval-only/full-history in 7/8 cases, median provider input was 318 tokens
+versus full-history 525, p95 TTFT was 1063 ms and p95 total latency was 8395 ms.
+Observed quality passes were 0/16 no-memory, 15/16 full-history, 16/16
+retrieval-only and 15/16 MemTrace. Raw synthetic conversations and blind-judge
+material remain only in ignored output; the tracked artifact contains controlled
+metrics and hashes.
 
-Raw synthetic conversations and judge material are confined to ignored
-`output/day7/docker-release/reports`; the repository artifact contains only
-controlled aggregate metrics and hashes.
+## 6. Exact release Docker, persistence and recovery
 
-### Release Docker, persistence and recovery
-
-- Docker Desktop Engine 29.6.1 built `memtrace:0.1.0` with OCI revision
-  `5d02d3010b4e5560d9de697b471391e6ff742796`.
-- Compose project `memtrace-d7-release-gate` ran on loopback port 18070 with
-  `MOCK_MODE=false`, `ALLOW_DEMO_SESSIONS=false`, provider mode `real`, model
-  `deepseek-v4-flash`, and only read-only secret-file mounts.
-- Cold start reached the unique `007_day7_public_release` head and reported
-  healthy/ready.
-- `docker compose restart app` preserved account, task, memory, event and quota
-  state. A post-restart real turn persisted with 91 chat tokens.
-- `docker compose down` without `-v`, followed by `up -d`, preserved the exact
-  labeled data and backup volumes. The pre-down task remained readable and a
-  new post-up real turn persisted with 95 chat tokens, TTFT 1520 ms and provider
-  latency 2043 ms.
-- SQLite backup API created `/app/backups/memtrace-5d02d301.sqlite3`, 11796480
+- Docker Desktop Engine 29.6.1 ran image `memtrace:0.1.0` with OCI revision
+  `53eebfc5c6528c9d9d7325e3563af6bc88977d1d`.
+- Compose project `memtrace-d7-release-gate` used loopback port 18070,
+  `MOCK_MODE=false`, `ALLOW_DEMO_SESSIONS=false`, real
+  `deepseek-v4-flash`, read-only secret files, non-root runtime, read-only root
+  filesystem and the unique `007` head.
+- Cold start, `docker compose restart app`, and `down`/`up` without `-v` all
+  preserved account, task, memory, event, quota and the two labeled volumes.
+- After the down/up recovery, Chrome completed a new real memory-off turn with
+  88 tokens, TTFT 1887 ms and total provider time 2378 ms; Edge completed one
+  with 88 tokens, TTFT 789 ms and total time 1211 ms.
+- The exact SQLite backup `/app/backups/memtrace-53eebfc.sqlite3` is 12,382,208
   bytes, SHA-256
-  `5902e0a2570401120f74c143656c5ee3305e0223d740eb3bfc9ef8e41744b4e8`,
+  `7a1450f3dc14a42b57e39e8d3a34befa7a201ee2a4c81e66e7fbef6c0ece022f`,
   quick-check `ok`, migration `007_day7_public_release`.
-- The first restore attempt correctly failed because a fresh Docker volume was
-  root-owned while the image runs as UID/GID 10001. Only the new independent
-  restore volume was assigned to UID/GID 10001; the second restore then passed
-  hash, quick-check and migration verification.
-- Port 18071 was already occupied by an older owner-created restore-gate
-  container, so no unrelated container was stopped. The exact candidate restore
-  instance used port 18072 instead.
-- The independent restore instance read a pre-backup task and completed a new
-  real turn: 78 chat tokens, 2695 ms provider latency, provider mode `real`,
-  model `deepseek-v4-flash`.
-- The exact main-container log set contained 244 lines. Exact secret hits,
-  synthetic body-canary hits, sensitive JSON body-field hits, Traceback hits,
-  and HTTP 500 hits were all zero.
+- That backup was restored by the non-root runtime to a new independently
+  labeled volume. The isolated instance on port 18072 read a pre-backup task
+  with HTTP 200 and then completed a new real DeepSeek turn: 85 actual tokens,
+  TTFT 1733 ms, total provider time 2329 ms, quota 29 -> 28, exact revision
+  `53eebfc...`.
+- The isolated restore container and only its temporary restore volume were
+  removed after evidence capture. The main data and backup volumes were not
+  touched.
 
-### Chrome and Edge
+Main-container logs contained 8,483 lines after the complete browser and
+recovery exercise. Exact log matches were zero for the synthetic body canary,
+the XSS body, known prompt phrases, DeepSeek API key, session secret and every
+ignored browser credential file. Restore-instance logs likewise had zero known
+body, API-key and session-secret matches.
 
-Both browsers used installed stable browser binaries, separate persistent
-profiles and different real public accounts. Shared demo sessions were
-disabled. The broad registration, conversation, tool, memory lifecycle,
-conflict, Pack, account-security, recovery, owner-isolation and restart flows
-were completed on ancestor `45bc9cb`. The exact `5d02d30` rerun was a bounded
-changed-path retest after layout, action-visibility and deletion-replay fixes;
-it is not substituted for the final full exact-SHA browser gate.
+## 7. Exact Chrome and Edge acceptance
 
-- Chrome evidence is under ignored `output/playwright/day7/chrome`, including
-  `chat-5d02d30.png`, `memory-center-5d02d30.png`, `evals-5d02d30.png`,
-  `settings-5d02d30.png`, `settings-mobile-5d02d30.png` and
-  `final-trace-5d02d30`.
-- Edge evidence is under ignored `output/playwright/day7/edge` with the same
-  exact-candidate filenames and its own `final-trace-5d02d30`.
-- Both final sessions showed the exact runtime revision, provider mode `real`,
-  model `deepseek-v4-flash`, actual usage, conversation recovery, memory center,
-  eval metrics and settings. User/model HTML canaries created zero executable
-  image/script nodes.
-- The exact Chrome and Edge changed-path sessions each had zero console errors,
-  zero console warnings and zero unexpected network failures. Existing owner
-  resources remained isolated and deletion-event replay returned HTTP 200 after
-  the fix.
+Both installed browsers used separate persistent profiles and independent
+invitation-created accounts; shared demo sessions were disabled.
 
-Earlier broad-flow profiles and screenshots remain ignored diagnostic history.
-They prove feature exercise on the candidate ancestry, while a final exact-SHA
-full-flow rerun remains mandatory before release.
+- Google Chrome user agent: `Chrome/151.0.0.0` on Windows 10/11 x64.
+- Microsoft Edge user agent: `Edg/152.0.0.0` on Windows 10/11 x64.
+- Chrome account `d7_final_chrome` covered `prefer`, `separate_scopes`, recovery
+  rotation, password change, logout-all/relogin and permanent single-memory
+  deletion.
+- Edge account `d7_final_edge` covered manual `merge`, `pause_both`, source-task
+  deletion and Pack import from Chrome. The imported unique card was explicitly
+  `source=import` and `status=paused`.
+- Both completed invitation registration, recovery-code handling, logout/login,
+  ordinary real streaming chat, positive and negative real tool planning,
+  extraction of preference/rule/experience, sidebar edit/confirm/lifecycle,
+  paraphrase/cross-language reuse, current override, unrelated negative,
+  memory off, helpful/harmful feedback, search, immutable versions, Diff,
+  restore-as-new-version, lifecycle, conflicts, Pack, Evals, Settings, desktop
+  and mobile viewports, XSS plain-text rendering, refresh and Docker recovery.
+- Edge requests for the Chrome task, stream, memory, memory events, usages,
+  relations and Pack export all returned the uniform cross-owner 404.
+- Edge account deletion returned to login, invalidated the session (401), and
+  the old credentials produced only the generic authentication error.
+- A browser-discovered defect allowed superseded cards to appear editable.
+  Commit `53eebfc` made superseded content/type/scope and version restore
+  read-only while retaining permanent deletion. The exact image and a new
+  Vitest regression test passed.
 
-### Dependency and image artifacts
+The final clean recovery traces for both browsers had zero console errors and
+zero unexpected network failures. Expected owner-isolation 404s and deliberate
+Docker restart/down-up SSE interruptions are recorded separately. After the
+restore instance was intentionally removed, a later Chrome user-agent read saw
+expected reconnect errors to port 18072; that post-cleanup diagnostic is not
+misrepresented as part of the clean product trace.
 
-- `npm audit --omit=dev --audit-level=high --json`: exit 0; 8 production
-  dependencies; info/low/moderate/high/critical all zero.
-- isolated `pip-audit 2.10.1` against the hash-locked runtime file: exit 0; 40
-  dependencies; zero known vulnerabilities. Report SHA-256:
+Screenshots and traces are ignored under:
+
+- `output/playwright/day7/chrome/final-53eebfc`;
+- `output/playwright/day7/edge/final-53eebfc`.
+
+They include chat, Memory Center, Evals, Settings, desktop/mobile layouts and
+clean post-recovery traces. No browser profile, raw prompt, screenshot, trace or
+credential is tracked by Git.
+
+## 8. Dependency, SBOM and CVE evidence
+
+- `npm audit --omit=dev --audit-level=high`: exit 0; 8 production dependencies;
+  zero vulnerabilities at every npm severity.
+- isolated `pip-audit 2.10.1` against the hash-locked runtime: exit 0; 40
+  dependencies; zero known vulnerabilities. Artifact SHA-256:
   `a1045ef7c35517cb204740674a5c3f0348a4a50720e50ba2b1842b26c0059854`.
-- local-image Docker Scout SBOM: SPDX 2.3, 199 packages, 811255 bytes. Artifact
-  SHA-256:
-  `50e31e8a14255f430c67bc53e8d0f83c96ac22e5aae81c341a457f2d3cb35b9c`.
+- exact-image SPDX 2.3 SBOM: 197 packages, 809,444 bytes, SHA-256
+  `b9a331756841021c68348d0b0a751294c121bd0ddd9f7857c8c1280b87d313e8`.
+- Docker Scout full SARIF: 72 findings in 17 packages: 2 critical, 5 high,
+  14 medium, 40 low and 11 unspecified. All 72 reported `not fixed`; none had a
+  fixed version. SARIF SHA-256:
+  `d8c20d1471ae20f9d5cc8ca00335624c191d93c0855f176d6aab96ad17027ca6`.
+- Docker Scout `--only-fixed --only-severity critical,high`: zero findings.
+  SARIF SHA-256:
+  `cd93fa72c47ff0b04b5150bfb780a66bae711a2cab50112ac167ffd39bdb887d`.
 
-Docker's official data-handling documentation states that local Scout CVE
-analysis transmits package URLs and layer digests to the Scout service. The
-actual CVE image scan is therefore deliberately not run until the owner gives
-explicit consent for that metadata transmission and completes any Docker
-account login the official CLI requests.
+The owner explicitly authorized Docker Scout's PURL/layer-digest transmission.
+The release criterion is no fixable critical/high finding, which passed. The 72
+currently unfixed upstream findings are retained as residual risk, not hidden
+behind a generic “scan passed” statement.
 
-### Privacy incident retained
+## 9. Privacy incident retained
 
-During an earlier browser-driver password-change check, a newly generated
+During an earlier browser-driver password-change diagnostic, a newly generated
 password candidate was accidentally included in an ignored automation snapshot.
-The server rejected that candidate, it was never an active credential, and the
-snapshot was deleted. No accepted password, recovery code, invite, API key or
-session secret entered Git or the final screenshots. This remains recorded as a
-test-driver handling error rather than being silently omitted.
+The server rejected it, it was never an active credential, and the snapshot was
+deleted. No accepted password, recovery code, invite, API key or session secret
+entered Git or final screenshots. This remains recorded as test-driver handling
+error.
 
-## Open release gates
+## 10. Remaining publication procedure and limitations
 
-Day 7 is not complete and must not yet be pushed or tagged:
+At the time this report is committed, no remote claim is made yet. Publication
+requires:
 
-1. the owner must explicitly authorize Docker Scout to transmit PURLs and layer
-   digests, after which a fixable critical/high CVE result blocks release;
-2. Chrome and Edge must each repeat the entire frozen browser checklist on the
-   final SHA, not only the bounded `5d02d30` changed-path checks;
-3. an unused Windows computer or clean Windows VM must clone the exact candidate,
-   build from the documented secret-file flow, register a new account, complete
-   five golden paths, and restore a backup;
-4. after those gates, the frozen eval artifact and report must be finalized,
-   the post-report local gates rerun, and the release image rebuilt with the
-   final annotated-tag revision;
-5. `origin/main` must be fetched and race-checked, then updated only by a normal
-   `git push origin HEAD:main`; annotated `v0.1.0` may be pushed only when its SHA
-   equals the verified remote main.
+1. rerun backend, frontend, contract generation, `git diff --check`, secret and
+   ignored-artifact checks after this report;
+2. rebuild the release image with the final Git revision in its OCI label and
+   recheck health/ready and runtime-only dependencies;
+3. verify GitHub identity with `gh auth status`, `gh api user` and an official
+   remote read, retrying before treating one failed check as logout;
+4. fetch `origin`, reject an unreviewed main race, and use only
+   `git push origin HEAD:main`;
+5. verify remote main, create and normally push annotated `v0.1.0`, then verify
+   the peeled tag and remote main resolve to the same full SHA.
 
-No claim of “Day 7 complete” is valid until these entries are replaced with
-actual evidence and both remote refs are verified.
+No force push, PR, collaborator approval or `integration/day2` promotion is
+part of this release. Real server SSH, DNS, TLS, reverse proxy and production
+data migration remain outside Day 7. The owner has expressly accepted that no
+second-device evidence is required for this release.
