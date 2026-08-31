@@ -1,8 +1,8 @@
 # MemTrace v0.1.1 release fix decision
 
-Status: implementation and targeted local release-gate evidence passed on
-`codex/v0.1.1-release-fix`; remote signing-key registration, final full release
-rerun, main push and signed tag remain pending.
+Status: implementation and final local release-gate evidence passed on
+`codex/v0.1.1-release-fix`; the owner signing key is registered and verified.
+The ordinary main push and signed `v0.1.1` tag remain pending.
 
 ## Why v0.1.1 is required
 
@@ -66,13 +66,19 @@ pass and its signature is independently verifiable.
   `63B4CB3BC8CB181B8498521A30729ED1C1B318F4CEB77C6492EA26EC9A771797`;
   the unique head is `007_day7_public_release`, and fresh
   `006 -> 007 -> 006 -> 007` passed.
+- Release signing: GitHub signing-key ID `1145825` is registered to
+  `W-JOSLIN-X`; the uploaded ED25519 public-key fingerprint is
+  `SHA256:7FT18rpSw1149vdlv5KHU0SNd3mDZldp0Fk2te7LInE`, exactly matching the
+  repository allowlist and the locally verified signing key. No private-key
+  material was read, printed or uploaded.
 - Real Provider preflight: 6/6 passed with `provider_mode=real`, model
   `deepseek-v4-flash`, strict Schema, streaming, function calling and actual
   non-fabricated usage.
-- Docker image `memtrace:0.1.1` was built from implementation commit
-  `ef2b6a0a6ea90279c72e2de312916049c8de9c64`; cold start, restart and down/up
-  with retained volumes passed. A real post-restart turn reported actual chat
-  usage and did not fall back to Mock.
+- Docker image `memtrace:0.1.1` passed cold start, restart and down/up with
+  retained volumes. A real post-restart turn reported actual chat usage and
+  did not fall back to Mock. Immediately before publication the image is
+  rebuilt from the final candidate and its OCI revision must equal that exact
+  candidate HEAD.
 - The live release network was `172.31.247.0/28` with gateway
   `172.31.247.1`. Host-originated forwarded clients kept independent rate-limit
   buckets; a same-network untrusted peer changing its forwarded header received
