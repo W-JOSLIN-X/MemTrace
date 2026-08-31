@@ -201,7 +201,7 @@ function system() {
   return {
     schema_version: '2.1.0',
     request_id: 'req-system',
-    version: '0.1.0',
+    version: '0.1.1',
     revision: 'a'.repeat(40),
     migration: '007_day7_public_release',
     provider_mode: 'real',

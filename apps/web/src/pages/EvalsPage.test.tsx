@@ -11,7 +11,7 @@ describe('read-only release evidence page', () => {
     vi.spyOn(publicApi, 'system').mockResolvedValue({
       schema_version: '2.1.0',
       request_id: 'req-eval-system',
-      version: '0.1.0',
+      version: '0.1.1',
       revision: 'aeddcecf55bcd4b4df16f3a773cbfa293d99727e',
       migration: '007_day7_public_release',
       provider_mode: 'real',

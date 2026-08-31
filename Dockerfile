@@ -21,7 +21,7 @@ ARG VCS_REF=unknown
 ARG IMAGE_SOURCE=https://github.com/W-JOSLIN-X/MemTrace
 
 LABEL org.opencontainers.image.title="MemTrace" \
-    org.opencontainers.image.version="0.1.0" \
+    org.opencontainers.image.version="0.1.1" \
     org.opencontainers.image.revision="${VCS_REF}" \
     org.opencontainers.image.source="${IMAGE_SOURCE}"
 

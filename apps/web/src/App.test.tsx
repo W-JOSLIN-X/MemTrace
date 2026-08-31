@@ -39,7 +39,7 @@ beforeEach(() => {
         return json({
           schema_version: '2.1.0',
           request_id: 'req-system',
-          version: '0.1.0',
+          version: '0.1.1',
           revision: 'abc123',
           migration: '007_day7_public_release',
           provider_mode: 'real',
@@ -101,7 +101,7 @@ describe('MemTrace public release shell', () => {
     expect(screen.getByLabelText('对话内容')).toBeEnabled()
     expect(screen.queryByText('任务类型')).not.toBeInTheDocument()
     expect(screen.getByText('今日剩余 48 轮')).toBeInTheDocument()
-    expect(await screen.findByText('0.1.0 · 真实模型')).toBeInTheDocument()
+    expect(await screen.findByText('0.1.1 · 真实模型')).toBeInTheDocument()
   })
 
   it('opens the unified Memory Center from authenticated navigation', async () => {

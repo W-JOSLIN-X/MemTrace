@@ -12,7 +12,7 @@ services:
     environment:
       APP_NAME: "${APP_NAME:-MemTrace API}"
       APP_ENV: production
-      APP_VERSION: "${APP_VERSION:-0.1.0}"
+      APP_VERSION: "${APP_VERSION:-0.1.1}"
       APP_REVISION: "${APP_REVISION:-development}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
       MOCK_MODE: "${MOCK_MODE:-true}"

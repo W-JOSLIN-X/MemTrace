@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 from datetime import timedelta
 
+from fastapi.testclient import TestClient
 from sqlalchemy import func, select
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from memtrace_api.database import session_scope
 from memtrace_api.db_models import (
@@ -187,6 +189,61 @@ def test_login_is_uniform_and_rate_limited_by_username_and_ip(client_factory) ->
     assert blocked.status_code == 429
     assert blocked.json()["error"]["code"] == "RATE_LIMITED"
     assert blocked.json()["error"]["details"]["retry_after_seconds"] > 0
+
+
+def test_login_rate_limit_uses_forwarded_ip_only_from_exact_trusted_proxy(
+    client_factory,
+) -> None:
+    inner = client_factory(
+        allow_demo_sessions=False,
+        public_origin="http://testserver",
+        trusted_proxy_ips="172.31.247.1",
+    ).app
+    proxied = ProxyHeadersMiddleware(inner, trusted_hosts=["172.31.247.1"])
+
+    first_user = TestClient(
+        proxied,
+        client=("172.31.247.1", 50000),
+        headers={"X-Forwarded-For": "203.0.113.10"},
+    )
+    second_user = TestClient(
+        proxied,
+        client=("172.31.247.1", 50001),
+        headers={"X-Forwarded-For": "203.0.113.11"},
+    )
+    for index in range(5):
+        response = first_user.post(
+            "/api/v2/auth/login",
+            json={"username": f"proxy_missing_{index}", "password": "wrong password value"},
+        )
+        assert response.status_code == 401
+
+    independent = second_user.post(
+        "/api/v2/auth/login",
+        json={"username": "proxy_other_user", "password": "wrong password value"},
+    )
+    assert independent.status_code == 401
+
+    untrusted = ProxyHeadersMiddleware(inner, trusted_hosts=["172.31.247.1"])
+    untrusted_client = TestClient(
+        untrusted,
+        client=("198.51.100.20", 51000),
+    )
+    for index in range(5):
+        response = untrusted_client.post(
+            "/api/v2/auth/login",
+            headers={"X-Forwarded-For": f"192.0.2.{index + 1}"},
+            json={"username": f"spoof_missing_{index}", "password": "wrong password value"},
+        )
+        assert response.status_code == 401
+
+    spoof_blocked = untrusted_client.post(
+        "/api/v2/auth/login",
+        headers={"X-Forwarded-For": "192.0.2.200"},
+        json={"username": "spoof_other_user", "password": "wrong password value"},
+    )
+    assert spoof_blocked.status_code == 429
+    assert spoof_blocked.json()["error"]["code"] == "RATE_LIMITED"
 
 
 def test_recovery_rotates_code_and_revokes_old_session(client_factory) -> None:

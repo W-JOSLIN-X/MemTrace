@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from memtrace_api.compiler import StructuredProvider as LegacyStructuredProvider
-from memtrace_api.config import Settings, get_settings
+from memtrace_api.config import APP_VERSION, Settings, get_settings
 from memtrace_api.conversation import ConversationBusyError, ConversationService
 from memtrace_api.conversation_stream import ConversationStreamHub
 from memtrace_api.database import create_db_engine, create_session_factory, session_scope
@@ -4974,7 +4974,7 @@ def create_app(
                 "name": body.name,
                 "description": body.description,
                 "created_at": PackRepository._rfc3339(utc_now()),
-                "producer": {"name": "MemTrace", "version": "0.1.0"},
+                "producer": {"name": "MemTrace", "version": APP_VERSION},
                 "source": {"kind": "user_export", "trust": "self_asserted"},
                 "privacy": {"contains_raw_evidence": False, "anonymized": True},
                 "cards": exported_cards,

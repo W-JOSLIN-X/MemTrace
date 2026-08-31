@@ -2,7 +2,7 @@
 
 MemTrace 是一个普通多轮对话 Agent，同时在后台提取、审阅和复用用户的偏好、规则与经验。用户不选择 `scenario` 或任务类别；真实模型负责 G5 的提取、分类、适用性、冲突/合并和效果判断，确定性代码只负责鉴权、隔离、Schema、事务、幂等、预算、状态机和安全工具边界。
 
-当前 release 版本为 `0.1.0`，公开 wire contract 为 `2.1.0`，数据库 head 为 `007_day7_public_release`。Day 7 按所有者 2026-08-31 的明确决定采用本机发布门禁：真实 DeepSeek、Docker、Chrome 与 Edge 必须全部通过，不再要求第二台设备或干净 VM；服务器上线仍是 Day 7 之后的独立阶段。权威证据见 `docs/day7/OWNER_RELEASE_REPORT.md`。
+当前修复 release 版本为 `0.1.1`，公开 wire contract 仍为 `2.1.0`，数据库 head 仍为 `007_day7_public_release`。`0.1.1` 修复生产可信代理边界并要求可验证的签名 tag；历史 `v0.1.0` 不移动、不改写，也不得作为服务器首次部署版本。Day 7 按所有者 2026-08-31 的明确决定采用本机发布门禁：真实 DeepSeek、Docker、Chrome 与 Edge 必须全部通过，不再要求第二台设备或干净 VM；服务器上线仍是 Day 7 之后的独立阶段。历史证据见 `docs/day7/OWNER_RELEASE_REPORT.md`，修复说明见 `docs/day7/V0_1_1_RELEASE_FIX.md`。
 
 ## 产品页面
 
@@ -237,6 +237,6 @@ apps\api\.venv\Scripts\python.exe scripts/day7/restore_sqlite.py --backup output
 
 ## 发布边界
 
-Day 7 只冻结本地产品和可部署制品，不执行 SSH、DNS、证书、防火墙或服务器数据迁移。只有本地工程、真实 DeepSeek、Docker、Chrome、Edge、第二干净设备、备份恢复、隐私扫描全部有实际证据后，所有者才能普通 push `main` 并创建指向同一 commit 的 annotated `v0.1.0`。不得 force push 或移动已发布 tag。
+Day 7 只冻结本地产品和可部署制品，不执行 SSH、DNS、证书、防火墙或服务器数据迁移。按所有者后续明确决定，本轮只要求在当前开发电脑完成本地工程、真实 DeepSeek、Docker、Chrome、Edge、备份恢复和隐私扫描；第二设备不是本轮门禁。所有者只能普通 push `main`，不得 force push 或移动已发布 tag。
 
-服务器阶段只能部署精确 `v0.1.0`；若发现缺陷，发布 `v0.1.1`，不能改写旧 tag。服务器参数和逐步操作见 `docs/day7/SERVER_DEPLOYMENT_RUNBOOK.md`。
+服务器阶段只能部署通过全部门禁、签名可验证的精确 `v0.1.1`。已有 `v0.1.0` 保留为历史 tag，但因缺少可验证签名和可信代理修复而阻断首次生产部署。服务器参数和逐步操作见 `docs/day7/SERVER_DEPLOYMENT_RUNBOOK.md`。

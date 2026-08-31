@@ -76,5 +76,5 @@ def test_openapi_generation_ignores_environment_overrides(
     assert first == baseline
     assert build_document()["info"] == {
         "title": "MemTrace API",
-        "version": "0.1.0",
+        "version": "0.1.1",
     }

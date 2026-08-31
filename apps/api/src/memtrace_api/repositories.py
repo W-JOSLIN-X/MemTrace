@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
+from memtrace_api.config import APP_VERSION
 from memtrace_api.db_models import (
     AgentRunModel,
     DemoSessionModel,
@@ -2251,7 +2252,7 @@ class PackRepository:
             "name": name,
             "description": description,
             "created_at": self._rfc3339(utc_now()),
-            "producer": {"name": "MemTrace", "version": "0.1.0"},
+            "producer": {"name": "MemTrace", "version": APP_VERSION},
             "source": {"kind": "user_export", "trust": "self_asserted"},
             "privacy": {"contains_raw_evidence": False, "anonymized": True},
             "cards": export_cards,

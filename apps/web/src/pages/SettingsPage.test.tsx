@@ -41,7 +41,7 @@ describe('release settings page', () => {
     )
 
     expect(await screen.findByRole('heading', { name: '系统设置' })).toBeInTheDocument()
-    expect(await screen.findByText('0.1.0 / abcdef123456')).toBeInTheDocument()
+    expect(await screen.findByText('0.1.1 / abcdef123456')).toBeInTheDocument()
     expect(screen.getByText('是（仅布尔值）')).toBeInTheDocument()
     await user.selectOptions(screen.getByLabelText('新对话默认记忆模式'), 'off')
     expect(await screen.findByText('新对话默认记忆模式已更新。')).toBeInTheDocument()
@@ -89,7 +89,7 @@ function system() {
   return {
     schema_version: '2.1.0',
     request_id: 'req-system',
-    version: '0.1.0',
+    version: '0.1.1',
     revision: 'abcdef123456',
     migration: '007_day7_public_release',
     provider_mode: 'real',

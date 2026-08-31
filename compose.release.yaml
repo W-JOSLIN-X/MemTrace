@@ -2,7 +2,7 @@ name: memtrace-release
 
 services:
   app:
-    image: memtrace:0.1.0
+    image: memtrace:0.1.1
     build:
       context: .
       dockerfile: Dockerfile
@@ -20,7 +20,7 @@ services:
     environment:
       APP_NAME: MemTrace API
       APP_ENV: production
-      APP_VERSION: 0.1.0
+      APP_VERSION: 0.1.1
       APP_REVISION: "${APP_REVISION}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
       MOCK_MODE: "false"
@@ -30,6 +30,10 @@ services:
       DAILY_REAL_TURN_LIMIT: "50"
       MAX_ACTIVE_TURNS_PER_OWNER: "1"
       MAX_REQUEST_BODY_BYTES: "1048576"
+      # The host Nginx connection reaches the container through this release
+      # network's exact gateway. Uvicorn trusts no forwarded header from any
+      # other peer.
+      TRUSTED_PROXY_IPS: "${TRUSTED_PROXY_IPS:-172.31.247.1}"
       IMPORT_PREVIEW_TTL_SECONDS: "${IMPORT_PREVIEW_TTL_SECONDS:-1800}"
       MEMORY_AUTO_ACTIVATE_CONFIDENCE: "${MEMORY_AUTO_ACTIVATE_CONFIDENCE:-0.85}"
       MEMORY_TOKEN_BUDGET_PER_CARD: "${MEMORY_TOKEN_BUDGET_PER_CARD:-100}"
@@ -74,3 +78,11 @@ secrets:
 volumes:
   memtrace-data:
   memtrace-backups:
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: "${MEMTRACE_PROXY_SUBNET:-172.31.247.0/28}"
+          gateway: "${MEMTRACE_PROXY_GATEWAY:-172.31.247.1}"

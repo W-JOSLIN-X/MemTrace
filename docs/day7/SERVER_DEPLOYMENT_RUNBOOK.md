@@ -1,8 +1,8 @@
-# MemTrace v0.1.0 server deployment runbook
+# MemTrace v0.1.1 server deployment runbook
 
 Status: prepared during Day 7; no server action has been performed.
 
-This runbook applies only to the immutable annotated tag `v0.1.0` after the owner report proves that remote `main` and the tag resolve to the same verified commit. Do not deploy an uncommitted checkout, a moving branch, or a locally rebuilt tree with unknown changes.
+This runbook applies only to the immutable, cryptographically signed annotated tag `v0.1.1` after the release report proves that remote `main` and the tag resolve to the same verified commit. Historical `v0.1.0` is retained but is not a production-deployable tag because its signature is not verifiable and it predates the strict trusted-proxy fix. Do not deploy an uncommitted checkout, a moving branch, or a locally rebuilt tree with unknown changes.
 
 ## 1. Inputs that must be confirmed before deployment
 
@@ -29,9 +29,9 @@ On a trusted workstation:
 ```powershell
 git fetch --prune origin --tags
 $main = git rev-parse origin/main
-$tag = git rev-list -n 1 v0.1.0
-if ($main -ne $tag) { throw 'main and v0.1.0 differ' }
-git verify-tag v0.1.0
+$tag = git rev-list -n 1 v0.1.1
+if ($main -ne $tag) { throw 'main and v0.1.1 differ' }
+git verify-tag v0.1.1
 git status --short
 ```
 
@@ -42,7 +42,7 @@ Record the full SHA. The working tree must be clean. If the tag is missing, unsi
 Use a dedicated unprivileged deployment account and an application directory such as `/opt/memtrace`. Keep these paths outside the source checkout:
 
 ```text
-/opt/memtrace/release/                 exact v0.1.0 checkout or verified bundle
+/opt/memtrace/release/                 exact v0.1.1 checkout or verified bundle
 /opt/memtrace/secrets/llm_api_key      mode 0400
 /opt/memtrace/secrets/session_secret   mode 0400
 /opt/memtrace/backups/                 encrypted/restricted backup target
@@ -58,16 +58,19 @@ The SQLite data and backup paths are named Docker volumes in `compose.release.ya
 Set only metadata and secret-file paths in the deployment process:
 
 ```bash
-export APP_REVISION='<full v0.1.0 commit SHA>'
+export APP_REVISION='<full v0.1.1 commit SHA>'
 export PUBLIC_ORIGIN='https://memtrace.example.com'
 export LLM_MODEL='<Day 7 live-verified model>'
 export LLM_API_KEY_FILE='/opt/memtrace/secrets/llm_api_key'
 export SESSION_SECRET_FILE='/opt/memtrace/secrets/session_secret'
 export COOKIE_SECURE='true'
 export MEMTRACE_PORT='18070'
+export MEMTRACE_PROXY_SUBNET='172.31.247.0/28'
+export MEMTRACE_PROXY_GATEWAY='172.31.247.1'
+export TRUSTED_PROXY_IPS='172.31.247.1'
 ```
 
-Do not set `MOCK_MODE` or `ALLOW_DEMO_SESSIONS`; release Compose fixes both to `false`. Keep the selected memory configuration at `0.85`, `100/300` unless a later version includes a new frozen validation artifact.
+Do not set `MOCK_MODE` or `ALLOW_DEMO_SESSIONS`; release Compose fixes both to `false`. `TRUSTED_PROXY_IPS` must equal the exact Docker bridge gateway used by the host Nginx connection. It must never be `*`, a CIDR, a hostname, an Internet client address or a broad network. If the default subnet conflicts with an existing host/VPC route, choose a free private subnet and change `MEMTRACE_PROXY_SUBNET`, `MEMTRACE_PROXY_GATEWAY` and `TRUSTED_PROXY_IPS` together. Keep the selected memory configuration at `0.85`, `100/300` unless a later version includes a new frozen validation artifact.
 
 Render and inspect the Compose model without printing secret file contents:
 
@@ -77,8 +80,9 @@ docker compose -p memtrace-release -f compose.release.yaml config
 
 Required facts in the rendered model:
 
-- image `memtrace:0.1.0`;
+- image `memtrace:0.1.1`;
 - host bind `127.0.0.1:18070` only;
+- exact release-network gateway equals `TRUSTED_PROXY_IPS`;
 - `provider_mode=real` inputs;
 - demo sessions disabled;
 - both secrets mounted under `/run/secrets`;
@@ -91,10 +95,10 @@ If building on the target server:
 
 ```bash
 docker compose -p memtrace-release -f compose.release.yaml build --pull
-docker image inspect memtrace:0.1.0 --format '{{json .Config.Labels}}'
+docker image inspect memtrace:0.1.1 --format '{{json .Config.Labels}}'
 ```
 
-Confirm OCI version `0.1.0`, revision equals the full tag SHA, and source matches the official repository. Save the image digest, SBOM and vulnerability scan summary in the deployment log. A fixable critical/high finding blocks first deployment.
+Confirm OCI version `0.1.1`, revision equals the full tag SHA, and source matches the official repository. Save the image digest, SBOM and vulnerability scan summary in the deployment log. A fixable critical/high finding blocks first deployment.
 
 If transferring an image archive or using a registry, verify its digest against the Day 7 release evidence before loading or pulling. Registry login is required; do not publish the image to an unintended public namespace.
 
@@ -108,7 +112,7 @@ curl --fail --silent http://127.0.0.1:18070/api/v1/ready
 curl --fail --silent http://127.0.0.1:18070/api/v2/system
 ```
 
-Readiness must report the unique migration `007_day7_public_release`, release `0.1.0`, the frozen model, `provider_mode=real`, configured Key as a boolean only, and the frozen budgets. If migration, Provider, model or Key state differs, keep the proxy closed and stop.
+Readiness must report the unique migration `007_day7_public_release`, release `0.1.1`, the frozen model, `provider_mode=real`, configured Key as a boolean only, and the frozen budgets. If migration, Provider, model or Key state differs, keep the proxy closed and stop.
 
 Create the first one-use invitation only after readiness passes:
 
@@ -124,7 +128,8 @@ Transmit the one-time value through an approved secret channel. The deployment l
 Expose only HTTPS publicly. The proxy must:
 
 - redirect HTTP to HTTPS;
-- preserve `Host` and the verified client/proxy boundary;
+- preserve `Host`, set `X-Forwarded-Proto`, and overwrite both `X-Real-IP` and
+  `X-Forwarded-For` with its own `$remote_addr`;
 - proxy to `127.0.0.1:18070`;
 - disable buffering and caching for `/api/v2/tasks/*/stream`;
 - allow long-lived SSE connections with a timeout longer than the Provider timeout;
@@ -132,7 +137,9 @@ Expose only HTTPS publicly. The proxy must:
 - set HSTS only after HTTPS is verified and rollback risk is understood;
 - never log Cookie, CSRF token, request body, query text, response body or secrets.
 
-Illustrative Nginx location settings (adapt to the actual installed proxy rather than copying blindly):
+Render `deploy/nginx/memtrace.conf.template` by replacing
+`__MEMTRACE_DOMAIN__` and `__LETSENCRYPT_LIVE_DIR__`, then review the rendered
+file before enabling it. The security-critical location is:
 
 ```nginx
 client_max_body_size 1m;
@@ -141,12 +148,25 @@ location / {
     proxy_pass http://127.0.0.1:18070;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
     proxy_buffering off;
 }
 ```
 
-Confirm the application CSP and other security headers survive the proxy. `PUBLIC_ORIGIN` must be the exact public HTTPS origin; do not use a wildcard.
+Never use `$proxy_add_x_forwarded_for` here: it preserves an untrusted client
+header. Confirm the application CSP and other security headers survive the
+proxy. `PUBLIC_ORIGIN` must be the exact public HTTPS origin; do not use a
+wildcard.
+
+Before opening the public security-group rules, verify the live socket peer and
+rate-limit behavior. From inside the application container, the Nginx request
+must arrive from exactly `TRUSTED_PROXY_IPS`. Two requests sent through Nginx
+with two controlled synthetic source addresses must produce distinct client
+identity buckets; a direct untrusted connection carrying a forged
+`X-Forwarded-For` must be ignored. If the observed peer differs, stop and fix
+the network/configuration together rather than adding a wildcard or subnet.
 
 ## 8. Public smoke and isolation
 
@@ -203,7 +223,7 @@ Before any upgrade:
 
 For a code-only failure before irreversible writes, stop the new container and start the previous immutable image against a database version it supports. For a schema/data failure, restore the verified pre-upgrade backup into a new volume; do not casually run Alembic downgrade on live data.
 
-Never move `v0.1.0`. A code fix is `v0.1.1` or later.
+Never move `v0.1.0` or `v0.1.1`. A later code fix is `v0.1.2` or later.
 
 ## 12. Incident checks
 

@@ -15,7 +15,7 @@ OUTPUT_PATH = PROJECT_ROOT / "contracts" / "openapi.json"
 SAFE_IMPORT_ENV = {
     "APP_NAME": "MemTrace API",
     "APP_ENV": "development",
-    "APP_VERSION": "0.1.0",
+    "APP_VERSION": "0.1.1",
     "LOG_LEVEL": "WARNING",
     "MOCK_MODE": "true",
     "LLM_API_KEY": "",

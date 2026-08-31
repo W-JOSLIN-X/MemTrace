@@ -409,14 +409,20 @@ def test_release_compose_and_dockerfile_keep_secrets_and_dev_tools_out() -> None
     compose = (PROJECT_ROOT / "compose.release.yaml").read_text("utf-8")
     dockerfile = (PROJECT_ROOT / "Dockerfile").read_text("utf-8")
     dockerignore = (PROJECT_ROOT / ".dockerignore").read_text("utf-8")
+    nginx = (PROJECT_ROOT / "deploy" / "nginx" / "memtrace.conf.template").read_text("utf-8")
     assert 'MOCK_MODE: "false"' in compose
+    assert "image: memtrace:0.1.1" in compose
+    assert "APP_VERSION: 0.1.1" in compose
     assert 'ALLOW_DEMO_SESSIONS: "false"' in compose
     assert 'COOKIE_SECURE: "${COOKIE_SECURE:-true}"' in compose
     assert 'IMPORT_PREVIEW_TTL_SECONDS: "${IMPORT_PREVIEW_TTL_SECONDS:-1800}"' in compose
     assert "LLM_API_KEY_FILE: /run/secrets/llm_api_key" in compose
     assert "SESSION_SECRET_FILE: /run/secrets/session_secret" in compose
     assert "LLM_API_KEY:" not in compose
+    assert 'TRUSTED_PROXY_IPS: "${TRUSTED_PROXY_IPS:-172.31.247.1}"' in compose
+    assert 'gateway: "${MEMTRACE_PROXY_GATEWAY:-172.31.247.1}"' in compose
     assert "requirements.runtime.lock" in dockerfile
+    assert 'org.opencontainers.image.version="0.1.1"' in dockerfile
     assert "COPY apps/api/requirements.lock" not in dockerfile
     for required_context_path in (
         "!contracts/schemas/memory-pack-v2.schema.json",
@@ -424,6 +430,18 @@ def test_release_compose_and_dockerfile_keep_secrets_and_dev_tools_out() -> None
         "!scripts/day7/restore_sqlite.py",
     ):
         assert required_context_path in dockerignore
+
+    assert "proxy_set_header X-Forwarded-For $remote_addr;" in nginx
+    assert "$proxy_add_x_forwarded_for" not in nginx
+    log_format = " ".join(
+        line.strip()
+        for line in nginx.splitlines()
+        if "log_format memtrace_metadata" in line or line.strip().startswith("'")
+    )
+    assert "$args" not in log_format
+    assert '"request":"$request"' not in log_format
+    assert "proxy_buffering off;" in nginx
+    assert "client_max_body_size 1m;" in nginx
 
 
 def test_production_security_headers_and_request_body_limit(client_factory) -> None:

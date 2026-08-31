@@ -22,7 +22,7 @@ def test_health_is_liveness_only(client_factory: Callable[..., TestClient]) -> N
     assert body["status"] == "ok"
     assert body["request_id"] == response.headers["x-request-id"]
     assert body["service"] == "memtrace-api"
-    assert body["version"] == "0.1.0"
+    assert body["version"] == "0.1.1"
     assert body["environment"] == "test"
     assert body["at"].endswith("Z")
     assert REQUEST_ID_PATTERN.fullmatch(response.headers["x-request-id"])

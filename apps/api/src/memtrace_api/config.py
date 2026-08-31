@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.1.1"
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_DATA_DIR = PROJECT_ROOT / "data"
 
@@ -115,6 +116,7 @@ class Settings(BaseSettings):
         le=16 * 1_048_576,
         validation_alias="MAX_REQUEST_BODY_BYTES",
     )
+    trusted_proxy_ips: str = Field(default="", validation_alias="TRUSTED_PROXY_IPS")
 
     # Day 6 memory settings
     memory_token_budget_per_card: int = Field(
@@ -220,6 +222,11 @@ class Settings(BaseSettings):
             path = PROJECT_ROOT / path
         return path.resolve()
 
+    @field_validator("trusted_proxy_ips", mode="before")
+    @classmethod
+    def validate_trusted_proxy_ips(cls, value: object) -> str:
+        return normalize_trusted_proxy_ips(value)
+
     @model_validator(mode="after")
     def load_file_backed_secrets(self) -> Settings:
         """Load read-only Docker/local secret files without logging values."""
@@ -245,6 +252,43 @@ def get_settings() -> Settings:
     """Build settings once at application construction time."""
 
     return Settings()
+
+
+def normalize_trusted_proxy_ips(value: object) -> str:
+    """Return a canonical allowlist of exact proxy IPs.
+
+    Uvicorn accepts networks and a wildcard for ``forwarded_allow_ips``.  The
+    public release deliberately permits neither: a single-host reverse proxy
+    must name the exact Docker bridge gateway(s) that can overwrite forwarded
+    headers.  This prevents a broad allowlist from turning a client-supplied
+    ``X-Forwarded-For`` value into an authentication rate-limit identity.
+    """
+
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError("TRUSTED_PROXY_IPS must be a comma-separated string")
+    raw = value.strip()
+    if not raw:
+        return ""
+    parts = raw.split(",")
+    if any(not part.strip() for part in parts):
+        raise ValueError("TRUSTED_PROXY_IPS contains an empty entry")
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_part in parts:
+        candidate = raw_part.strip()
+        if any(marker in candidate for marker in ("*", "/", "%")):
+            raise ValueError("TRUSTED_PROXY_IPS accepts exact IP addresses only")
+        try:
+            canonical = ip_address(candidate).compressed
+        except ValueError as exc:
+            raise ValueError("TRUSTED_PROXY_IPS accepts exact IP addresses only") from exc
+        if canonical not in seen:
+            seen.add(canonical)
+            normalized.append(canonical)
+    return ",".join(normalized)
 
 
 def _read_secret_file(path: Path, setting_name: str) -> str:
