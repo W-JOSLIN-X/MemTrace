@@ -4,10 +4,10 @@ import rawArtifact from './day7-eval.json'
 import { parseDay7EvalArtifact } from './evalArtifact'
 
 describe('Day 7 release artifact parser', () => {
-  it('accepts the honest semantic-gate artifact and rejects unknown fields', () => {
-    expect(parseDay7EvalArtifact(structuredClone(rawArtifact)).release_status).toBe(
-      'semantic_gates_passed',
-    )
+  it('accepts the frozen real release artifact and rejects unknown fields', () => {
+    const parsed = parseDay7EvalArtifact(structuredClone(rawArtifact))
+    expect(parsed.release_status).toBe('passed')
+    expect(parsed.candidate_commit).toBe('5d02d3010b4e5560d9de697b471391e6ff742796')
     const unknown = { ...structuredClone(rawArtifact), unexpected: true }
     expect(() => parseDay7EvalArtifact(unknown)).toThrow(/unknown or missing/)
   })

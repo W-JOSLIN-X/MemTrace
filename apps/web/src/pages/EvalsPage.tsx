@@ -43,9 +43,9 @@ export function EvalsPage() {
         <h2 id="eval-release-status">发布状态</h2>
         <p role="status">
           {passed
-            ? `已在 ${artifact.model} 上完成全部真实语义门禁。`
+            ? `已在 ${artifact.model} 上完成全部冻结真实语义门禁；产品发布状态以所有者发布报告为准。`
             : semanticPassed
-              ? `已在 ${artifact.model} 上完成真实语义门禁，仍等待 Docker、双浏览器和第二设备发布门禁。`
+              ? `已在 ${artifact.model} 上完成真实语义门禁；产品发布状态以所有者发布报告中的本机 Docker、双浏览器与安全门禁为准。`
             : artifact.release_status === 'failed'
               ? '真实语义门禁失败，当前构建不可发布。'
               : '真实 DeepSeek 发布门禁尚未执行完，当前构建不可发布。'}
