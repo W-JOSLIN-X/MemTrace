@@ -248,8 +248,9 @@ Screenshots and traces are ignored under:
 - `output/playwright/day7/edge/final-53eebfc`.
 
 They include chat, Memory Center, Evals, Settings, desktop/mobile layouts and
-clean post-recovery traces. No browser profile, raw prompt, screenshot, trace or
-credential is tracked by Git.
+clean post-recovery traces. No Day 7 browser profile, raw prompt, screenshot,
+trace or credential is tracked by Git. Historical Day 1/Day 2 screenshots and
+redacted evidence remain tracked and referenced by their original reports.
 
 ## 8. Dependency, SBOM and CVE evidence
 
