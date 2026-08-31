@@ -31,11 +31,19 @@ git fetch --prune origin --tags
 $main = git rev-parse origin/main
 $tag = git rev-list -n 1 v0.1.1
 if ($main -ne $tag) { throw 'main and v0.1.1 differ' }
+git config --local gpg.format ssh
+git config --local gpg.ssh.allowedSignersFile deploy/git/release_signers.allowed
 git verify-tag v0.1.1
 git status --short
 ```
 
-Record the full SHA. The working tree must be clean. If the tag is missing, unsigned/unverifiable under the project policy, or points elsewhere, stop the deployment.
+The expected signing-key fingerprint is
+`SHA256:7FT18rpSw1149vdlv5KHU0SNd3mDZldp0Fk2te7LInE`. Confirm GitHub lists the
+same public key for `W-JOSLIN-X` as a signing key and shows the tag signature as
+verified; the repository file alone is not the external trust anchor. Record
+the full SHA. The working tree must be clean. If the tag is missing,
+unsigned/unverifiable under the project policy, signed by a different key, or
+points elsewhere, stop the deployment.
 
 ## 3. Server layout and permissions
 

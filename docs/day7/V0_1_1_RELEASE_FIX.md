@@ -1,7 +1,8 @@
 # MemTrace v0.1.1 release fix decision
 
-Status: implementation and release-gate evidence in progress on
-`codex/v0.1.1-release-fix`.
+Status: implementation and targeted local release-gate evidence passed on
+`codex/v0.1.1-release-fix`; remote signing-key registration, final full release
+rerun, main push and signed tag remain pending.
 
 ## Why v0.1.1 is required
 
@@ -55,3 +56,35 @@ pass and its signature is independently verifiable.
 - metadata-only log scan;
 - signed annotated `v0.1.1` verifies with `git verify-tag` and resolves to the
   same fully tested commit as remote `main`.
+
+## Targeted local evidence completed on 2026-08-31
+
+- Backend: `509 passed`; pip check, Ruff check and Ruff format check exited 0.
+- Frontend: 19 test files / 84 tests passed; typecheck, lint and production
+  build exited 0.
+- Contract/migration: OpenAPI exported twice with identical SHA-256
+  `63B4CB3BC8CB181B8498521A30729ED1C1B318F4CEB77C6492EA26EC9A771797`;
+  the unique head is `007_day7_public_release`, and fresh
+  `006 -> 007 -> 006 -> 007` passed.
+- Real Provider preflight: 6/6 passed with `provider_mode=real`, model
+  `deepseek-v4-flash`, strict Schema, streaming, function calling and actual
+  non-fabricated usage.
+- Docker image `memtrace:0.1.1` was built from implementation commit
+  `ef2b6a0a6ea90279c72e2de312916049c8de9c64`; cold start, restart and down/up
+  with retained volumes passed. A real post-restart turn reported actual chat
+  usage and did not fall back to Mock.
+- The live release network was `172.31.247.0/28` with gateway
+  `172.31.247.1`. Host-originated forwarded clients kept independent rate-limit
+  buckets; a same-network untrusted peer changing its forwarded header received
+  `401,401,401,401,401,429`.
+- The supplied template passed `nginx -t` in official Nginx 1.31.4. Container
+  log scans found no Key, session secret, account password, synthetic prompt or
+  Uvicorn request line.
+- Trivy 0.73.0 with its 2026-08-31 database reported zero fixable HIGH/CRITICAL
+  findings. The ignored CycloneDX SBOM SHA-256 is
+  `5333BDCF0D25909A901ABF3BD8EA92ACA4F6347085E65E3E5E98624E92F79122`.
+
+These are new v0.1.1 engineering and targeted real-Provider regression facts.
+They do not relabel the historical Day 7 64-workflow artifact as a new run. A
+final signed release must rerun whatever broader semantic/browser gates the
+owner selects for publication and record that evidence separately.
