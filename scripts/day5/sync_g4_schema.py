@@ -12,13 +12,25 @@ OPENAPI = ROOT / "contracts/openapi.json"
 TARGET = ROOT / "contracts/schemas/g0-api.schema.json"
 
 G4_ROOTS = {
-    "MemoryDeleteRequest", "MemoryDeleteResponse", "TaskDeleteRequest",
-    "TaskDeleteResponse", "MemoryRelationListResponse", "MemoryVersionDiffResponse",
-    "MemoryConflictDetailResponse", "MemoryConflictDetectRequest",
-    "MemoryConflictDetectResponse", "MemoryConflictResolveRequest",
-    "MemoryConflictResolveResponse", "MemoryMergeRequest", "MemoryMergeResponse",
-    "PackExportRequest", "MemoryPackDocument", "PackPreviewResponse",
-    "ImportCommitRequest", "ImportCommitResponse", "ImportBatchResponse",
+    "MemoryDeleteRequest",
+    "MemoryDeleteResponse",
+    "TaskDeleteRequest",
+    "TaskDeleteResponse",
+    "MemoryRelationListResponse",
+    "MemoryVersionDiffResponse",
+    "MemoryConflictDetailResponse",
+    "MemoryConflictDetectRequest",
+    "MemoryConflictDetectResponse",
+    "MemoryConflictResolveRequest",
+    "MemoryConflictResolveResponse",
+    "MemoryMergeRequest",
+    "MemoryMergeResponse",
+    "PackExportRequest",
+    "MemoryPackDocument",
+    "PackPreviewResponse",
+    "ImportCommitRequest",
+    "ImportCommitResponse",
+    "ImportBatchResponse",
 }
 
 
@@ -60,7 +72,9 @@ def main() -> None:
         if ref not in existing:
             target["oneOf"].append({"$ref": ref})
     target["description"] = "Normative MemTrace G1-G4 REST request and response bodies."
-    TARGET.write_text(json.dumps(target, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    TARGET.write_text(
+        json.dumps(target, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 if __name__ == "__main__":
