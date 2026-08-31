@@ -418,6 +418,7 @@ export function MemoriesPage() {
   }
 
   const memory = detail?.memory ?? null
+  const memoryCanCreateVersion = memory?.review_status !== 'superseded'
   const draftChanged = Boolean(
     memory &&
       (draftKind !== memory.kind ||
@@ -458,11 +459,12 @@ export function MemoriesPage() {
             <h2>{kindLabel(memory.kind)}</h2>
             <p>{statusLabel(memory.review_status)} · v{memory.version} · {sourceLabel(memory.source_type)}</p>
             <p>置信度 {memory.confidence.toFixed(2)} · 召回 {memory.retrieved_count} · 注入 {memory.injected_count} · 已遵守 {memory.verified_applied_count}</p>
-            <label htmlFor="memory-kind">类型</label><select id="memory-kind" value={draftKind} onChange={(event) => setDraftKind(event.target.value as MemoryKind)}><option value="preference">偏好</option><option value="rule">规则</option><option value="experience">经验</option></select>
-            <label htmlFor="memory-content">内容</label><textarea id="memory-content" value={draftContent} onChange={(event) => setDraftContent(event.target.value)} />
-            <label htmlFor="memory-scope">适用条件</label><textarea id="memory-scope" value={draftAppliesWhen} onChange={(event) => setDraftAppliesWhen(event.target.value)} />
+            {memoryCanCreateVersion ? null : <p role="note">已取代记忆为只读；可以查看历史或永久删除，但不能再创建新版本。</p>}
+            <label htmlFor="memory-kind">类型</label><select id="memory-kind" disabled={!memoryCanCreateVersion} value={draftKind} onChange={(event) => setDraftKind(event.target.value as MemoryKind)}><option value="preference">偏好</option><option value="rule">规则</option><option value="experience">经验</option></select>
+            <label htmlFor="memory-content">内容</label><textarea id="memory-content" disabled={!memoryCanCreateVersion} value={draftContent} onChange={(event) => setDraftContent(event.target.value)} />
+            <label htmlFor="memory-scope">适用条件</label><textarea id="memory-scope" disabled={!memoryCanCreateVersion} value={draftAppliesWhen} onChange={(event) => setDraftAppliesWhen(event.target.value)} />
             <div className="memory-actions">
-              <button disabled={busy || !draftChanged || draftContent.trim().length < 4 || draftAppliesWhen.trim().length < 4} onClick={() => void saveMemory()}>保存新版本</button>
+              <button disabled={busy || !memoryCanCreateVersion || !draftChanged || draftContent.trim().length < 4 || draftAppliesWhen.trim().length < 4} onClick={() => void saveMemory()}>保存新版本</button>
               {memory.review_status === 'pending' ? <button disabled={busy} onClick={() => void changeLifecycle('confirm')}>确认记忆</button> : null}
               {memory.review_status === 'pending' ? <button disabled={busy} onClick={() => void changeLifecycle('dismiss')}>忽略</button> : null}
               {memory.review_status === 'active' ? <button disabled={busy} onClick={() => void changeLifecycle('pause')}>暂停</button> : null}
@@ -473,7 +475,7 @@ export function MemoriesPage() {
               {detail.evidence.length ? <button disabled={busy} onClick={() => void deleteSourceTask()}>删除来源会话</button> : null}
             </div>
             <h3>版本时间线</h3>
-            <ol>{detail.versions.map((version, index) => <li key={version.version_id}>v{version.version} · {version.created_by_action} · {version.created_at}{index > 0 ? <button type="button" onClick={() => void compareVersions(detail.versions[index - 1].version_id, version.version_id)}>与前版比较</button> : null}{version.version_id !== memory.current_version_id ? <button type="button" disabled={busy} onClick={() => void restoreVersion(version.version_id)}>作为新版本恢复</button> : null}</li>)}</ol>
+            <ol>{detail.versions.map((version, index) => <li key={version.version_id}>v{version.version} · {version.created_by_action} · {version.created_at}{index > 0 ? <button type="button" onClick={() => void compareVersions(detail.versions[index - 1].version_id, version.version_id)}>与前版比较</button> : null}{version.version_id !== memory.current_version_id ? <button type="button" disabled={busy || !memoryCanCreateVersion} onClick={() => void restoreVersion(version.version_id)}>作为新版本恢复</button> : null}</li>)}</ol>
             {diff ? <div aria-label="版本 Diff"><p>变更字段：{diff.changed_fields.map(memoryFieldLabel).join('、') || '无'}</p><p>旧：{diff.from_version.content}</p><p>新：{diff.to_version.content}</p></div> : null}
             <h3>使用与效果</h3>{usages.length ? <ol>{usages.map((usage) => <li key={usage.usage_id}>{usage.verification_status} · {usage.user_effect ?? '未反馈'} · {usage.estimated_tokens} token</li>)}</ol> : <p>暂无使用记录。</p>}
             <h3>关系</h3>{relations.length ? <ol>{relations.map((relation) => <li key={relation.relation_id}>{relation.relation_type} · {relation.status}</li>)}</ol> : <p>暂无关系。</p>}

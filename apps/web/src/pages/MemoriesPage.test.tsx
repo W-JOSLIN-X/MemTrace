@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -183,6 +183,22 @@ describe('unified G5 Memory Center', () => {
     await user.click(screen.getByRole('button', { name: '全部以 paused 导入' }))
     await waitFor(() => expect(commit).toHaveBeenCalledTimes(1))
     expect(await screen.findByText(/已导入 1，跳过 0，警告 0/)).toBeInTheDocument()
+  })
+
+  it('keeps superseded memories read-only instead of exposing a failing edit action', async () => {
+    const memory = { ...makeMemory('已被更新版本取代的记忆'), review_status: 'superseded' as const }
+    mockReads(memory, makeDetail(memory))
+    render(<MemoriesPage />)
+
+    await userEvent.setup().click(await screen.findByRole('button', { name: /已被更新版本取代/ }))
+    const detail = within(await screen.findByRole('region', { name: '记忆详情' }))
+    expect(detail.getByRole('note')).toHaveTextContent('已取代记忆为只读')
+    expect(detail.getByLabelText('类型')).toBeDisabled()
+    expect(detail.getByLabelText('内容')).toBeDisabled()
+    expect(detail.getByLabelText('适用条件')).toBeDisabled()
+    expect(detail.getByRole('button', { name: '保存新版本' })).toBeDisabled()
+    expect(detail.getByRole('button', { name: '作为新版本恢复' })).toBeDisabled()
+    expect(detail.getByRole('button', { name: '永久删除' })).toBeEnabled()
   })
 })
 
