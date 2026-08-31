@@ -267,6 +267,7 @@ def test_release_runtime_lock_contains_production_imports_but_excludes_dev_tools
     dockerfile = (PROJECT_ROOT / "Dockerfile").read_text("utf-8")
     assert "--require-hashes --no-deps" in dockerfile
     assert "requirements.runtime.lock" in dockerfile
+    assert "pip uninstall --yes pip" in dockerfile
 
 
 def test_day7_external_runners_do_not_import_backend_modules() -> None:

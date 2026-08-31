@@ -45,6 +45,7 @@ COPY apps/api/requirements.runtime.lock /tmp/requirements.lock
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install --require-hashes --no-deps -r /tmp/requirements.lock \
     && python -m pip uninstall --yes setuptools \
+    && python -m pip uninstall --yes pip \
     && rm -f /tmp/requirements.lock
 
 COPY --chown=memtrace:memtrace apps/api/src/ /app/apps/api/src/
